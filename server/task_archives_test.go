@@ -59,11 +59,7 @@ func TestTaskArchiveAPIQueueListAndLimits(t *testing.T) {
 	// 本用例只关心「未暂停 → 拒归档」，所以先关掉并发上限并清掉排队态。
 	// 并发上限是全局设置：本用例临时关掉它。本文件的 defer m.Close() 先于
 	// t.Cleanup 执行，所以恢复必须在 defer 链里做（DB 还活着的时候）。
-	restoreConcurrency := restoreConcurrencySetting(t, m)
-	if err := m.SetConcurrency(false, 1); err != nil {
-		t.Fatal(err)
-	}
-	defer restoreConcurrency()
+	defer disableConcurrencyForTest(t, m)()
 	if err := m.pg.SetQueued(taskID, false); err != nil {
 		t.Fatal(err)
 	}

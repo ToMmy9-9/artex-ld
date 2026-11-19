@@ -39,6 +39,11 @@ func TestRemarksRoundTripPreservesExecutionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 并发上限是全局设置：开启且 LLM 不可用时 reconcileConcurrency 会把任务
+	// 持久化入队，导致「备注没改但 Queued 变了」的假失败。本用例与并发无关，
+	// 临时关掉它（并在 defer 里恢复，DB 关闭之前）。
+	defer disableConcurrencyForTest(t, m)()
+
 	originalLifecycle := task.lifecycleSnapshot()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,33 @@ func newAdmissionTestServer(m *Manager, available func(*Task) bool) *Server {
 		return nil, nil
 	})
 	return &Server{m: m, engine: e, ctx: ctx, chatBusy: map[string]bool{}, chatCancel: map[string]context.CancelCauseFunc{}}
+}
+
+// concurrencySettingMu 串行化「会改全局并发上限」的用例：并发上限是 settings 表里的
+// 一行全局值，多个用例并行改它会互相踩（一个用例把上限关掉，另一个用例的断言
+// 立刻失效）。需要改这个设置的用例都先 Lock 它再改。
+var concurrencySettingMu sync.Mutex
+
+// disableConcurrencyForTest 临时关掉全局并发上限，并返回恢复函数。
+// 调用方必须在 defer 里调用恢复函数（DB 关闭之前），且整个过程持有
+// concurrencySettingMu，避免与其它改同一设置的用例并行。
+func disableConcurrencyForTest(t *testing.T, m *Manager) func() {
+	t.Helper()
+	concurrencySettingMu.Lock()
+	enabled, limit := m.ConcurrencyLimit()
+	if limit < 1 {
+		limit = defaultConcurrencyLimit
+	}
+	if err := m.SetConcurrency(false, limit); err != nil {
+		concurrencySettingMu.Unlock()
+		t.Fatalf("disable concurrency: %v", err)
+	}
+	return func() {
+		if err := m.SetConcurrency(enabled, limit); err != nil {
+			t.Errorf("restore concurrency setting: %v", err)
+		}
+		concurrencySettingMu.Unlock()
+	}
 }
 
 func restoreConcurrencySetting(t *testing.T, m *Manager) func() {
