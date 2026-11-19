@@ -7,6 +7,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 
 	"artex/db"
 )
@@ -25,3 +26,23 @@ func (t *ToolSet) SetFindingRecorder(r FindingRecorder)   { t.findingRecorder = 
 func (w *Worker) SetFindingRecorder(r FindingRecorder)    { w.findingRecorder = r }
 func (p *Planner) SetFindingRecorder(r FindingRecorder)   { p.findingRecorder = r }
 func (m *MainAgent) SetFindingRecorder(r FindingRecorder) { m.findingRecorder = r }
+
+// ── 【AntiFox 证据驱动交付】复现步骤 → 真实流量包 解析回调 ──
+//
+// resolveTraffic 把 report_finding 传入的结构化复现步骤映射到「当时真实录制的
+// MITM 报文」，让每一步一开始就带上可跳转的真实流量链接（而不是事后由 AI 复述）。
+
+// SetTrafficResolver wires the reproduction→traffic resolver on a Worker.
+func (w *Worker) SetTrafficResolver(fn func(taskID int64, repro json.RawMessage) json.RawMessage) {
+	w.resolveTraffic = fn
+}
+
+// SetTrafficResolver wires the reproduction→traffic resolver on a Planner.
+func (p *Planner) SetTrafficResolver(fn func(taskID int64, repro json.RawMessage) json.RawMessage) {
+	p.resolveTraffic = fn
+}
+
+// SetTrafficResolver wires the reproduction→traffic resolver on a MainAgent.
+func (m *MainAgent) SetTrafficResolver(fn func(taskID int64, repro json.RawMessage) json.RawMessage) {
+	m.resolveTraffic = fn
+}

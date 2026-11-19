@@ -594,6 +594,8 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	window := workerRuntime.CompactionWindow()
 	wk := agent.NewWorker(workerRuntime, "task-router", s.m.dir, tx, window, s.agentMaxTurns("worker"))
 	wk.SetFindingRecorder(s.evidenceStore())
+	// 【AntiFox 证据驱动交付】复现步骤 → 真实流量包 解析回调。
+	wk.SetTrafficResolver(s.resolveFindingTraffic)
 	wk.SetCompactionWindowResolver(workerRuntime.CompactionWindow)
 	wk.SetNonStreaming(workerRuntime.nonStreaming) // 按任务当前激活 profile 的流式开关(每轮读)
 	wk.SetMaxTokens(workerRuntime.maxTokens)       // 同上,输出上限也跟随当前激活 profile
@@ -606,6 +608,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	wk.SetTaskPromptOverride(func() string { return t.WorkerPromptOverride })
 	pl := agent.NewPlanner(plannerRuntime, "task-router", s.m.dir, tx, plannerRuntime.CompactionWindow(), s.agentMaxTurns("planner"))
 	pl.SetFindingRecorder(s.evidenceStore())
+	pl.SetTrafficResolver(s.resolveFindingTraffic)
 	pl.SetCompactionWindowResolver(plannerRuntime.CompactionWindow)
 	pl.SetNonStreaming(plannerRuntime.nonStreaming)
 	pl.SetMaxTokens(plannerRuntime.maxTokens)
@@ -627,6 +630,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	pl.SetCompactor(agent.NewCompactor(plannerRuntime, "task-router"))
 	main := agent.NewMainAgent(mainRuntime, "task-router", s.m.dir, tx, mainRuntime.CompactionWindow(), s.agentMaxTurns("mainagent"))
 	main.SetFindingRecorder(s.evidenceStore())
+	main.SetTrafficResolver(s.resolveFindingTraffic)
 	main.SetCompactionWindowResolver(mainRuntime.CompactionWindow)
 	main.SetNonStreaming(mainRuntime.nonStreaming)
 	main.SetMaxTokens(mainRuntime.maxTokens)
@@ -673,6 +677,7 @@ func (s *Server) workerForTaskSlot(t *Task, slot WorkerSlot) (*agent.Worker, err
 	tx := transcript.NewStore(filepath.Join(s.m.dir, "transcripts"))
 	worker := agent.NewWorker(runtime, cfg.Model, s.m.dir, tx, runtime.CompactionWindow(), s.agentMaxTurns("worker"))
 	worker.SetFindingRecorder(s.evidenceStore())
+	worker.SetTrafficResolver(s.resolveFindingTraffic)
 	worker.SetCompactionWindowResolver(runtime.CompactionWindow)
 	worker.SetNonStreaming(runtime.nonStreaming)
 	worker.SetMaxTokens(runtime.maxTokens)

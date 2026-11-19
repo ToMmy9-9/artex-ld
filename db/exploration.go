@@ -2149,6 +2149,13 @@ func (s *ExplorationStore) AddStandaloneFinding(taskID, nodeID int64, vulnclass,
 	return s.db.AddFinding(taskID, nodeID, vulnclass, name, severity, summary, evidence, worker, assetIDs)
 }
 
+// SetFindingReproduction stores the agent-captured structured reproduction recipe onto
+// the standalone finding row (by node id). Written inline by report_finding.
+// 【AntiFox 证据驱动交付】复现过程就地落库，不再事后靠报告文字反推。
+func (s *ExplorationStore) SetFindingReproduction(nodeID int64, repro json.RawMessage) error {
+	return s.db.SetFindingReproduction(nodeID, repro)
+}
+
 // ═══ ARTEX 二开 · [P-INTENT·D3 proposed 查询/写入方法] ═══
 // 功能介绍：意图人工审核闸门的 db 层数据口（01 册 D3）。审核模式双条件（m00960/m00973 拍板）：
 //           state='proposed' 且 payload->>'executor'='review'——executor≠'review' 的 proposed

@@ -9,23 +9,6 @@
 package server
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"log"
-	"net"
-	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
 	"artex/agent"
 	"artex/db"
 	"artex/intercept"
@@ -35,9 +18,26 @@ import (
 	"artex/report"
 	"artex/traffic"
 	"artex/xlog" // 【二开·P-LOG】DEBUG 开关（04 册 H1）
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"net/url"
 	"norma/llm"
 	actool "norma/tool"
 	"norma/transcript"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 // BuildVersion is the backend application version, injected from cmd/artex at
@@ -65,6 +65,14 @@ type Server struct {
 	// scheduler tick and an HTTP settings change / task creation can't both count
 	// free slots off the same snapshot and over-promote past the limit.
 	concMu sync.Mutex
+
+	// 【AntiFox 证据驱动交付】enrichMu/enrichJobs 跟踪「AI 漏洞分析」异步任务：
+	// 一个 finding 节点同时只跑一次生成，前端轮询 enrich/status 取结果。
+	enrichMu   sync.Mutex
+	enrichJobs map[int64]*enrichJob
+	// reportMu/reportJobs 跟踪「生成交付报告」异步任务（docx/markdown）。
+	reportMu   sync.Mutex
+	reportJobs map[string]*reportJob
 
 	cfgMu     sync.Mutex
 	chatAgent *agent.ChatAgent // conversational runner for the chat page; nil w/o LLM
@@ -173,11 +181,11 @@ type triggeredRun struct {
 
 	agentKey    string
 	title       string
-	message     string // 事件正文(触发语 + 工具/入参/返回等);不含任务描述/目标头
-	taskID      int64  // source task for finding/goal triggers; 0 for interval/none
-	taskDesc    string // 任务描述(任务级,同任务相同);合并时只渲染一次
-	taskGoal    string // 任务目标(任务级,同任务相同);合并时只渲染一次
-	mergeable   bool   // true for finding/goal event triggers (merge by taskID)
+	message     string                 // 事件正文(触发语 + 工具/入参/返回等);不含任务描述/目标头
+	taskID      int64                  // source task for finding/goal triggers; 0 for interval/none
+	taskDesc    string                 // 任务描述(任务级,同任务相同);合并时只渲染一次
+	taskGoal    string                 // 任务目标(任务级,同任务相同);合并时只渲染一次
+	mergeable   bool                   // true for finding/goal event triggers (merge by taskID)
 	invocations []findingInvocationRef // 【二开·P-FINDING·触发器】finding 触发血缘
 }
 
@@ -186,7 +194,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	if err != nil {
 		log.Fatalf("[auth] JWT key: %v", err)
 	}
-	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, dataDir: dataDir, jwtKey: key, chatBusy: map[string]bool{},
+	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, dataDir: dataDir, jwtKey: key, chatBusy: map[string]bool{}, enrichJobs: map[int64]*enrichJob{}, reportJobs: map[string]*reportJob{},
 		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{}, proxyPoolWake: make(chan struct{}, 1), proxyPoolProbeSem: make(chan struct{}, proxyPoolMaxProbeConcurrency),
 		profChatAgents: map[int64]*agent.ChatAgent{},
@@ -1039,6 +1047,17 @@ func (s *Server) Handler() http.Handler {
 	s.registerFindingTraffic(mux)
 	s.registerRepeater(mux)
 	mux.HandleFunc("GET /api/exploration/findings/{id}", s.getFinding)
+	// ── AntiFox 证据驱动交付：漏洞富化 / 证据截图 / 流量包关联 ──
+	mux.HandleFunc("GET /api/exploration/findings/{id}/detail", s.findingDetail)
+	mux.HandleFunc("PUT /api/exploration/findings/{id}", s.findingUpdate)
+	mux.HandleFunc("POST /api/exploration/findings/{id}/enrich", s.findingEnrich)
+	mux.HandleFunc("GET /api/exploration/findings/{id}/enrich/status", s.findingEnrichStatus)
+	mux.HandleFunc("POST /api/exploration/findings/{id}/evidence", s.uploadFindingEvidence)
+	mux.HandleFunc("GET /api/exploration/findings/{id}/evidence", s.listFindingEvidence)
+	mux.HandleFunc("GET /api/exploration/findings/{id}/evidence/{file}", s.serveFindingEvidence)
+	mux.HandleFunc("PUT /api/exploration/findings/{id}/evidence/{eid}", s.updateFindingEvidence)
+	mux.HandleFunc("DELETE /api/exploration/findings/{id}/evidence/{eid}", s.deleteFindingEvidence)
+	mux.HandleFunc("POST /api/exploration/findings/{id}/traffic", s.linkFindingTraffic)
 	mux.HandleFunc("GET /api/exploration/findings/{id}/lineage", s.findingLineage)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/deepen", s.deepenFinding)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/generate-report", s.generateFindingReport)
@@ -1118,6 +1137,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/settings/proxy-pool/{id}/activate", s.activateProxyPool)
 	mux.HandleFunc("POST /api/tasks/{id}/proxy/test", s.testTaskProxy)
 	mux.HandleFunc("GET /api/report", s.getReport)
+	// ── AntiFox 证据驱动交付：交付级报告（docx / 三语）──
+	mux.HandleFunc("POST /api/report/generate", s.generateReport)
+	mux.HandleFunc("GET /api/report/status", s.reportStatus)
+	mux.HandleFunc("GET /api/report/download", s.downloadReport)
+	mux.HandleFunc("GET /api/report-settings", s.getReportSettings)
+	mux.HandleFunc("PUT /api/report-settings", s.putReportSettings)
+	mux.HandleFunc("POST /api/report-assets/logo", s.uploadReportLogo)
+	mux.HandleFunc("GET /api/report-assets/{file}", s.serveReportAsset)
+	mux.HandleFunc("GET /api/reports", s.listReports)
+	mux.HandleFunc("GET /api/reports/{id}/download", s.downloadReportByID)
+	mux.HandleFunc("DELETE /api/reports/{id}", s.deleteReportByID)
+	mux.HandleFunc("GET /api/report-templates", s.listReportTemplates)
+	mux.HandleFunc("POST /api/report-templates", s.createReportTemplate)
+	mux.HandleFunc("PUT /api/report-templates/{id}", s.updateReportTemplate)
+	mux.HandleFunc("DELETE /api/report-templates/{id}", s.deleteReportTemplate)
 	mux.HandleFunc("GET /api/chat/mentions", s.searchChatMentions)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/chat/upload", s.chatUpload) // 方式1 文件上传:落到会话/任务工作目录 uploads/
@@ -2038,7 +2072,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	t, err := s.m.CreateTaskWithOptions(req.Description, req.Goal, db.TaskCreateOptions{
-		Name:     strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
+		Name: strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
 		SourceTaskIDs: sourceIDs, CompanyIDs: req.CompanyIDs, LLMProfileIDs: req.LLMProfileIDs,
 		TimeoutSeconds: req.TimeoutSeconds, PlanHeartbeatSeconds: req.PlanHeartbeatSeconds,
 		CoverageEnabled:   req.CoverageEnabled,

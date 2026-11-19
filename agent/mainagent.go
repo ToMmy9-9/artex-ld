@@ -7,10 +7,11 @@
 package agent
 
 import (
-	"context"
-	"fmt"
 	"artex/db"
 	"artex/intercept"
+	"context"
+	"encoding/json"
+	"fmt"
 	"norma/agentcore"
 	"norma/llm"
 	"norma/permission"
@@ -24,21 +25,24 @@ import (
 // autonomous intent-generation loop (that is the planner's job).
 type MainAgent struct {
 	findingRecorder FindingRecorder
-	prov            llm.Provider
-	model           string
-	tx              *transcript.Store // raw LLM conversation persistence (nil = off)
-	window          int               // context window in tokens (for compaction)
-	windowFn        func() int        // optional dynamic task-chain minimum
-	maxTurns        int               // max agent turns per run (0 = unlimited)
-	proxyAddr       string            // recording proxy for WebFetch (empty = direct)
-	proxyAddrFn     func() string
-	proxyCACert     string                                 // recording proxy's CA cert path (HTTPS verify)
-	webSearch       WebSearchOpts                          // web_search tool backend selection (off by default)
-	workDir         string                                 // shared work dir (surfaced in prompt as artifact-output target)
-	steerWork       func(intentID int64, msg string) error // engine callback: steer a running work (nil = off)
-	nonStreamingFn  func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
-	noaEnabledFn    func() bool                            // resolver: use experimental noa compaction? (nil = off)
-	maxTokensFn     func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
+	// resolveTraffic maps a finding's structured reproduction steps to the real
+	// recorded MITM exchange ids (【AntiFox 证据驱动交付】host callback).
+	resolveTraffic func(taskID int64, repro json.RawMessage) json.RawMessage
+	prov           llm.Provider
+	model          string
+	tx             *transcript.Store // raw LLM conversation persistence (nil = off)
+	window         int               // context window in tokens (for compaction)
+	windowFn       func() int        // optional dynamic task-chain minimum
+	maxTurns       int               // max agent turns per run (0 = unlimited)
+	proxyAddr      string            // recording proxy for WebFetch (empty = direct)
+	proxyAddrFn    func() string
+	proxyCACert    string                                 // recording proxy's CA cert path (HTTPS verify)
+	webSearch      WebSearchOpts                          // web_search tool backend selection (off by default)
+	workDir        string                                 // shared work dir (surfaced in prompt as artifact-output target)
+	steerWork      func(intentID int64, msg string) error // engine callback: steer a running work (nil = off)
+	nonStreamingFn func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
+	noaEnabledFn   func() bool                            // resolver: use experimental noa compaction? (nil = off)
+	maxTokensFn    func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
 }
 
 // SetNoaEnabled wires a resolver deciding whether runs use the experimental noa
@@ -119,6 +123,7 @@ func mainAgentSystem(goal, dataDir, workDir string) string {
 func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.AssetStore, ts *db.ExplorationStore, goal, message string, emit func(db.Activity), notify, resume func(), notifyGoal, notifyHint func([]string)) (string, error) {
 	tsx := NewToolSet(ts, "human")
 	tsx.SetFindingRecorder(m.findingRecorder)
+	tsx.SetTrafficResolver(m.resolveTraffic)
 	if as != nil {
 		tsx.SetAssetStore(as, as.Companies())
 	}
@@ -165,8 +170,8 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 		DeepSeekSearchModel:   m.webSearch.DeepSeekModel,
 		WebSearchProxy:        m.webSearch.Proxy,
 		BashEnv:               proxyEnv(proxyAddr, m.proxyCACert), // Bash 子命令默认走代理+信任 CA
-		WorkingDir:            mainDir,                              // 本任务工作目录 <workDir>/tasks/<taskID>
-		Root:                  m.workDir,                            // 文件工具硬边界（同 worker）
+		WorkingDir:            mainDir,                            // 本任务工作目录 <workDir>/tasks/<taskID>
+		Root:                  m.workDir,                          // 文件工具硬边界（同 worker）
 		ToolOutputDir:         cmdOutDir(mainDir),
 		MaxTurns:              m.maxTurns,                             // 0 = unlimited (configurable in agent management)
 		Compaction:            compactionConfig(m.compactionWindow()), // long chats stay within the window

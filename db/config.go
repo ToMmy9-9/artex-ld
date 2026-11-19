@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp" // 【二开·P-EXEC·D10】executor_key 格式校验
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -132,6 +134,20 @@ func (d *DB) ActiveProfile() (*LLMProfile, error) {
 
 // ProfileByID returns one profile with its api key by id, or nil if not found.
 // Used to run a task on a specific (non-default) LLM profile.
+// ReportRoleProfile 返回报告/富化角色专用的 LLM 配置：settings.llm_role_report 绑定的
+// profile 优先（让富化走更强的模型而不动渗透 agent 的模型），未绑定则回落到全局激活配置。
+// 找不到或没配 API Key 时返回 nil，调用方保留漏洞原始字段（不硬失败）。
+func (d *DB) ReportRoleProfile() (*LLMProfile, error) {
+	if raw, _, _ := d.GetSetting("llm_role_report"); raw != "" {
+		if id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); err == nil && id > 0 {
+			if p, _ := d.ProfileByID(id); p != nil && p.APIKey != "" {
+				return p, nil
+			}
+		}
+	}
+	return d.ActiveProfile()
+}
+
 func (d *DB) ProfileByID(id int64) (*LLMProfile, error) {
 	var p LLMProfile
 	err := scanProfile(d.QueryRow(`SELECT `+profileColsKey+` FROM llm_profiles WHERE id=$1`, id), &p.APIKey, &p)

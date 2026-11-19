@@ -101,6 +101,11 @@ type ToolSet struct {
 	// re-planned promptly (currently: a new hint). nil = no wake (the hint is still
 	// stored and read on the next round triggered by other events). debounced.
 	notify func()
+	// resolveTraffic, if set, maps a finding's structured reproduction steps to the
+	// real recorded MITM exchange ids (【AntiFox 证据驱动交付】host callback, wired by
+	// the server). It returns the reproduction with steps[].exchange_id filled where
+	// matched; unchanged on any failure.
+	resolveTraffic func(taskID int64, repro json.RawMessage) json.RawMessage
 	// notifyFinding, if set, wakes the task's planner when this run reports a finding,
 	// carrying (intentID, summary) so the round can spell out which intent found what.
 	// Wired for workers; nil elsewhere → falls back to notify (bare wake).
@@ -188,6 +193,12 @@ func (t *ToolSet) wakeReview() {
 
 // SetNotifyFinding wires the finding-wake callback (see ToolSet.notifyFinding).
 func (t *ToolSet) SetNotifyFinding(fn func(int64, string)) { t.notifyFinding = fn }
+
+// SetTrafficResolver wires the reproduction→traffic resolver
+// (see ToolSet.resolveTraffic).
+func (t *ToolSet) SetTrafficResolver(fn func(taskID int64, repro json.RawMessage) json.RawMessage) {
+	t.resolveTraffic = fn
+}
 
 // EnrichTrigger is the enrichment engine seen from the tool layer (see package
 // enrich). Kept as an interface here to avoid coupling agent → enrich.
@@ -1573,6 +1584,21 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		"intent_id": idp("当前任务的意图 id"), "asset_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "受影响资产 id"},
 		"evidence":         str("证据/PoC 文本"),
 		"evidence_hint_id": idp("可选：本任务中对应此漏洞的提示节点 ID，自动携带其结构化 traffic_refs；不能引用继承提示或其他漏洞的提示"),
+		"reproduction": map[string]any{
+			"type":        "object",
+			"description": "【强烈建议填】结构化复现过程——供人工从零复现与交付报告用。每步 request 写成【标准 HTTP 请求报文】(不是 curl/命令)、response 写【状态行+关键 body】(不用...省略关键内容)，全部逐字取自你本次真实执行过的请求/响应，绝不改写或编造；你刚打完最清楚每一步。",
+			"properties": map[string]any{
+				"entry_point":   str("触发漏洞的关键接口（方法+URL），如 POST /user/validate/otp/forgetPasswordVerify"),
+				"prerequisites": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "复现前置：需要的账号/角色/会话/前序步骤。若需测试账号，写清【如何注册】(接口+关键请求要点)——从零可复现。"},
+				"steps": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{
+					"request":  str("该步的真实请求，写成【标准 HTTP 请求报文】：请求行(METHOD /path?query HTTP/1.1) + 关键 header(Host/Content-Type/Cookie 等) + 空行 + body，逐字取自你实际发出的请求。【不要写成 curl/python/shell 命令】——即使你用 curl 执行，也还原成等价 HTTP 报文。仅当该步确实不走 HTTP(如直连数据库、本地生成 token)时，才照实写该工具调用并在开头注明「非HTTP：」。"),
+					"response": str("该步的真实响应，写成【HTTP 响应】：状态行(HTTP/1.1 200 OK) + 关键 header + 关键 body 片段，逐字取自真实返回。【不要用 ... 省略掉能证明问题的关键内容】；响应长就只留能定位本条流量、能证明漏洞的关键片段(回显/token/报错等)。"),
+					"expected": str("该步预期/结论（状态码+关键字段，一句话）"),
+					"proves":   str("这一步证明了什么"),
+				}}, "description": "有序复现步骤（从入口到证实）；每步写成【标准 HTTP 请求报文 + 关键响应】(不是 curl/命令、响应不用...省略)，这样能自动关联到录制的真实流量包、支持一键跳转与截图"},
+				"provenance": str("该漏洞由哪条探索/意图发现、依赖哪些前序结果（攻击链来源）"),
+			},
+		},
 		"traffic_refs": map[string]any{"type": "array", "description": "可选；HTTP/HTTPS 漏洞先检索并逐条核实请求/响应确实支持漏洞结论，再按复现顺序填写真实 ID。TCP 等非 HTTP 漏洞、未采集或找不到确切记录时省略或传 []，不阻止上报；可在 evidence 说明原因并提供其他可验证证据。不要猜测 ID、按域名/时间推定关联或仅为补包重复探测。用途 baseline 正常对照 / proof 漏洞证明 / verification 补充验证 / supporting 辅助证据。",
 			"items": obj(map[string]any{"traffic_id": str("traffic_search 返回的真实流量 ID"), "role": map[string]any{"type": "string", "enum": []string{"baseline", "proof", "verification", "supporting"}}, "note": str("该流量如何支持漏洞结论")}, "traffic_id")},
 	}, "vulnclass", "severity", "summary"), func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
@@ -1582,6 +1608,7 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			AssetIDs                                     []json.RawMessage `json:"asset_ids"`
 			TrafficRefs                                  []db.TrafficRef   `json:"traffic_refs"`
 			EvidenceHintID                               json.RawMessage   `json:"evidence_hint_id"`
+			Reproduction                                 json.RawMessage   `json:"reproduction"`
 		}
 		if err := json.Unmarshal(in, &a); err != nil {
 			return actool.Errorf(err.Error()), nil
@@ -1615,6 +1642,21 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		}
 		if err != nil {
 			return actool.Errorf(err.Error()), nil
+		}
+		// 【AntiFox 证据驱动交付】复现过程就地落库：agent 测完即填（请求逐字真实），
+		// 存进 findings.reproduction，后续报告/发现页直接引用，不再事后靠文字反推。
+		if len(a.Reproduction) > 2 { // "{}" 是 2 字节；只有真配方才带
+			repro := a.Reproduction
+			// 记录时即把步骤关联到真实录制的流量包（host 回调），
+			// 让每一步一开始就带上「跳转真实报文」的链接。
+			if t.resolveTraffic != nil && t.taskID > 0 {
+				if r := t.resolveTraffic(t.taskID, repro); len(r) > 2 {
+					repro = r
+				}
+			}
+			if t.ts != nil {
+				_ = t.ts.SetFindingReproduction(recorded.NodeID, repro)
+			}
 		}
 		if t.notifyFinding != nil {
 			iid := input.IntentID

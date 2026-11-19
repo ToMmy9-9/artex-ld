@@ -9,20 +9,20 @@
 package agent
 
 import (
+	"artex/db"
+	"artex/intercept"
+	"artex/xlog" // 【二开·P-TPL·A4】四级链命中 DEBUG
 	"context"
 	"encoding/json"
 	"fmt"
 	"log" // 【二开·P-TPL·A4】四级链回退 WARN
-	"strings"
-	"sync"
-	"artex/db"
-	"artex/intercept"
-	"artex/xlog" // 【二开·P-TPL·A4】四级链命中 DEBUG
 	"norma/agentcore"
 	"norma/llm"
 	"norma/permission"
 	actool "norma/tool"
 	"norma/transcript"
+	"strings"
+	"sync"
 )
 
 // Planner is the event-driven LLM planner (docs §4.3): each time the asset or
@@ -41,10 +41,10 @@ type Planner struct {
 	steerWork         func(intentID int64, msg string) error // engine callback to steer a running work mid-run (nil = off)
 	proxyAddr         string                                 // recording proxy for WebFetch (empty = direct)
 	proxyAddrFn       func() string
-	proxyCACert       string                                 // recording proxy's CA cert path (HTTPS verify)
-	webSearch         WebSearchOpts                          // web_search tool backend selection (off by default)
-	workDir           string                                 // shared work dir (surfaced in prompt as artifact-output target)
-	injectConstraints func() bool                            // resolver: inject task operation constraints into system prompt? (nil = yes)
+	proxyCACert       string        // recording proxy's CA cert path (HTTPS verify)
+	webSearch         WebSearchOpts // web_search tool backend selection (off by default)
+	workDir           string        // shared work dir (surfaced in prompt as artifact-output target)
+	injectConstraints func() bool   // resolver: inject task operation constraints into system prompt? (nil = yes)
 	// 【二开·P-TPL·A4】起 —— 任务级 planner 提示词快照读取器（tasks.planner_prompt_override；
 	// 建任务时原子写入，运行中无修改入口；每轮现读保持与其它 resolver 同风格）
 	taskPromptFn func() string
@@ -57,6 +57,9 @@ type Planner struct {
 	notifyReview    func(taskID int64)      // §2.6：送审成功唤醒 ReviewRunner（nil = 只靠 60s ticker 兜底）
 	reviewEnabledFn func(taskID int64) bool // §2.4：任务级审核总开关即时解析（nil = 不校验）
 	checkExecutor   func(key string) error  // §2.9.3：target_executor 合法性校验（nil = 不校验）
+	// resolveTraffic maps a finding's structured reproduction steps to the real
+	// recorded MITM exchange ids (【AntiFox 证据驱动交付】host callback).
+	resolveTraffic func(taskID int64, repro json.RawMessage) json.RawMessage
 
 	// todos keeps ONE plan-scratchpad per task (keyed by exploration id) so the
 	// planner's multi-step plan survives across wake-ups — each Plan() is a fresh
@@ -556,6 +559,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	p.compactor.OnPlannerRound(ctx, ts)
 	tsx := NewToolSet(ts, "planner")
 	tsx.SetFindingRecorder(p.findingRecorder)
+	tsx.SetTrafficResolver(p.resolveTraffic)
 	if as != nil {
 		tsx.SetAssetStore(as, as.Companies())
 	}
@@ -634,8 +638,8 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		DeepSeekSearchModel:   p.webSearch.DeepSeekModel,
 		WebSearchProxy:        p.webSearch.Proxy,
 		BashEnv:               proxyEnv(proxyAddr, p.proxyCACert), // Bash 子命令默认走代理+信任 CA
-		WorkingDir:            taskDir,                              // 本任务工作目录 <workDir>/tasks/<taskID>
-		Root:                  p.workDir,                            // 文件工具硬边界（同 worker）
+		WorkingDir:            taskDir,                            // 本任务工作目录 <workDir>/tasks/<taskID>
+		Root:                  p.workDir,                          // 文件工具硬边界（同 worker）
 		ToolOutputDir:         cmdOutDir(taskDir),
 		MaxTurns:              p.maxTurns, // 0 = unlimited (configurable in agent management)
 		MaxDuration:           maxDur,     // 0=不限;有 deadline 时=距 deadline 剩余

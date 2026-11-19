@@ -42,8 +42,9 @@ type DBFinding struct {
 	Worker               string
 	AssetIDs             []int64
 	Status               string
-	Report               string // 详细报告(Markdown);仅 GetFinding 填充,列表查询不带
-	ReportConversationID *int64 `json:"report_conversation_id,omitempty"`
+	Report               string          // 详细报告(Markdown);仅 GetFinding 填充,列表查询不带
+	Reproduction         json.RawMessage `json:"reproduction,omitempty"` // 结构化复现过程(AntiFox 证据驱动交付);仅 GetFinding 填充
+	ReportConversationID *int64          `json:"report_conversation_id,omitempty"`
 	CreatedAt            time.Time
 	TaskDescription      string // populated via LEFT JOIN on tasks
 }
@@ -874,4 +875,60 @@ func (d *DB) FindingMetaByNodeID(taskID int64) (map[int64]FindingMeta, error) {
 		out[nid] = m
 	}
 	return out, rows.Err()
+}
+
+// ═══ AntiFox 证据驱动交付：结构化复现过程 ═══
+//
+// SetFindingReproduction stores the agent-captured structured reproduction recipe
+// for the finding at nodeID (report_finding writes it inline). No-op on empty input.
+func (d *DB) SetFindingReproduction(nodeID int64, repro json.RawMessage) error {
+	if len(repro) == 0 {
+		return nil
+	}
+	_, err := d.Exec(`UPDATE findings SET reproduction=$1 WHERE node_id=$2`, string(repro), nodeID)
+	return err
+}
+
+// GetFindingReproduction returns the structured reproduction recipe for a finding
+// node, or nil when the agent did not record one.
+func (d *DB) GetFindingReproduction(nodeID int64) (json.RawMessage, error) {
+	var raw []byte
+	err := d.QueryRow(`SELECT reproduction::text FROM findings WHERE node_id=$1 ORDER BY id DESC LIMIT 1`, nodeID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	return json.RawMessage(raw), nil
+}
+
+// GetFindingByNodeID returns the standalone finding row for an exploration node id
+// (the canonical finding key), or (nil, nil) when none exists.
+func (d *DB) GetFindingByNodeID(nodeID int64) (*DBFinding, error) {
+	f := &DBFinding{}
+	var aidsJSON, repro string
+	err := d.QueryRow(`
+		SELECT f.id, f.task_id, f.node_id, f.vulnclass, f.severity, f.summary,
+		       f.evidence, f.worker, f.asset_ids, f.created_at,
+		       COALESCE(t.description, '') AS task_description, COALESCE(f.reproduction::text, '')
+		FROM findings f LEFT JOIN tasks t ON f.task_id = t.id
+		WHERE f.node_id = $1
+		ORDER BY f.id DESC LIMIT 1`, nodeID).
+		Scan(&f.ID, &f.TaskID, &f.NodeID, &f.VulnClass, &f.Severity, &f.Summary,
+			&f.Evidence, &f.Worker, &aidsJSON, &f.CreatedAt, &f.TaskDescription, &repro)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(aidsJSON), &f.AssetIDs)
+	if repro != "" {
+		f.Reproduction = json.RawMessage(repro)
+	}
+	return f, nil
 }

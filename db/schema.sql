@@ -1823,3 +1823,89 @@ CREATE INDEX IF NOT EXISTS idx_task_intelligence_assets ON task_intelligence USI
 
 -- Optional derived credential presentation; raw intelligence remains authoritative.
 ALTER TABLE task_intelligence ADD COLUMN IF NOT EXISTS credential_analysis JSONB;
+
+-- ═══ AntiFox 证据驱动交付 ═══
+-- 复现过程就地落库：agent 挖洞时把「入口点/前置条件/逐步请求响应」写进 findings.reproduction，
+-- 不再事后靠报告文字反推，杜绝「复现步骤拼不全、靠编造」。
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS reproduction JSONB;
+
+-- 漏洞富化：AI 生成 / 人工编辑的结构化漏洞数据（覆盖层，不改写节点 payload）。
+-- JSONB 列以 json.RawMessage 承载，保持 db 包与报告类型解耦。
+CREATE TABLE IF NOT EXISTS finding_enrichment (
+    node_id      BIGINT PRIMARY KEY,
+    name         TEXT NOT NULL DEFAULT '',
+    target       TEXT NOT NULL DEFAULT '',
+    module       TEXT NOT NULL DEFAULT '',
+    severity     TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'open', -- open|confirmed|fixed|false_positive|ignored
+    cvss_score   REAL NOT NULL DEFAULT 0,
+    cvss_vector  TEXT NOT NULL DEFAULT '',
+    cvss_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+    description  JSONB NOT NULL DEFAULT '[]'::jsonb, -- string[]
+    test_process JSONB NOT NULL DEFAULT '[]'::jsonb, -- [{type,content}]
+    risk_analysis JSONB NOT NULL DEFAULT '[]'::jsonb, -- string[]
+    remediation  JSONB NOT NULL DEFAULT '[]'::jsonb, -- string[]
+    source       TEXT NOT NULL DEFAULT 'ai',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_finding_enrichment_status ON finding_enrichment(status);
+
+-- 漏洞证据截图：按复现步骤序号（step_index）把截图挂到具体步骤上。
+CREATE TABLE IF NOT EXISTS finding_evidence (
+    id          BIGSERIAL PRIMARY KEY,
+    node_id     BIGINT NOT NULL,
+    filename    TEXT NOT NULL,
+    caption     TEXT NOT NULL DEFAULT '',
+    step_index  INT NOT NULL DEFAULT 0,   -- 对应复现步骤序号(0=未指定/概览)
+    sort_order  INT NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_finding_evidence_node ON finding_evidence(node_id);
+
+-- 漏洞↔原始流量包关联（AntiFox 证据驱动交付）：
+-- 把复现步骤自动关联到真实录制的 MITM 报文（exchange_id），报告/发现页可直接引用原始包。
+CREATE TABLE IF NOT EXISTS finding_traffic (
+    node_id     BIGINT NOT NULL,
+    exchange_id TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'manual',  -- manual | auto
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (node_id, exchange_id)
+);
+CREATE INDEX IF NOT EXISTS idx_finding_traffic_node ON finding_traffic(node_id);
+
+-- ═══ AntiFox 交付级报告：出具方信息 / 报告登记表 / 可复用封面模板 ═══
+CREATE TABLE IF NOT EXISTS report_settings (
+    id              INT PRIMARY KEY DEFAULT 1,
+    company_name    TEXT NOT NULL DEFAULT '',   -- 报告出具方(中文)
+    company_name_en TEXT NOT NULL DEFAULT '',
+    logo_path       TEXT NOT NULL DEFAULT '',   -- 相对路径(data/report_assets 下)
+    personnel_json  JSONB NOT NULL DEFAULT '[]'::jsonb, -- [{name,role,contact}]
+    cvss_version    TEXT NOT NULL DEFAULT '3.1',
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT report_settings_singleton CHECK (id = 1)
+);
+CREATE TABLE IF NOT EXISTS reports (
+    id         BIGSERIAL PRIMARY KEY,
+    task_id    BIGINT,
+    task_desc  TEXT NOT NULL DEFAULT '',
+    filename   TEXT NOT NULL DEFAULT '',
+    path       TEXT NOT NULL DEFAULT '',
+    size       BIGINT NOT NULL DEFAULT 0,
+    company    TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at DESC);
+CREATE TABLE IF NOT EXISTS report_templates (
+    id              BIGSERIAL PRIMARY KEY,
+    name            TEXT NOT NULL DEFAULT '',
+    company_name    TEXT NOT NULL DEFAULT '',
+    company_name_en TEXT NOT NULL DEFAULT '',
+    logo_path       TEXT NOT NULL DEFAULT '',
+    personnel_json  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    cvss_version    TEXT NOT NULL DEFAULT '3.1',
+    locale          TEXT NOT NULL DEFAULT 'zh-CN',  -- 默认报告语言
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_report_templates_created ON report_templates(created_at DESC);
