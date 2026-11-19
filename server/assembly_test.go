@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
 	"artex/agent"
 	"artex/db"
 	actool "norma/tool"

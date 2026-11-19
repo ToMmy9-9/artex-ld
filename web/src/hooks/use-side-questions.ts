@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { toast } from "sonner";
 
-import { sseUrl } from "@/lib/api";
+import { openSSE } from "@/lib/api";
 import { isBtwCommand, type SideExchange, type SideHistory, sideAPI } from "@/lib/side-questions";
 
 // crypto.randomUUID 仅在安全上下文可用(https/localhost);经 IP+http 访问时降级。
@@ -33,6 +33,7 @@ export function useSideQuestions(parent: string | null) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<SideExchange[]>([]);
   const [snapshot, setSnapshot] = useState<SideHistory["snapshot"]>(null);
+  const [snapshotError, setSnapshotError] = useState("");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -69,6 +70,7 @@ export function useSideQuestions(parent: string | null) {
         setItems((old) => merge(old, data.items));
         restoreFailedDraft(data.items);
         setSnapshot(data.snapshot);
+        setSnapshotError(data.snapshot_error ?? "");
         setLoadError("");
         if (before || !cursor.current) {
           cursor.current = data.next_cursor;
@@ -86,6 +88,7 @@ export function useSideQuestions(parent: string | null) {
     setStateParent(parent);
     setItems([]);
     setSnapshot(null);
+    setSnapshotError("");
     setNextCursor(0);
     setDraft("");
     setError("");
@@ -108,6 +111,7 @@ export function useSideQuestions(parent: string | null) {
         if (version !== epoch.current) return;
         setItems((old) => merge(old, data.items));
         setSnapshot(data.snapshot);
+        setSnapshotError(data.snapshot_error ?? "");
         setNextCursor(data.next_cursor);
         cursor.current = data.next_cursor;
       })
@@ -133,7 +137,7 @@ export function useSideQuestions(parent: string | null) {
   useEffect(() => {
     if (!runningID) return;
     const version = epoch.current;
-    const stream = new EventSource(sseUrl(`/api/side-questions/${runningID}/events`));
+    const stream = openSSE(`/api/side-questions/${runningID}/events`);
     stream.addEventListener("snapshot", (event) => {
       if (version !== epoch.current) return;
       try {
@@ -236,6 +240,7 @@ export function useSideQuestions(parent: string | null) {
     setOpen,
     items: current ? items : [],
     snapshot: current ? snapshot : null,
+    snapshotError: current ? snapshotError : "",
     draft: current ? draft : "",
     setDraft,
     busy: current && busy,

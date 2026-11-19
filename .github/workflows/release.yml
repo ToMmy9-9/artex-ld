@@ -144,13 +144,21 @@ jobs:
           done
           sha256sum *.zip > SHA256SUMS
           sha256sum --check SHA256SUMS
-      - name: Refuse to overwrite a published release
+      - name: Replace release only when the tag moved to a new commit
+        env:
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
         run: |
-          if gh release view "$RELEASE_TAG" --json isDraft > /tmp/artex-release.json 2>/tmp/artex-release.err; then
-            test "$(jq -r .isDraft /tmp/artex-release.json)" = true || {
-              echo "该版本已发布，请使用新的版本标签" >&2
-              exit 1
-            }
+          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > /tmp/artex-release.json 2>/tmp/artex-release.err; then
+            draft=$(jq -r .isDraft /tmp/artex-release.json)
+            target=$(jq -r '.targetCommitish // empty' /tmp/artex-release.json)
+            if [[ "$draft" != "true" ]]; then
+              if [[ "$target" == "$RELEASE_COMMIT" ]]; then
+                echo "该版本已发布且已指向当前提交，拒绝重复发布" >&2
+                exit 1
+              fi
+              echo "标签已移动到新提交，删除旧 Release 后重新创建 $RELEASE_TAG"
+              gh release delete "$RELEASE_TAG" --yes
+            fi
           elif ! grep -qi 'release not found\|HTTP 404' /tmp/artex-release.err; then
             cat /tmp/artex-release.err >&2
             exit 1
@@ -172,6 +180,17 @@ jobs:
             部署和在线更新说明见本仓库 README。
       - name: Publish complete release
         run: gh release edit "$RELEASE_TAG" --draft=false --latest
+
+  # GITHUB_TOKEN 发布的 Release 不会再次触发 release: published 工作流。
+  # 直接依赖发布 job，保证 ZIP、校验文件和镜像全部发布成功后才更新 Demo。
+  demo:
+    needs: [prepare, release]
+    uses: ./.github/workflows/demo.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      commit: ${{ needs.prepare.outputs.commit }}
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
   # ④ 在原生 AMD64 / ARM64 runner 上构建和测试，再推送架构镜像。
   docker:
@@ -227,7 +246,15 @@ jobs:
           trap 'docker logs artex-smoke; docker rm -f artex-smoke' EXIT
           curl --fail --retry 30 --retry-connrefused --retry-delay 2 --max-time 3 \
             http://127.0.0.1:8787/api/health > /tmp/artex-health.json
-          jq -e --arg version "${RELEASE_TAG#v}" '.ok == true and .version == $version' /tmp/artex-health.json
+          jq -e '. == {"ok": true}' /tmp/artex-health.json
+          curl --fail -H 'Content-Type: application/json' \
+            --data '{"password":"smoke-test-admin-password"}' \
+            http://127.0.0.1:8787/api/auth/init > /tmp/artex-auth.json
+          token=$(jq -er '.token' /tmp/artex-auth.json)
+          echo "::add-mask::$token"
+          curl --fail -H "Authorization: Bearer $token" \
+            http://127.0.0.1:8787/api/version > /tmp/artex-version.json
+          jq -e --arg version "${RELEASE_TAG#v}" '.version == $version' /tmp/artex-version.json
           curl --fail http://127.0.0.1:8787/ > /tmp/artex-index.html
           grep -qi '<!doctype html' /tmp/artex-index.html
       - name: Push tested architecture image

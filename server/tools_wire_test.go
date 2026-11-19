@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-
 	"artex/agent"
 	"artex/db"
 	actool "norma/tool"

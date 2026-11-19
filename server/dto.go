@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"strconv"
 	"time"
-
 	"artex/db"
 	"artex/traffic"
 )
@@ -37,9 +36,12 @@ func rawString(raw json.RawMessage) string {
 
 // ---- Task (frontend "Task") ---- created_at as RFC3339, plus a derived status.
 type TaskDTO struct {
+	DistinctFindings *db.FindingDistinctStats `json:"distinct_findings,omitempty"`
+
 	ID                 string             `json:"id"`
 	ExplorationID      int64              `json:"exploration_id"`
 	Name               string             `json:"name"` // 可选任务名称;空=未命名
+	Remark             string             `json:"remark"`
 	CategoryID         *int64             `json:"category_id,omitempty"`
 	CategoryName       string             `json:"category_name,omitempty"`
 	CategoryNKey       string             `json:"category_nkey,omitempty"`
@@ -49,11 +51,16 @@ type TaskDTO struct {
 	Goal               string             `json:"goal"`
 	Status             string             `json:"status"` // created | running | paused | done | failed
 	CreatedAt          string             `json:"created_at"`
-	CreatedUnix        int64              `json:"created_unix"`       // created_at as unix seconds (for run-duration calc)
+	CreatedUnix        int64              `json:"created_unix"`
 	CompletedAt        string             `json:"completed_at"`       // RFC3339 finish time (done/failed); "" if unfinished
 	CompletedUnix      int64              `json:"completed_unix"`     // completed_at as unix seconds (0 if unfinished)
 	LastActivity       int64              `json:"last_activity_unix"` // unix seconds of the last activity (0 if none)
+	RunSeconds         int64              `json:"run_seconds"`
+	ActiveRunSeconds   int64              `json:"active_run_seconds"`
+	RunSegmentStarted  int64              `json:"run_segment_started_unix"`
 	Paused             bool               `json:"paused"`
+	PauseReason        string             `json:"pause_reason,omitempty"`
+	Reconnect          *ProxyReconnectDTO `json:"reconnect,omitempty"`
 	Queued             bool               `json:"queued"`
 	Tokens             TokenTotalDTO      `json:"tokens"` // whole-task token consumption
 	GoalsTotal         int                `json:"goals_total"`
@@ -72,6 +79,17 @@ type TaskDTO struct {
 	ReviewAuto         bool               `json:"review_auto"`      // 【二开·P-REVIEW·D2b】自动审核开关（审核面板 Switch 读写）
 	ReviewEnabled      bool               `json:"review_enabled"`   // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934）
 	AssetMode          string             `json:"asset_mode"`       // 【二开·P-REVIEW·D12】资产图模式标签（m04039）
+	ShareGlobalAssets  bool               `json:"share_global_assets"`
+	WorkerCount        int                `json:"worker_count"` // 本任务 Worker 数;0=用全局默认
+}
+
+// ProxyReconnectDTO 描述出口代理重连进度。
+type ProxyReconnectDTO struct {
+	Attempt   int    `json:"attempt"`
+	Max       int    `json:"max"`
+	NextAt    int64  `json:"next_at,omitempty"`
+	Exhausted bool   `json:"exhausted"`
+	LastError string `json:"last_error,omitempty"`
 }
 
 // FindingSeverityDTO 是任务列表里按严重度分档的漏洞计数（严重/高/中/低）。
@@ -114,6 +132,7 @@ func tokenTotalDTO(u db.TokenUsage) TokenTotalDTO {
 
 func taskDTO(t *Task, status string) TaskDTO {
 	lifecycle := t.lifecycleSnapshot()
+	runSeconds := taskRunSeconds(lifecycle.ActiveRunSeconds, lifecycle.RunSegmentStartedAt, time.Now().Unix(), status, lifecycle.Paused, lifecycle.Queued)
 	llmState := t.llmStateSnapshot()
 	sourceIDs := make([]string, 0, len(lifecycle.SourceTaskIDs))
 	for _, id := range lifecycle.SourceTaskIDs {
@@ -121,25 +140,33 @@ func taskDTO(t *Task, status string) TaskDTO {
 	}
 	profileIDs := append(make([]int64, 0, len(llmState.ProfileIDs)), llmState.ProfileIDs...)
 	return TaskDTO{
-		ID:                 t.ID,
-		ExplorationID:      t.ExpID,
-		Name:               lifecycle.Name,
-		CategoryID:         lifecycle.CategoryID,
-		CategoryName:       lifecycle.CategoryName,
-		CategoryNKey:       lifecycle.CategoryNKey,
-		Pinned:             lifecycle.PinnedAt > 0,
-		PinnedAt:           completedRFC(lifecycle.PinnedAt),
-		Description:        t.Description,
-		Goal:               t.Goal,
-		Status:             status,
-		ReviewAuto:         t.ReviewAuto,    // 【二开·P-REVIEW·D2b】
-		ReviewEnabled:      t.ReviewEnabled, // 【二开·P-REVIEW·D2c】
-		AssetMode:          t.AssetMode,     // 【二开·P-REVIEW·D12】
-		CreatedAt:          rfc3339(time.Unix(t.CreatedAt, 0)),
-		CreatedUnix:        t.CreatedAt,
-		CompletedAt:        completedRFC(lifecycle.CompletedAt),
-		CompletedUnix:      lifecycle.CompletedAt,
-		Paused:             lifecycle.Paused,
+		ID:                t.ID,
+		ExplorationID:     t.ExpID,
+		Name:              lifecycle.Name,
+		Remark:            lifecycle.Remark,
+		CategoryID:        lifecycle.CategoryID,
+		CategoryName:      lifecycle.CategoryName,
+		CategoryNKey:      lifecycle.CategoryNKey,
+		Pinned:            lifecycle.PinnedAt > 0,
+		PinnedAt:          completedRFC(lifecycle.PinnedAt),
+		Description:       t.Description,
+		Goal:              t.Goal,
+		Status:            status,
+		CreatedAt:         rfc3339(time.Unix(t.CreatedAt, 0)),
+		CreatedUnix:       t.CreatedAt,
+		RunSeconds:        runSeconds,
+		ActiveRunSeconds:  lifecycle.ActiveRunSeconds,
+		RunSegmentStarted: lifecycle.RunSegmentStartedAt,
+		CompletedAt:       completedRFC(lifecycle.CompletedAt),
+		CompletedUnix:     lifecycle.CompletedAt,
+		Paused:            lifecycle.Paused,
+		PauseReason:       lifecycle.PauseReason,
+		Reconnect: func() *ProxyReconnectDTO {
+			if lifecycle.PauseReason != "paused_by_proxy" && lifecycle.ReconnectAttempt == 0 && !lifecycle.ReconnectExhausted {
+				return nil
+			}
+			return &ProxyReconnectDTO{Attempt: lifecycle.ReconnectAttempt, Max: lifecycle.ReconnectMax, NextAt: lifecycle.ReconnectNextAt, Exhausted: lifecycle.ReconnectExhausted, LastError: lifecycle.ReconnectLastError}
+		}(),
 		Queued:             lifecycle.Queued,
 		LLMProfileID:       llmState.ProfileID,
 		LLMProfileIDs:      profileIDs,
@@ -149,6 +176,11 @@ func taskDTO(t *Task, status string) TaskDTO {
 		SourceTaskIDs:      sourceIDs,
 		CompanyIDs:         lifecycle.CompanyIDs,
 		CoverageEnabled:    t.CoverageEnabled,
+		ShareGlobalAssets:  lifecycle.ShareGlobalAssets,
+		WorkerCount:        t.WorkerCount,
+		ReviewAuto:         t.ReviewAuto,    // 【二开·P-REVIEW·D2b】
+		ReviewEnabled:      t.ReviewEnabled, // 【二开·P-REVIEW·D2c】
+		AssetMode:          t.AssetMode,     // 【二开·P-REVIEW·D12】
 	}
 }
 
@@ -318,21 +350,25 @@ func coverageAssetRefDTO(ref db.AssetRef) CoverageAssetRefDTO {
 // ---- Finding (frontend "Finding") ----
 
 type FindingDTO struct {
+	CaseID    string  `json:"case_id,omitempty"`
+	MemberIDs []int64 `json:"member_ids,omitempty"`
+
 	TrafficCount          int                        `json:"traffic_count"`
 	EvidenceVersion       int64                      `json:"evidence_version"`
 	ReportEvidenceVersion int64                      `json:"report_evidence_version"`
 	ReportStale           bool                       `json:"report_stale"`
 	TrafficBindings       []db.FindingTrafficBinding `json:"traffic_bindings,omitempty"`
 
-	ID        string `json:"id"`
-	FindingID string `json:"finding_id,omitempty"` // standalone findings-table id — the handle for status updates
-	VulnClass string `json:"vulnclass"`
-	Name      string `json:"name,omitempty"` // 漏洞名称;为空时前端回退展示 vulnclass
-	Severity  string `json:"severity"`       // critical | high | medium | low
-	Status    string `json:"status"`         // pending | in_progress | confirmed | resolved | fixed | false_positive | ignored | duplicate | risk_accepted
-	Summary   string `json:"summary"`
-	Evidence  string `json:"evidence"`
-	Report    string `json:"report,omitempty"` // 详细报告(Markdown);仅详情接口返回,列表为空
+	ID                   string `json:"id"`
+	FindingID            string `json:"finding_id,omitempty"` // standalone findings-table id — the handle for status updates
+	VulnClass            string `json:"vulnclass"`
+	Name                 string `json:"name,omitempty"` // 漏洞名称;为空时前端回退展示 vulnclass
+	Severity             string `json:"severity"`       // critical | high | medium | low
+	Status               string `json:"status"`         // pending | in_progress | confirmed | resolved | fixed | false_positive | ignored | duplicate | risk_accepted
+	Summary              string `json:"summary"`
+	Evidence             string `json:"evidence"`
+	Report               string `json:"report,omitempty"` // 详细报告(Markdown);仅详情接口返回,列表为空
+	ReportConversationID *int64 `json:"report_conversation_id,omitempty"`
 
 	IntentID        string            `json:"intent_id,omitempty"`
 	ParamID         string            `json:"param_id,omitempty"`
@@ -463,14 +499,21 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 		FindingID:    i64s(f.ID),
 		TrafficCount: f.TrafficCount, EvidenceVersion: f.EvidenceVersion, ReportEvidenceVersion: f.ReportEvidenceVersion,
 		ReportStale: f.Report != "" && f.EvidenceVersion != f.ReportEvidenceVersion, TrafficBindings: f.TrafficBindings,
-		VulnClass: f.VulnClass,
-		Name:      f.Name,
-		Severity:  f.Severity,
-		Status:    status,
-		Summary:   f.Summary,
-		Evidence:  f.Evidence,
-		Report:    f.Report,
-		TS:        rfc3339(f.CreatedAt),
+		VulnClass:            f.VulnClass,
+		Name:                 f.Name,
+		Severity:             f.Severity,
+		Status:               status,
+		Summary:              f.Summary,
+		Evidence:             f.Evidence,
+		Report:               f.Report,
+		ReportConversationID: f.ReportConversationID,
+		TS:                   rfc3339(f.CreatedAt),
+	}
+	if f.ExportCaseID > 0 {
+		d.ID = "case:" + i64s(f.ExportCaseID)
+		d.FindingID = ""
+		d.CaseID = i64s(f.ExportCaseID)
+		d.MemberIDs = f.ExportMemberIDs
 	}
 	d.Assets = findingAssetDTOs(f.AssetIDs, assets)
 	if f.TaskID != nil {

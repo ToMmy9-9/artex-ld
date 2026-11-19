@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
 	"artex/agent"
 	"artex/db"
 	"artex/xlog" // 【P-LOG·M1】step 吞错修复
@@ -32,6 +31,7 @@ type Scheduler struct {
 	pg                         *db.DB
 	tick                       time.Duration
 	lastFindingInvocationSweep time.Time
+	startedAt                  time.Time
 }
 
 const (
@@ -46,7 +46,7 @@ const (
 )
 
 func newScheduler(s *Server) *Scheduler {
-	return &Scheduler{s: s, pg: s.m.pg, tick: 5 * time.Second}
+	return &Scheduler{s: s, pg: s.m.pg, tick: 5 * time.Second, startedAt: time.Now()}
 }
 
 // Run loops until ctx is done, ticking the scheduler. Started once from server New.
@@ -128,6 +128,8 @@ func (sc *Scheduler) init() {
 
 func (sc *Scheduler) step() {
 	sc.retryFindingInvocations(time.Now())
+
+	sc.fireTaskSchedules()
 	triggers, err := sc.pg.ListEnabledTriggers()
 	if err != nil {
 		// 【P-LOG·M1】此前直接 return → 触发器整体失效时完全无痕。去重限流防刷屏。

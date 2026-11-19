@@ -59,7 +59,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSideQuestions } from "@/hooks/use-side-questions";
-import { api, sseUrl } from "@/lib/api";
+import { api, openSSE } from "@/lib/api";
 import { shouldSubmitOnKey, useChatSendMode } from "@/lib/chat-send-mode";
 import { MOCK } from "@/lib/mock/enabled";
 import { isBtwCommand } from "@/lib/side-questions";
@@ -497,7 +497,7 @@ function WorkerAssetBadge({ assets }: { assets: IntentAsset[] }) {
   );
 }
 
-export function SessionsTab({ taskId }: { taskId: string }) {
+export function SessionsTab({ taskId, requestedSession = "" }: { taskId: string; requestedSession?: string }) {
   const approvalFocus = useApprovalFocus({ taskId });
   // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934）：review_enabled=false 的任务不挂审核 tab
   const [reviewEnabled, setReviewEnabled] = React.useState(false);
@@ -518,6 +518,29 @@ export function SessionsTab({ taskId }: { taskId: string }) {
     return () => { alive = false; clearInterval(t); };
   }, [taskId, reviewEnabled]);
   const [selectedSessionId, setActiveId] = React.useState(MAIN_ID);
+  const [linkedSession, setLinkedSession] = React.useState<Session>();
+  const hasRequestedSession = React.useRef(false);
+  hasRequestedSession.current = /^(intent:[1-9]\d*|main:\d+|plan)$/.test(requestedSession);
+  React.useEffect(() => {
+    let session: Session | undefined;
+    if (/^intent:[1-9]\d*$/.test(requestedSession)) {
+      const id = requestedSession.slice(7);
+      session = {
+        id,
+        intent_id: id,
+        role: "worker",
+        title: `Worker #${id}`,
+        status: "done",
+        live: false,
+        last_activity: "",
+      };
+    } else if (/^main:\d+$/.test(requestedSession)) {
+      const seg = Number(requestedSession.slice(5));
+      session = { ...MAIN_SESSION, id: mainSessionId(seg), seg, title: mainSessionTitle(seg) };
+    } else if (requestedSession === "plan") session = PLANNER_SESSION;
+    setLinkedSession(session);
+    if (session) setActiveId(session.id);
+  }, [requestedSession]);
   const focusSession = React.useMemo<Session | undefined>(() => {
     const source = approvalFocus.state?.source;
     if (!source) return undefined;
@@ -928,7 +951,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
     setSessionTokens({});
     setLLMResolutions(null);
     setSseLive(false);
-    setActiveId(MAIN_ID); // a stale worker id from the previous task must not leak in
+    if (!hasRequestedSession.current) setActiveId(MAIN_ID); // preserve an explicit session deep link
     setMainSegs([{ seq: 0, created_at: "" }]);
     setCurrentSeg(0);
     snapshotRef.current = 0;
@@ -990,7 +1013,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
         bootKey = mainSessionKey(ms.current);
         if (bootKey !== mainSessionKey(0)) loadingKeysRef.current.delete(mainSessionKey(0));
         loadingKeysRef.current.add(bootKey);
-        setActiveId(mainSessionId(ms.current));
+        if (!hasRequestedSession.current) setActiveId(mainSessionId(ms.current));
         patchStore(bootKey, (s) => ({ ...s, loading: true }));
         return api.activityHistory(taskId, bootKey, 0, PAGE);
       })
@@ -1010,8 +1033,8 @@ export function SessionsTab({ taskId }: { taskId: string }) {
           };
         });
         // Open the single task SSE from the snapshot cursor.
-        const es = new EventSource(
-          sseUrl(`/api/exploration/activity/stream?task=${encodeURIComponent(taskId)}&since=${snapshotRef.current}`),
+        const es = openSSE(
+          `/api/exploration/activity/stream?task=${encodeURIComponent(taskId)}&since=${snapshotRef.current}`,
         );
         esRef.current = es;
         es.onopen = () => setSseLive(true);
@@ -1288,12 +1311,20 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   );
 
   const sessions = React.useMemo(() => {
+<<<<<<< HEAD
     // 【二开·P-INTENT·U3】REVIEW_SESSION 并入（紧随 PLANNER_SESSION）
     const items = [...mainSessions, { ...PLANNER_SESSION, live: plannerLive }, { ...REVIEW_SESSION, live: reviewLive }, ...workerSessions, SYSTEM_SESSION]; // 【二开·P-REVIEW·常驻】审核 tab 常驻：未开启审核的任务面板内显示空态
     const located = focusSession ?? retainedSession;
     if (located && !items.some((s) => s.id === located.id)) items.push(located);
     return items;
   }, [mainSessions, workerSessions, plannerLive, reviewLive, reviewEnabled, focusSession, retainedSession]); // 【二开·P-INTENT·U3】依赖加 reviewLive【二开·P-REVIEW·D2c】加 reviewEnabled
+=======
+    const items = [...mainSessions, { ...PLANNER_SESSION, live: plannerLive }, ...workerSessions, SYSTEM_SESSION];
+    const located = focusSession ?? retainedSession ?? linkedSession;
+    if (located && !items.some((s) => s.id === located.id)) items.push(located);
+    return items;
+  }, [mainSessions, workerSessions, plannerLive, focusSession, retainedSession, linkedSession]);
+>>>>>>> ruoji-v0.3.27
 
   const grouped = {
     mainagent: sessions.filter((s) => s.role === "mainagent"),
@@ -1789,6 +1820,15 @@ export function SessionsTab({ taskId }: { taskId: string }) {
         <SideQuestionWorkspace
           side={side}
           label={active.role === "worker" ? `Worker #${active.intent_id} · ${activeDisplayTitle}` : activeDisplayTitle}
+          noSnapshotHint={
+            isMain ? "有任务描述、Planner/Worker 结果或发现记录后即可提问" : "对应 Worker 首次运行后即可提问"
+          }
+          emptyDescription={
+            isMain
+              ? "根据当前任务上下文回答，主任务继续运行；暂停或尚未运行主 Agent 也可以提问。"
+              : "根据当前 Worker 的上下文回答，旁路问答不会执行工具。"
+          }
+          placeholder={isMain ? "询问当前任务上下文…" : "询问当前 Worker 上下文…"}
         >
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
             {/* 【二开·P-INTENT·U3】起 —— 审核会话内容区整体由 ReviewPanel 接管（消息流+确认卡+composer 全在面板内） */}

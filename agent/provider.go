@@ -22,12 +22,11 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"strings"
 	"time"
-
+	"artex/llmhttp"
 	"artex/llmrec"
 	"norma/agentcore"
 	"norma/compaction"
@@ -38,7 +37,10 @@ import (
 
 // Config describes the LLM backend resolved from the environment.
 type Config struct {
-	Format  llm.Format
+	Format llm.Format
+	// Jev marks the TypeSafe System One judge protocol. It must never be sent
+	// through the chat/completions provider path.
+	Jev     bool
 	BaseURL string
 	APIKey  string
 	Model   string
@@ -212,6 +214,11 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 		Stream:  true, // 默认流式;调用方按 profile 覆盖
 	}
 	switch strings.TrimSpace(provider) {
+	case "jev":
+		c.Jev = true
+		if c.Model == "" {
+			c.Model = "jev-latest"
+		}
 	case "openai":
 		c.Format = llm.FormatOpenAI
 		// provider appends "/chat/completions"; tolerate a full endpoint URL.
@@ -249,6 +256,9 @@ func isFalsy(s string) bool {
 
 // Provider returns the short provider name ("anthropic"/"openai").
 func (c Config) Provider() string {
+	if c.Jev {
+		return "jev"
+	}
 	switch c.Format {
 	case llm.FormatOpenAI:
 		return "openai"
@@ -258,14 +268,33 @@ func (c Config) Provider() string {
 	return "anthropic"
 }
 
-// NewProvider builds an llm.Provider from the config. When a rate is set, the
-// limiter lives on the single provider instance — so planner + all workers +
-// main agent (which share this provider) are bounded by one shared rate limit.
+// NewProvider builds a provider with its own HTTP request limiter. Every HTTP
+// attempt, including SDK retries, counts toward both rolling rate windows.
 func (c Config) NewProvider() (llm.Provider, error) {
+	return c.NewProviderWithLimiter(&RequestLimiter{})
+}
+
+// NewProviderWithLimiter reuses quota history across provider rebuilds. Callers
+// sharing a profile must retain the same limiter outside their provider cache.
+func (c Config) NewProviderWithLimiter(limiter *RequestLimiter) (llm.Provider, error) {
+	if c.Jev {
+		return nil, fmt.Errorf("Jev System One 仅可用于拦截判定模型，不能作为聊天 provider")
+	}
 	client, err := quotaAwareHTTPClient(c.Proxy, c.SessionHeaderKey)
 	if err != nil {
 		return nil, err
 	}
+	return c.newProvider(client, limiter)
+}
+
+func (c Config) newProvider(client *http.Client, limiter *RequestLimiter) (llm.Provider, error) {
+	if limiter == nil {
+		limiter = &RequestLimiter{}
+	}
+	if err := limiter.configure(c.RatePerSecond, c.RatePerMinute); err != nil {
+		return nil, err
+	}
+	client.Transport = rateLimitedTransport{base: client.Transport, limiter: limiter}
 	lc := llm.Config{
 		Format:     c.Format,
 		BaseURL:    c.BaseURL,
@@ -285,9 +314,8 @@ func (c Config) NewProvider() (llm.Provider, error) {
 	lc.RetryInterval = c.Retry.ConnectInterval
 	lc.EmptyResponseRetries = c.Retry.EmptyAttempts
 	lc.EmptyResponseInterval = c.Retry.EmptyInterval
-	if c.RatePerSecond > 0 || c.RatePerMinute > 0 {
-		lc.RateLimit = &llm.RateLimit{PerSecond: c.RatePerSecond, PerMinute: c.RatePerMinute}
-	}
+	// Norma's limiter allows a full-window burst and excludes establishment
+	// retries. Enforce limits on HTTP attempts instead; do not also enable it.
 	return llm.NewProvider(lc)
 }
 
@@ -406,29 +434,14 @@ func requestBodySnapshot(req *http.Request) string {
 }
 
 func quotaAwareHTTPClient(proxy, sessionHeaderKey string) (*http.Client, error) {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	// 【二开·review chat 卡死排查】禁用自动 gzip：SSE 流被 gzip 压缩后经中转代理
-	// （Clash 等）缓冲不冲刷，SSE 实时性被破坏，客户端永远阻塞在 flate inflate
-	// （goroutine dump 实锤：http2gzipReader→flate）。与 llm.defaultHTTPClient 同理。
-	transport.DisableCompression = true
-	proxy = strings.TrimSpace(proxy)
-	if proxy == "" {
-		transport.Proxy = nil // 留空=直连,不回退 HTTP_PROXY/HTTPS_PROXY 环境变量
-	} else {
-		proxyURL, err := url.Parse(proxy)
-		if err != nil {
-			return nil, fmt.Errorf("llm: invalid proxy %q: %w", proxy, err)
-		}
-		switch proxyURL.Scheme {
-		case "http", "https", "socks5":
-		case "":
-			return nil, fmt.Errorf("llm: proxy %q missing scheme (use http://, https:// or socks5://)", proxy)
-		default:
-			return nil, fmt.Errorf("llm: unsupported proxy scheme %q (use http, https or socks5)", proxyURL.Scheme)
-		}
-		transport.Proxy = http.ProxyURL(proxyURL)
+	// 【合并】共用 llmhttp.NewClient（唯一出口 HTTP 客户端构造点，RuoJi6 引入），
+	// 代理 scheme 校验与「空=直连不回退环境变量」的语义集中在一处。
+	client, err := llmhttp.NewClient(proxy)
+	if err != nil {
+		return nil, err
 	}
-	return &http.Client{Transport: quotaAwareTransport{base: transport, sessionHeaderKey: strings.TrimSpace(sessionHeaderKey)}}, nil
+	client.Transport = quotaAwareTransport{base: client.Transport, sessionHeaderKey: strings.TrimSpace(sessionHeaderKey)}
+	return client, nil
 }
 
 // logTestConnection prints the raw HTTP status code(s) and response body of a

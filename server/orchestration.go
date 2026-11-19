@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
 	"artex/agent"
 	"artex/db"
+	"artex/intercept"
 	"artex/xlog" // 【二开·P-LOG·S8】spawn_task 四参数接收 DEBUG
 	"norma/permission"
 	actool "norma/tool"
@@ -71,7 +71,7 @@ func (s *Server) hostTools() ([]actool.CoreTool, map[string][]string) {
 // orchestrationTools returns the cross-task tool set. Bound per-agent via the
 // tools table (default: no binding — opt-in for orchestration agents).
 func (s *Server) orchestrationTools() []actool.CoreTool {
-	return []actool.CoreTool{
+	return append([]actool.CoreTool{
 		s.toolListTasks(),
 		s.toolListLLMProfiles(),
 		s.toolCheckInternalAssetTask(),
@@ -90,7 +90,7 @@ func (s *Server) orchestrationTools() []actool.CoreTool {
 		s.toolBindFindingTraffic(),
 		s.toolDispatchFindingToAgent(),
 		s.toolListTaskConstraints(), // 【二开·P-INTENT·U22】跨任务只读约束查询
-	}
+	}, s.findingCaseTools()...)
 }
 
 // --- schema helpers ---
@@ -187,10 +187,9 @@ func (s *Server) delegateToTask(ctx context.Context, in json.RawMessage, pick fu
 
 func (s *Server) toolListTasks() actool.CoreTool {
 	return roTool("list_tasks",
-		"列出所有任务(id/描述/目标/状态/运行时长/父任务/LLM 配置)，编排 agent 用它掌握全局、看哪些任务卡太久、各自用哪个 LLM。运行时长：运行中=创建→现在，终态=创建→最后活动(秒)。llm_profile：任务 planner/worker 用的配置名，(激活配置)=跟随全局激活。",
+		"列出所有任务(id/描述/目标/状态/运行时长/父任务/LLM 配置)，编排 agent 用它掌握全局、看哪些任务卡太久、各自用哪个 LLM。运行时长只累计实际执行时间，暂停、排队和终态后的时间不计入。llm_profile：任务 planner/worker 用的配置名，(激活配置)=跟随全局激活。",
 		objSchema(map[string]any{}),
 		func(context.Context, json.RawMessage) (actool.Result, error) {
-			lastAct, _ := s.m.PG().LastActivityAll()
 			// id -> name to resolve each task's pinned LLM profile.
 			profName := map[int64]string{}
 			if profs, err := s.m.pg.ListProfiles(); err == nil {
@@ -201,16 +200,8 @@ func (s *Server) toolListTasks() actool.CoreTool {
 			out := make([]map[string]any, 0)
 			for _, t := range s.m.List() {
 				status := s.deriveTaskStatus(t)
-				end := lastAct[t.ExpID]
-				if live := s.engine.LastActivity(t.ID); live > end {
-					end = live
-				}
-				dur := int64(0)
-				if status == "running" {
-					dur = time.Now().Unix() - t.CreatedAt
-				} else if end > t.CreatedAt {
-					dur = end - t.CreatedAt
-				}
+				lifecycle := t.lifecycleSnapshot()
+				dur := taskRunSeconds(lifecycle.ActiveRunSeconds, lifecycle.RunSegmentStartedAt, time.Now().Unix(), status, lifecycle.Paused, lifecycle.Queued)
 				row := map[string]any{"id": t.ID, "description": t.Description, "goal": t.Goal, "status": status, "run_seconds": dur}
 				if t.ParentRef != "" {
 					row["parent_ref"] = t.ParentRef
@@ -286,7 +277,7 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			"worker_count":          map[string]any{"type": "integer", "description": "可选：任务级 worker 并发数，合法区间 0~16；0 或省略=跟随全局默认"},
 			// 【二开·P-ORCH·S8】止
 		}, "description", "goal"),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
 				FindingID            int64           `json:"finding_id"`
 				TargetAsset          string          `json:"target_asset"`
@@ -457,8 +448,37 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			if pin != nil {
 				llmIDs = []int64{*pin}
 			}
+			name := a.Name
+			// 【RuoJi6】自动标题：enabled 时用 LLM 生成 ≤40 字标题覆盖 spawn 传入的 name。
+			// 【合并】artex-ld 的 resolveSpawnTaskName 结果作为兜底底稿（autoTitle 失败时仍用它）。
+			autoTitleEnabled := s.m.pg.GetBool(db.SettingTaskAutoTitle, false)
+			if autoTitleEnabled {
+				if err := ctx.Err(); err != nil {
+					return actool.Errorf(err.Error()), nil
+				}
+				active, activeErr := s.m.pg.ActiveProfile()
+				if activeErr != nil {
+					log.Printf("[auto-title] active profile lookup failed: %v", activeErr)
+				} else if active == nil {
+					log.Printf("[auto-title] no active profile")
+				} else if prov, _, providerOK := s.providerForProfile(active.ID); providerOK {
+					titleCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+					defer cancel()
+					generated, titleErr := agent.GenerateAutoTitle(titleCtx, prov, a.Description+"\n"+a.Goal)
+					if err := ctx.Err(); err != nil {
+						return actool.Errorf(err.Error()), nil
+					}
+					if titleErr == nil {
+						name = generated
+					} else {
+						log.Printf("[auto-title] task title generation failed: %v", titleErr)
+					}
+				} else {
+					log.Printf("[auto-title] task provider unavailable for active profile %d", active.ID)
+				}
+			}
 			t, err := s.m.CreateTaskWithOptions(a.Description, a.Goal, db.TaskCreateOptions{
-				Name:                 resolveSpawnTaskName(scenarioNKey, a.Name, dispatchAssetKeys),
+				Name:                 resolveSpawnTaskName(scenarioNKey, name, dispatchAssetKeys),
 				CategoryID:           categoryID,
 				WorkerPrompt:         workerPrompt,
 				CopyFindingChain:     a.FindingID > 0,
@@ -641,6 +661,25 @@ func (s *Server) toolUpdateFindingReport() actool.CoreTool {
 			if nodeID <= 0 {
 				return actool.Errorf("finding_id 无效"), nil
 			}
+			fid, err := s.m.pg.FindingIDByNodeID(nodeID)
+			if err != nil {
+				return actool.Errorf(err.Error()), nil
+			}
+			if fid > 0 {
+				if err := s.checkCaseReviewScope(ctx, "update_finding_report", findingCaseRequest{FindingID: json.RawMessage(i64s(fid))}); err != nil {
+					return actool.Errorf(err.Error()), nil
+				}
+				if f, err := s.m.pg.GetFinding(fid); err == nil && f != nil && f.TaskID != nil {
+					if err := s.archiveFindingScreenshots(*f.TaskID, a.Report); err != nil {
+						return actool.Errorf("归档报告截图失败: " + err.Error()), nil
+					}
+				}
+				if conversationID := intercept.ConvIDFromContext(ctx); conversationID > 0 {
+					if err := s.m.pg.SetFindingReportConversationID(fid, conversationID); err != nil {
+						return actool.Errorf("关联报告对话失败: " + err.Error()), nil
+					}
+				}
+			}
 			n, err := s.m.pg.SetFindingReportVersionByNodeID(ctx, nodeID, a.Report, a.EvidenceVersion)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
@@ -676,10 +715,10 @@ func (s *Server) seedOrchestrationTools() {
 	for _, t := range s.orchestrationTools() {
 		schema, _ := json.Marshal(t.InputSchema())
 		bindings := autoAgents
-		switch t.Name() {
-		case "bind_finding_traffic":
+		switch {
+		case t.Name() == "bind_finding_traffic" || strings.Contains(t.Name(), "finding_case") || t.Name() == "search_finding_duplicates" || t.Name() == "get_finding_record" || t.Name() == "merge_finding_records" || t.Name() == "suggest_finding_merge":
 			bindings = json.RawMessage(`["reporter"]`)
-		case "dispatch_finding_to_agent":
+		case t.Name() == "dispatch_finding_to_agent":
 			bindings = json.RawMessage(`["planner"]`)
 		}
 		_ = s.m.PG().SeedTool(t.Name(), t.Description(), schema, bindings)
@@ -714,11 +753,75 @@ func (s *Server) seedOrchestrationTools() {
 	s.upgradeVulnDispatcherIndependentGraph()
 	s.upgradePlannerFindingDispatch() // 关闭 dispatcher/cleaner 旧全局 Finding 入口
 	s.upgradeReporterTriggerMessage() // 老库补迁移:让 reporter 回传 evidence_version(一次性)
-	s.seedFindingTrafficTools()       // 增加可选证据参数及只读证据工具，保留用户配置
+	s.migrateReporterWorkflow()       // 修复旧库残留的 reproduction 工具/提示词绑定
+	if s.m.pg.GetBool(settingBrowserScreenshot, false) {
+		// Re-apply the opt-in after startup seeding so an existing database gets
+		// both reporter visibility and the repaired Playwright launch arguments.
+		if err := s.setReporterBrowserScreenshotVisibility(true); err != nil {
+			log.Printf("[reporter] 截图 MCP 启动配置同步失败: %v", err)
+		}
+	}
+	s.seedFindingTrafficTools() // 增加可选证据参数及只读证据工具，保留用户配置
 	s.seedFindingWorkflowTools()
+	s.seedFindingCaseTools()
 	// 注：pentest 的默认工具绑定无需迁移——BuiltinToolSeeds 在全新初始化时就把
 	// list_assets/insert_assets/report_finding/list_findings/list_companies 连同
 	// pentest 一起 seed 好了（项目尚无旧库，不做迁移）。
+}
+
+// migrateReporterWorkflow repairs databases created by the short-lived
+// structured-reproduction reporter. That workflow referenced
+// update_finding_reproduction, which is no longer a runtime tool; leaving the
+// old prompt/trigger in place makes a newly reported vulnerability fail after
+// all evidence has already been collected. User-authored reporter prompts are
+// preserved unless they contain the removed tool contract.
+func (s *Server) migrateReporterWorkflow() {
+	const flag = "reporter_workflow_markdown_v2"
+	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	defer func() { _ = s.m.pg.SetSetting(flag, "true") }()
+
+	reporter, err := s.m.pg.GetAgentByKey("reporter")
+	if err != nil || reporter == nil {
+		return
+	}
+	if current, err := s.m.pg.CurrentPrompt(reporter.ID); err == nil &&
+		(strings.Contains(current, "update_finding_reproduction") || strings.Contains(current, "漏洞步骤编写 agent")) {
+		if _, err := s.m.pg.ResetPromptToDefault(reporter.ID, agent.ReporterDefaultPrompt); err != nil {
+			log.Printf("[reporter] 旧版提示词迁移失败: %v", err)
+		} else {
+			log.Printf("[reporter] 已将旧版复现步骤提示词迁移为 Markdown 报告流程")
+		}
+	}
+
+	// 只补齐当前报告流程需要的绑定，不覆盖管理员已有的其它配置。
+	_ = s.m.pg.AddAgentToToolBinding("reporter", []string{
+		"update_finding_report", "get_finding_traffic", "bind_finding_traffic",
+		"get_task_node_detail", "list_task_findings", "get_task_worker_trace",
+		"list_task_worker_traces", "search_task_worker_traces", "get_task_graph",
+	})
+	// 旧行保留在工具目录里供历史审计，但不能继续被运行时广告或调用。
+	if _, err := s.m.pg.Exec(`UPDATE tools SET enabled=false, updated_at=now() WHERE key='update_finding_reproduction' AND system`); err != nil {
+		log.Printf("[reporter] 旧 reproduction 工具停用失败: %v", err)
+	}
+
+	triggers, err := s.m.pg.ListTriggersFor("reporter")
+	if err != nil {
+		log.Printf("[reporter] 读取触发器失败: %v", err)
+		return
+	}
+	for _, t := range triggers {
+		if !t.OnToolCall || !strings.Contains(t.ToolCallMessage, "update_finding_reproduction") {
+			continue
+		}
+		t.ToolCallMessage = reporterToolCallMessage
+		if err := s.m.pg.UpdateTrigger(t); err != nil {
+			log.Printf("[reporter] 旧触发器迁移失败: %v", err)
+			continue
+		}
+		log.Printf("[reporter] 已将旧 reproduction 触发器迁移为报告保存流程")
+	}
 }
 
 // refreshBuiltinToolSchemas propagates code schema/description changes on the
@@ -727,7 +830,7 @@ func (s *Server) seedOrchestrationTools() {
 // reaches an old DB otherwise. Preserves each tool's agent binding + enabled flag.
 // Bump the flag whenever these tools' schemas/descriptions change in code.
 func (s *Server) refreshBuiltinToolSchemas() {
-	const flag = "tool_schema_refresh_v14_independent_spawn" // v14：spawn_task 使用独立探索链并按 finding_id 选择性复制血缘
+	const flag = "tool_schema_refresh_v14_independent_spawn" // v14：spawn_task 使用独立探索链并按 finding_id 选择性复制血缘；v8：finding_case 工具组
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}

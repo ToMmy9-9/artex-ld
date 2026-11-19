@@ -155,5 +155,5 @@ func (s *Server) enqueueFindingInvocation(inv db.FindingInvocation) (bool, error
 		finding.EvidenceVersion, trunc(inv.Reason, 2000), trunc(finding.Evidence, 12000))
 	title := fmt.Sprintf("planner finding 派发 · task#%d · finding#%d", inv.TaskID, inv.FindingID)
 	return s.startTriggeredRun(inv.AgentKey, title, message.String(), inv.TaskID, true, task.Description, task.Goal,
-		[]findingInvocationRef{{agentKey: inv.AgentKey, findingID: inv.FindingID}}), nil
+		[]findingInvocationRef{{agentKey: inv.AgentKey, findingID: inv.FindingID}}, 0), nil
 }

@@ -44,12 +44,12 @@ const preparationLabels = {
   answering: "正在回答…",
 };
 
-export function SideQuestionButton({ side }: { side: SideQuestions }) {
+export function SideQuestionButton({ side, label = "旁路提问" }: { side: SideQuestions; label?: string }) {
   if (!side.enabled) return null;
   return (
-    <Button variant="outline" size="sm" onClick={() => side.setOpen(true)} title="/btw 旁路提问">
+    <Button variant="outline" size="sm" onClick={() => side.setOpen(true)} title={`/btw ${label}`}>
       <MessageCircleQuestionIcon data-icon="inline-start" />
-      旁路提问
+      {label}
     </Button>
   );
 }
@@ -58,10 +58,18 @@ function SidePanel({
   side,
   label,
   composerLayout,
+  suggestions,
+  placeholder,
+  noSnapshotHint,
+  emptyDescription,
 }: {
   side: SideQuestions;
   label: string;
   composerLayout: ComposerLayout;
+  suggestions?: string[];
+  placeholder?: string;
+  noSnapshotHint?: string;
+  emptyDescription?: string;
 }) {
   const inlineComposer = composerLayout === "inline";
   const [confirm, setConfirm] = useState(false);
@@ -96,13 +104,13 @@ function SidePanel({
         </Button>
       </div>
       <div className="border-b px-3 py-2 text-muted-foreground text-xs">
-        {side.snapshot ? (
+        {side.snapshot?.available ? (
           <>
             <p>{side.snapshot.model.model}</p>
             <p>上下文更新于 {new Date(side.snapshot.captured_at).toLocaleString()}</p>
           </>
         ) : (
-          "主 Agent 首次运行后即可提问"
+          noSnapshotHint ?? "主 Agent 首次运行后即可提问"
         )}
       </div>
       <div
@@ -123,7 +131,7 @@ function SidePanel({
           <Empty>
             <EmptyHeader>
               <EmptyTitle>随时问一个问题</EmptyTitle>
-              <EmptyDescription>根据当前 Agent 的上下文回答，主任务继续运行。</EmptyDescription>
+              <EmptyDescription>{emptyDescription ?? "根据当前 Agent 的上下文回答，主任务继续运行。"}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
@@ -161,9 +169,9 @@ function SidePanel({
         </div>
       </div>
       <div className="shrink-0 border-t p-3">
-        {(side.error || side.snapshot?.reason) && (
+        {(side.error || side.snapshotError || side.snapshot?.reason) && (
           <Alert variant="destructive" className="mb-2">
-            <AlertDescription>{side.error || side.snapshot?.reason}</AlertDescription>
+            <AlertDescription>{side.error || side.snapshotError || side.snapshot?.reason}</AlertDescription>
           </Alert>
         )}
         <InputGroup className={inlineComposer ? "min-h-10" : "min-h-9"}>
@@ -171,7 +179,7 @@ function SidePanel({
             rows={1}
             className={cn("overflow-y-auto", inlineComposer ? "max-h-40 min-h-0" : "max-h-36 min-h-9")}
             aria-label="旁路问题"
-            placeholder="询问当前上下文…"
+            placeholder={placeholder ?? "询问当前上下文…"}
             value={side.draft}
             maxLength={4000}
             disabled={side.busy}
@@ -209,6 +217,22 @@ function SidePanel({
             )}
           </InputGroupAddon>
         </InputGroup>
+        {suggestions?.length ? (
+          <fieldset className="mt-2 flex flex-wrap gap-1.5" aria-label="快捷问题">
+            {suggestions.map((suggestion) => (
+              <Button
+                key={suggestion}
+                variant="outline"
+                size="sm"
+                className="h-auto whitespace-normal text-left text-xs"
+                disabled={side.busy || !side.snapshot?.available}
+                onClick={() => void side.ask(suggestion)}
+              >
+                {suggestion}
+              </Button>
+            ))}
+          </fieldset>
+        ) : null}
       </div>
       {inlineComposer && (
         <div className="shrink-0 truncate px-3 pt-0.5 pb-1 text-muted-foreground text-xs">独立问答 · 无工具执行</div>
@@ -235,36 +259,89 @@ export function SideQuestionWorkspace({
   side,
   label,
   children,
+  mode = "split",
   composerLayout = "stacked",
+  suggestions,
+  placeholder,
+  noSnapshotHint,
+  emptyDescription,
+  className,
+  mainClassName,
 }: {
   side: SideQuestions;
   label: string;
   children: ReactNode;
+  mode?: "split" | "floating";
   composerLayout?: ComposerLayout;
+  suggestions?: string[];
+  placeholder?: string;
+  noSnapshotHint?: string;
+  emptyDescription?: string;
+  className?: string;
+  mainClassName?: string;
 }) {
   const mobile = useIsMobile();
+  const desktopSideOpen = side.open && side.enabled && !mobile;
+  const floatingSideOpen = desktopSideOpen && mode === "floating";
   return (
     <>
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 min-w-0 flex-1">
-        <ResizablePanel id="main-conversation" minSize="35%" className="flex min-h-0 min-w-0 flex-col">
-          {children}
-        </ResizablePanel>
-        {side.open && side.enabled && !mobile && (
-          <>
-            <ResizableHandle withHandle />
-            <ResizablePanel id="side-question" defaultSize="38%" minSize="280px" maxSize="65%">
-              <SidePanel side={side} label={label} composerLayout={composerLayout} />
-            </ResizablePanel>
-          </>
-        )}
-      </ResizablePanelGroup>
+      {floatingSideOpen ? (
+        <>
+          <div className={cn("min-h-0 min-w-0 flex-1", className, mainClassName)}>{children}</div>
+          <div className="pointer-events-none fixed inset-x-0 top-20 z-40 flex justify-end px-4 pb-4 sm:px-6">
+            <div className="pointer-events-auto h-[calc(100svh-6rem)] w-[min(420px,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-background shadow-2xl">
+              <SidePanel
+                side={side}
+                label={label}
+                composerLayout={composerLayout}
+                suggestions={suggestions}
+                placeholder={placeholder}
+                noSnapshotHint={noSnapshotHint}
+                emptyDescription={emptyDescription}
+              />
+            </div>
+          </div>
+        </>
+      ) : desktopSideOpen ? (
+        <ResizablePanelGroup orientation="horizontal" className={cn("min-h-0 min-w-0 flex-1", className)}>
+          <ResizablePanel
+            id="main-conversation"
+            minSize="35%"
+            className={cn("flex min-h-0 min-w-0 flex-col", mainClassName)}
+          >
+            {children}
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="side-question" defaultSize="38%" minSize="280px" maxSize="65%">
+            <SidePanel
+              side={side}
+              label={label}
+              composerLayout={composerLayout}
+              suggestions={suggestions}
+              placeholder={placeholder}
+              noSnapshotHint={noSnapshotHint}
+              emptyDescription={emptyDescription}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      ) : (
+        <div className={cn("flex min-h-0 w-full min-w-0 flex-1 flex-col", className, mainClassName)}>{children}</div>
+      )}
       <Drawer open={mobile && side.open && side.enabled} onOpenChange={side.setOpen}>
         <DrawerContent className="h-[85svh]">
           <DrawerHeader className="sr-only">
             <DrawerTitle>旁路提问</DrawerTitle>
             <DrawerDescription>{label} 的独立问答</DrawerDescription>
           </DrawerHeader>
-          <SidePanel side={side} label={label} composerLayout={composerLayout} />
+          <SidePanel
+            side={side}
+            label={label}
+            composerLayout={composerLayout}
+            suggestions={suggestions}
+            placeholder={placeholder}
+            noSnapshotHint={noSnapshotHint}
+            emptyDescription={emptyDescription}
+          />
         </DrawerContent>
       </Drawer>
     </>

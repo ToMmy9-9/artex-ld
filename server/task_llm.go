@@ -35,6 +35,7 @@ type taskAgentBundle struct {
 	pl             *agent.Planner
 	wk             *agent.Worker
 	main           *agent.MainAgent
+	pinnedWorkers  map[int64]*agent.Worker
 }
 
 type llmAuditProfile struct {
@@ -56,9 +57,10 @@ type llmActivityMetadata struct {
 }
 
 type taskLLMRuntime struct {
-	s        *Server
-	taskID   string
-	agentKey string
+	s            *Server
+	taskID       string
+	agentKey     string
+	pinProfileID *int64
 }
 
 type taskLLMError struct {
@@ -109,13 +111,24 @@ type taskLLMStreamHooks struct {
 	transition func(taskLLMSelection, db.TaskLLMTransition, error)
 }
 
-// current resolves the provider this role runs on, by precedence:
-// Agent 绑定 → 任务 LLM 配置链 → 全局/环境配置。
+// current resolves the provider this role runs on. Pinned workers use only their
+// assigned profile; legacy task agents use Agent 绑定 → 任务 LLM 配置链 → 全局/环境配置.
 // 绑定优先于任务链：某个角色被显式指定了模型，就一直跑在那个模型上；绑定不存在或
 // 构建失败时才降级到任务链，任务链为空时再降级到全局配置。
 // 返回的 profile id 只有走任务链时才非零 —— streamTaskLLM 以此判断额度错误是否
 // 应该推进任务的故障转移状态（绑定/全局路径不改任务链状态，沿用既有语义）。
 func (r *taskLLMRuntime) current() (taskLLMSelection, error) {
+	if r.pinProfileID != nil {
+		// Pinned worker runtimes are exclusive: resolve their profile before
+		// touching bindings or the task failover state. A missing or invalid
+		// profile is an error, never an invitation to use another model.
+		prov, cfg, ok := r.s.providerForProfile(*r.pinProfileID)
+		if !ok {
+			return taskLLMSelection{}, fmt.Errorf("LLM profile #%d is missing or invalid", *r.pinProfileID)
+		}
+		t, _ := r.s.m.Task(r.taskID)
+		return taskLLMSelection{task: t, provider: prov, retry: cfg.Retry}, nil
+	}
 	taskNum, err := parseTaskID(r.taskID)
 	if err != nil {
 		return taskLLMSelection{}, err
@@ -160,6 +173,10 @@ func (r *taskLLMRuntime) current() (taskLLMSelection, error) {
 // the caller. If failover switches profiles, the change takes effect on the next
 // agent run (a fresh Session is built per run in captureRun).
 func (r *taskLLMRuntime) activeCfg() (agent.Config, bool) {
+	if r.pinProfileID != nil {
+		_, cfg, ok := r.s.providerForProfile(*r.pinProfileID)
+		return cfg, ok
+	}
 	taskNum, err := parseTaskID(r.taskID)
 	if err != nil {
 		return agent.Config{}, false
@@ -462,6 +479,12 @@ func isRetryableStreamError(err error) bool {
 // CompactionWindow mirrors current()'s precedence so the context window always
 // matches the provider the role will actually stream on.
 func (r *taskLLMRuntime) CompactionWindow() int {
+	if r.pinProfileID != nil {
+		if _, cfg, ok := r.s.providerForProfile(*r.pinProfileID); ok {
+			return cfg.CompactionWindow()
+		}
+		return (agent.Config{}).CompactionWindow()
+	}
 	if _, cfg, ok := r.s.agentBindingProvider(r.agentKey); ok {
 		return cfg.CompactionWindow()
 	}
@@ -577,6 +600,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	wk.SetNoaEnabled(s.m.NoaCompactionEnabled)     // 实验功能:noa 上下文压缩(平台级开关,每 run 读)
 	wk.SetRunTimeout(time.Duration(s.agentRunSeconds("worker")) * time.Second)
 	wk.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	wk.SetProxyProvider(s.m.ProxyAddr)
 	wk.SetWebSearch(s.webSearchFor("worker"))
 	wk.SetConstraintInject(s.constraintInjectWorker) // 操作约束注入 worker(可配置,默认开)
 	wk.SetTaskPromptOverride(func() string { return t.WorkerPromptOverride })
@@ -593,6 +617,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	pl.SetReviewEnabled(func(int64) bool { return t.ReviewEnabled })
 	pl.SetExecutorChecker(s.checkExecutorKey)
 	pl.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	pl.SetProxyProvider(s.m.ProxyAddr)
 	pl.SetWebSearch(s.webSearchFor("planner"))
 	pl.SetConstraintInject(s.constraintInjectPlanner)                          // 操作约束注入 planner(可配置,默认开)
 	pl.SetTaskPromptOverride(func() string { return t.PlannerPromptOverride }) // 【二开·P-TPL·A4】第①级任务级快照（每轮现读；建任务时原子写入，运行中无修改入口 m00414）
@@ -607,14 +632,58 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	main.SetMaxTokens(mainRuntime.maxTokens)
 	main.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(平台级开关,每 run 读)
 	main.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	main.SetProxyProvider(s.m.ProxyAddr)
 	main.SetWebSearch(s.webSearchFor("mainagent"))
 	main.SetSteerWork(s.engine.SteerWork) // steer_work：人对运行中 work 实时纠偏
 	bundle := &taskAgentBundle{
 		runtime: goalRuntime, plannerRuntime: plannerRuntime, workerRuntime: workerRuntime,
-		mainRuntime: mainRuntime, pl: pl, wk: wk, main: main,
+		mainRuntime: mainRuntime, pl: pl, wk: wk, main: main, pinnedWorkers: map[int64]*agent.Worker{},
 	}
 	s.taskAgents[t.ID] = bundle
 	return bundle
+}
+
+func (s *Server) workerForTaskSlot(t *Task, slot WorkerSlot) (*agent.Worker, error) {
+	if slot.ProfileID <= 0 {
+		return nil, errors.New("worker slot is not pinned")
+	}
+	_, cfg, ok := s.providerForProfile(slot.ProfileID)
+	if !ok {
+		return nil, fmt.Errorf("LLM profile #%d is missing or invalid", slot.ProfileID)
+	}
+	s.taskAgentMu.Lock()
+	bundle := s.taskAgents[t.ID]
+	s.taskAgentMu.Unlock()
+	if bundle == nil {
+		bundle = s.agentsForTask(t)
+	}
+	s.taskAgentMu.Lock()
+	defer s.taskAgentMu.Unlock()
+	if current := s.taskAgents[t.ID]; current != nil {
+		bundle = current
+	}
+	if bundle.pinnedWorkers == nil {
+		bundle.pinnedWorkers = make(map[int64]*agent.Worker)
+	}
+	if worker := bundle.pinnedWorkers[slot.ProfileID]; worker != nil {
+		return worker, nil
+	}
+	id := slot.ProfileID
+	runtime := &taskLLMRuntime{s: s, taskID: t.ID, agentKey: "worker", pinProfileID: &id}
+	tx := transcript.NewStore(filepath.Join(s.m.dir, "transcripts"))
+	worker := agent.NewWorker(runtime, cfg.Model, s.m.dir, tx, runtime.CompactionWindow(), s.agentMaxTurns("worker"))
+	worker.SetFindingRecorder(s.evidenceStore())
+	worker.SetCompactionWindowResolver(runtime.CompactionWindow)
+	worker.SetNonStreaming(runtime.nonStreaming)
+	worker.SetMaxTokens(runtime.maxTokens)
+	worker.SetNoaEnabled(s.m.NoaCompactionEnabled)
+	worker.SetRunTimeout(time.Duration(s.agentRunSeconds("worker")) * time.Second)
+	worker.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	worker.SetProxyProvider(s.m.ProxyAddr)
+	worker.SetWebSearch(s.webSearchFor("worker"))
+	worker.SetConstraintInject(s.constraintInjectWorker)
+	bundle.pinnedWorkers[id] = worker
+	return worker, nil
 }
 
 func (s *Server) syncTaskLLMState(pt *db.Task) {

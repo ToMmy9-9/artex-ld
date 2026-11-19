@@ -19,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
 	"artex/db"
 	"artex/intercept"
 	"artex/xlog"
@@ -38,16 +37,10 @@ import (
 // WebSearchOpts is the web-search backend selection the server pushes into each
 // agent (planner/worker/main). Enabled=false leaves the web_search tool off.
 // Backend is "ddgs" (no key), "brave-free" (BraveKey required), "tavily"
-// (TavilyKey required), or "deepseek" (DeepSeek* required, filled from the
-// active LLM profile). It maps directly onto agentcore.Options.
+// (TavilyKey required), or "deepseek" (uses DeepSeek's independent Search API).
 // Proxy is a dedicated egress proxy for the search request (http/https/socks5),
 // independent of the traffic-recording MITM proxy — set it when the search endpoint
 // is only reachable via a VPN/SOCKS proxy. Empty = direct.
-//
-// 注意 deepseek 后端与其它三个的性质不同：DeepSeek 没有可直接调用的搜索接口，
-// 搜索只存在于其 Anthropic 兼容 messages 接口内部(web_search_20250305 server
-// tool)，因此每次搜索会消耗一次模型调用，且搜索请求由 DeepSeek 服务端发出——
-// 不经过本机 Proxy，也不会进流量留痕。
 type WebSearchOpts struct {
 	Enabled   bool
 	Backend   string
@@ -56,6 +49,9 @@ type WebSearchOpts struct {
 	Proxy     string
 	// DeepSeek* 来自当前激活的 LLM 配置(仅 anthropic 格式的 DeepSeek 官方端点)，
 	// 不单独配置，随 LLM 配置切换而变。
+	// 【合并】RuoJi6 另有一条独立 DeepSeek Search API 通道（agent/deepseek_search.go），
+	// 走 web_search 之外的独立工具；两套并存：server-tool 走这三个字段，
+	// 独立工具走 DeepSeekAPIKey + Proxy。
 	DeepSeekBaseURL string
 	DeepSeekAPIKey  string
 	DeepSeekModel   string
@@ -67,6 +63,7 @@ type Worker struct {
 	model           string
 	workDir         string
 	proxyAddr       string
+	proxyAddrFn     func() string
 	proxyCACert     string            // recording proxy's CA cert path (for WebFetch HTTPS verify)
 	webSearch       WebSearchOpts     // web_search tool backend selection (off by default)
 	tx              *transcript.Store // raw LLM conversation persistence (nil = off)
@@ -209,6 +206,8 @@ func (w *Worker) compactionWindow() int {
 // traffic through, plus the CA cert path WebFetch trusts to verify HTTPS through
 // that MITM proxy. Empty addr disables the hint.
 func (w *Worker) SetProxy(addr, caCert string) { w.proxyAddr, w.proxyCACert = addr, caCert }
+
+func (w *Worker) SetProxyProvider(fn func() string) { w.proxyAddrFn = fn }
 
 // SetWebSearch selects the web_search backend for this worker (off by default).
 func (w *Worker) SetWebSearch(o WebSearchOpts) { w.webSearch = o }
@@ -463,14 +462,18 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// inherit a parent run's background into the action reviewer.
 	ctx = intercept.WithReviewContext(ctx, runDir, intercept.ReviewBackground{})
 	overview := renderWorkerGraphOverview(tsx.graphOverviewData())
-	sysBody := workerSystem(w.proxyAddr, w.proxyCACert, w.workDir, runDir, name, w.taskPromptOverride())
+	proxyAddr := w.proxyAddr
+	if w.proxyAddrFn != nil {
+		proxyAddr = w.proxyAddrFn()
+	}
+	sysBody := workerSystem(proxyAddr, w.proxyCACert, w.workDir, runDir, name, w.taskPromptOverride())
 	if w.wantConstraints() {
 	}
 	// 意图块 → 意图锚定资产块 → 启动指令，依次追加到 system 尾部（与 constraintBlock 同一套追加法）。
 	sysBody += RenderIntentTask(intent) // 【二开·P-EXEC·A1】导出改名
 	if as != nil {
 		if ids := intentAssetIDs(intent); len(ids) > 0 {
-			if assets, err := as.GetByIDs(ids); err == nil && len(assets) > 0 {
+			if assets, err := as.GetByIDsInScope(taskID, ids); err == nil && len(assets) > 0 {
 				if b, err := json.Marshal(assets); err == nil {
 					sysBody += "\n\n本意图 asset_ids 对应的目标资产：\n" + string(b)
 				}
@@ -498,11 +501,11 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// 公共装配块（intent_exec_base.go）：权限旁路/WebFetch 代理/Bash 代理环境/工作目录与
 	// 文件硬边界/大输出溢出目录/会话待办。差异字段在下方覆写：联网搜索七字段、行/墙钟预算、
 	// settlement（任务 deadline 夹逼时用 wrapupSettlementForTask）、Compaction/NonStreaming/MaxTokens。
-	opts := baseAgentOptions(runDir, w.workDir, w.proxyAddr, w.proxyCACert)
+	opts := baseAgentOptions(runDir, w.workDir, proxyAddr, w.proxyCACert)
 	opts.Provider = w.prov
 	opts.SystemPrompt = system
 	opts.DynamicBoundary = boundary
-	opts.Tools = tools
+	opts.Tools = append(tools, deepSeekTools(w.webSearch)...)
 	opts.DeferredTools = def.Deferred
 	opts.UnlockSet = def.Unlock
 	// 联网搜索(可选)。ddgs 无需 key；brave-free 需 BraveKey；tavily 需 TavilyKey。

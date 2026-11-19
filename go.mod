@@ -1,8 +1,9 @@
 module artex
 
-go 1.26.3
+go 1.26.10
 
 require (
+	mvdan.cc/sh/v3 v3.10.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
