@@ -29,7 +29,7 @@ export interface Task {
   distinct_findings?: FindingDistinctStats;
   id: string;
   remark?: string;
-  worker_count?: number; // 本任务 Worker 数;0/缺省=用全局默认
+  worker_count?: number; // 本任务 Worker 数;0/缺省=用全局默认;1~16=任务级专属池
   name?: string; // 可选任务名称;空/缺省=未命名,展示时回退到描述
   category_id?: number;
   category_name?: string;
@@ -73,7 +73,6 @@ export interface Task {
   // 【二开·P-INTENT·U5】起 —— 任务级新字段（00 册 U5 / D2 / D7）
   planner_prompt_override?: string; // planner 提示词任务级快照（D2 列；空=走全局/默认链）
   worker_prompt_override?: string; // Worker 提示词任务级快照；创建后不受模板修改影响
-  worker_count?: number; // 任务级 worker 池大小：0=跟随全局，1~16 专属
   review_auto?: boolean; // 自动审核开关（审核聊天窗 Switch；true=预审轮自动处置）
   review_enabled?: boolean; // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934：默认关；开=审核 tab+runner+端点启用，LLM 随任务）
   asset_mode?: string; // 【二开·P-REVIEW·D12】资产图模式标签（m04039：pentest/vuln_research/code_audit）
@@ -540,6 +539,7 @@ export type Severity = "critical" | "high" | "medium" | "low";
 
 // 漏洞处置状态:待处理 / 处理中 / 已确认 / 已处理 / 已修复 / 误报 / 忽略 / 重复 / 风险接受。
 export type FindingStatus =
+  | "open" // 富化层初始态（未确认）；平台任务内状态见 pending
   | "pending"
   | "in_progress"
   | "confirmed"
@@ -581,6 +581,23 @@ export interface Finding {
   inherited?: boolean;
   assets?: FindingAsset[];
   ts: string;
+  // ── AntiFox 证据驱动交付：报告生成与富化视图所需字段 ──
+  /** 探索图节点 id（报告生成按它关联复现过程与证据截图）。 */
+  node_id?: string;
+  /** 富化后的漏洞名（finding_enrichment.name，缺省回退 name/vulnclass）。 */
+  enr_name?: string;
+  /** 富化后的受影响目标（finding_enrichment.target）。 */
+  enr_target?: string;
+  /** 富化后的 CVSS 3.1 分值与向量。 */
+  cvss_score?: number;
+  cvss_vector?: string;
+  /** 富化后的结构化字段（描述 / 风险 / 修复建议）。 */
+  description?: string[];
+  risk_analysis?: string[];
+  remediation?: string[];
+  test_process?: { type: string; content: string }[];
+  module?: string;
+  target?: string;
 }
 
 // FindingsPage 是发现列表的服务端分页响应。
@@ -704,7 +721,8 @@ export type ActivityKind =
   | "usage" // live cumulative token usage (per model turn); not rendered
   | "llm_switch" // automatic/manual task-level LLM switch
   | "llm_failover" // task-level provider switch / chain exhaustion audit event
-  | "intercept_request"; // user-approval request from the intercept layer
+  | "intercept_request" // user-approval request from the intercept layer
+  | "findingStatus"; // 漏洞状态流转事件（确认即富化 / 复测结论）
 
 // ChatAttachment 是一次上传的文件:path 相对该会话/任务工作目录(即 agent 的 CWD)。
 export interface ChatAttachment {
@@ -1065,12 +1083,9 @@ export interface Settings {
   egress_probe_url?: string; // 自定义 IP 探测服务；空=默认公共回显服务
   python_interpreter?: string; // 自定义脚本工具的 python 解释器路径(空=运行时检测)
   workers?: number; // 并发工作 agent 数(默认3)；对之后启动的任务生效
-<<<<<<< HEAD
   // 【P-LOG·M0】日志级别热切换：debug/info/warn/error；选择后立即生效、无需重启。
   log_level?: string;
-=======
   worker_pools: WorkerPool[];
->>>>>>> ruoji-v0.3.27
   // 任务并发上限:同时「运行中」的任务数上限。关闭=不限;开启后新建任务超限则排队,有空位自动启动。
   task_concurrency_enabled?: boolean; // 默认 false
   task_concurrency_limit?: number; // 开启后默认 5
@@ -1867,7 +1882,6 @@ export interface InterceptExecution {
   items: Activity[];
 }
 
-<<<<<<< HEAD
 // ---- Task topology editor ----
 // 后端 db/task_topology_editor.go 的忠实投影：所有写接口都返回整张图，前端只做
 // "请求 → 用响应替换本地状态"，不做本地推断（入口重算/孤儿修补都在后端）。
@@ -1964,7 +1978,8 @@ export interface TopologyGroupInput {
   width: number;
   height: number;
   color?: string;
-=======
+}
+
 export interface FindingDistinctStats {
   total: number;
   reports: number;
@@ -2141,5 +2156,159 @@ export interface EgressReport {
   agent_proxy: string;
   checks: EgressCheck[];
   warnings?: string[];
->>>>>>> ruoji-v0.3.27
+}
+
+// ═══ RuoJi6/ARTEX v0.3.27 类型 ═══
+
+export type ScheduleInput = {
+  name: string;
+  enabled?: boolean;
+  timezone_mode?: "beijing" | "system";
+  schedule_type: "once" | "weekly";
+  run_date?: string;
+  end_date?: string;
+  weekdays?: number[];
+  start_time: string;
+  end_time?: string;
+  start_immediately?: boolean;
+  task_ids: number[];
+};
+
+// ═══ AntiFox 证据驱动交付 / 知识库 ═══
+export interface Personnel {
+  name: string;
+  role: string;
+  contact: string;
+}
+export interface ReportSettings {
+  company_name: string;
+  company_name_en: string;
+  logo_path: string;
+  personnel: Personnel[];
+  cvss_version: string;
+  updated_at?: string;
+}
+export interface ReportRecord {
+  id: number;
+  task_id?: number;
+  task_desc: string;
+  filename: string;
+  size: number;
+  company: string;
+  created_at: string;
+}
+export interface ReportTemplate {
+  id: number;
+  name: string;
+  company_name: string;
+  company_name_en: string;
+  logo_path: string;
+  personnel: Personnel[];
+  cvss_version: string;
+  locale: string;
+  created_at?: string;
+  updated_at?: string;
+}
+export interface KnowledgeDoc {
+  id: number;
+  scope: string; // global | task
+  task_id?: number;
+  category: string;
+  title: string;
+  content?: string;
+  source: string; // manual | upload | migrated
+  file_name?: string;
+  bytes: number;
+  indexed: boolean;
+  chunks: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface KnowledgeHit {
+  doc_id: number;
+  title: string;
+  category: string;
+  scope: string;
+  content: string;
+  score: number;
+}
+export interface KnowledgeConfig {
+  enabled: boolean;
+  base_url: string;
+  model: string;
+  dim: number;
+  has_key: boolean;
+  vector_available: boolean;
+  semantic_ready: boolean;
+  docs_global: number;
+  docs_task: number;
+  api_key?: string; // write-only
+}
+export interface KnowledgeLog {
+  id: number;
+  task_id?: number;
+  agent_key: string;
+  query: string;
+  scope: string;
+  mode: string;
+  top_k: number;
+  hits: number;
+  created_at: string;
+}
+export interface FindingEvidenceItem {
+  evidence: FindingEvidence;
+  url: string;
+}
+
+export interface ReproStep {
+  request?: string;
+  response?: string;
+  expected?: string;
+  proves?: string;
+  /** 关联到录制的真实流量包（由平台在登记时自动解析）。 */
+  exchange_id?: string;
+}
+
+export interface Reproduction {
+  entry_point?: string;
+  prerequisites?: string[];
+  steps?: ReproStep[];
+  provenance?: string;
+}
+export interface Enrichment {
+  node_id: string;
+  name: string;
+  target: string;
+  module: string;
+  severity: string;
+  status: FindingStatus;
+  cvss_score: number;
+  cvss_vector: string;
+  cvss_metrics: Record<string, string>;
+  description: string[];
+  test_process: { type: string; content: string }[];
+  risk_analysis: string[];
+  remediation: string[];
+  source: string;
+  updated_at?: string;
+}
+export interface EnrichJob {
+  status: "analyzing" | "done" | "failed" | "idle";
+  error?: string;
+  started_at?: string;
+  enrichment?: Enrichment;
+}
+export interface FindingDetailResp {
+  finding: Finding;
+  enrichment: Enrichment | null;
+  reproduction?: Reproduction | null;
+}
+export interface FindingEvidence {
+  id: number;
+  node_id: number;
+  filename: string;
+  caption: string;
+  step_index: number;
+  sort_order: number;
+  created_at: string;
 }

@@ -63,15 +63,12 @@ import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
 import { TaskLLMProfileChain } from "@/components/task-llm-profile-chain";
 import { TaskTemplateControls } from "@/components/task-template-controls";
-<<<<<<< HEAD
 // 【二开·P-TPL·U2】起
 import { PlannerTemplateControls, WorkerTemplateControls } from "@/components/prompt-template-controls";
 // 【二开·P-TPL·U2】止
 // 【二开·P-SCENARIO·U3】起 —— 任务管理页直接打开场景管理面板（场景=建任务预设打包）
 // 【二开·P-SCENARIO·U3】止
-=======
 import { TimeSelect } from "@/components/time-select";
->>>>>>> ruoji-v0.3.27
 import {
   AlertDialog,
   AlertDialogAction,
@@ -177,7 +174,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { api, type ScheduleInput } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   getLocalStorageValue,
   setLocalStorageValue,
@@ -195,6 +192,7 @@ import type {
   DeleteTaskResult,
   LLMProfile,
   PlannerTemplate, // 【二开·P-REVIEW·D12】分类预设模板下拉
+  ScheduleInput,
   WorkerTemplate,
   Task,
   TaskArchive,
@@ -202,23 +200,12 @@ import type {
   TaskCategory,
   TaskStatus,
 } from "@/lib/types";
-<<<<<<< HEAD
 import { cn, fmtBytes, fmtTokens } from "@/lib/utils";
-=======
 import {
   MAX_TASK_REMARK_RUNES,
   MAX_TASK_WORKER_COUNT,
   parseWorkerCountInput,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-// fmtBytes renders a human file size for the upload manifest.
-function fmtBytes(n: number): string {
-  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
-  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
-  return `${n} B`;
-}
->>>>>>> ruoji-v0.3.27
 
 // UPLOAD_MARKER labels the auto-appended block of uploaded-file paths inside the task
 // description, so re-uploads append under the same block instead of adding a new header.
@@ -243,17 +230,6 @@ function appendUploads(desc: string, atts: ChatAttachment[]): string {
 const POLL_MS = 10_000;
 const MAX_SOURCE_TASKS = 8;
 
-<<<<<<< HEAD
-=======
-// fmtTokens renders a compact token count (1234 → 1.2k, 2_000_000 → 2M).
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000)
-    return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
-  return String(n);
-}
-
->>>>>>> ruoji-v0.3.27
 // fmtDuration renders a run duration in seconds as a compact human string.
 function fmtDuration(sec: number): string {
   if (sec <= 0) return "—";
@@ -474,10 +450,8 @@ export default function TasksPage() {
     "pause" | "resume" | null
   >(null);
   const [movingCategory, setMovingCategory] = React.useState(false);
-<<<<<<< HEAD
   // 【二开·P-SCENARIO·MERGE】场景管理=分类管理面板（m03167 合并）；场景预设字段在 CategoryManagementSheet 内维护
   // 【二开·P-SCENARIO·U3】止
-=======
   const [visibleColumns, setVisibleColumns] =
     React.useState<Record<TaskColumnKey, boolean>>(DEFAULT_TASK_COLUMNS);
   React.useEffect(() => {
@@ -504,7 +478,6 @@ export default function TasksPage() {
       JSON.stringify(visibleColumns),
     );
   }, [visibleColumns]);
->>>>>>> ruoji-v0.3.27
 
   React.useEffect(() => {
     const raw = getLocalStorageValue(TASK_FILTER_PREFERENCE_KEY);
@@ -2698,10 +2671,7 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
                     <TableCell className="text-muted-foreground">
                       {archive.category_name || "未分类"}
                     </TableCell>
-<<<<<<< HEAD
                     <TableCell className="text-muted-foreground">{archive.category_name || "未设场景"}</TableCell>
-=======
->>>>>>> ruoji-v0.3.27
                     <TableCell className="text-muted-foreground whitespace-nowrap text-xs">
                       {archiveDate(archive.archived_at || archive.requested_at)}
                     </TableCell>
@@ -3085,15 +3055,8 @@ function MoveTasksCategoryDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-<<<<<<< HEAD
           <DialogTitle>修改所选 {count} 个任务的场景</DialogTitle>
           <DialogDescription>目标场景对所选任务统一生效；选「未设场景」会把它们移出当前场景。</DialogDescription>
-=======
-          <DialogTitle>修改所选 {count} 个任务的分类</DialogTitle>
-          <DialogDescription>
-            目标分类对所选任务统一生效；选「未分类」会把它们移出当前分类。
-          </DialogDescription>
->>>>>>> ruoji-v0.3.27
         </DialogHeader>
         <Field>
           <FieldLabel htmlFor="bulk-category">目标场景</FieldLabel>
@@ -3112,15 +3075,7 @@ function MoveTasksCategoryDialog({
               </SelectGroup>
             </SelectContent>
           </Select>
-<<<<<<< HEAD
           {categories.length === 0 && <FieldDescription>还没有任何场景，先用「场景管理」创建一个。</FieldDescription>}
-=======
-          {categories.length === 0 && (
-            <FieldDescription>
-              还没有任何分类，先用「分类管理」创建一个。
-            </FieldDescription>
-          )}
->>>>>>> ruoji-v0.3.27
         </Field>
         <DialogFooter>
           <DialogClose asChild>
@@ -3410,24 +3365,12 @@ function CategoryPicker({
       <ComboboxChips>
         <ComboboxValue>
           {selectedIDs.map((id) => (
-<<<<<<< HEAD
             <ComboboxChip key={id}>{byID.get(id)?.name ?? "未知场景"}</ComboboxChip>
-=======
-            <ComboboxChip key={id}>
-              {byID.get(id)?.name ?? "未知分类"}
-            </ComboboxChip>
->>>>>>> ruoji-v0.3.27
           ))}
         </ComboboxValue>
         <ComboboxChipsInput
           id="task-category"
-<<<<<<< HEAD
           placeholder={selectedIDs.length ? "" : "搜索场景，或输入新名称后回车创建"}
-=======
-          placeholder={
-            selectedIDs.length ? "" : "搜索分类，或输入新名称后回车创建"
-          }
->>>>>>> ruoji-v0.3.27
           onKeyDown={(e) => {
             // 完全无匹配时回车 = 创建；有匹配项时保留 base-ui 的「回车选中高亮项」。
             if (e.key === "Enter" && matchCount === 0 && trimmed) {
@@ -3453,25 +3396,11 @@ function CategoryPicker({
               onClick={() => void createAndSelect()}
               className="flex w-full items-center gap-2 px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
             >
-<<<<<<< HEAD
               {creating ? <Spinner className="size-4" /> : <PlusIcon className="size-4" />}
               创建场景「{trimmed}」
             </button>
           ) : (
             <div className="px-2 py-2 text-sm text-muted-foreground">输入名称以搜索或创建场景</div>
-=======
-              {creating ? (
-                <Spinner className="size-4" />
-              ) : (
-                <PlusIcon className="size-4" />
-              )}
-              创建分类「{trimmed}」
-            </button>
-          ) : (
-            <div className="px-2 py-2 text-sm text-muted-foreground">
-              输入名称以搜索或创建分类
-            </div>
->>>>>>> ruoji-v0.3.27
           ))}
       </ComboboxContent>
     </Combobox>
@@ -3857,13 +3786,7 @@ function CategoryManagementSheet({
       }
       onChanged();
     } catch (error) {
-<<<<<<< HEAD
       toast.error(`${selectedView === "new" ? "创建" : "更新"}场景失败：${(error as Error).message}`);
-=======
-      toast.error(
-        `${selectedView === "new" ? "创建" : "更新"}分类失败：${(error as Error).message}`,
-      );
->>>>>>> ruoji-v0.3.27
     } finally {
       setSaving(false);
     }
@@ -3935,15 +3858,7 @@ function CategoryManagementSheet({
     void moveTask(task, destination.slice("category:".length));
   }
 
-<<<<<<< HEAD
   const saveLabel = saving ? "保存中" : selectedView === "new" ? "创建场景" : "保存修改";
-=======
-  const saveLabel = saving
-    ? "保存中"
-    : selectedView === "new"
-      ? "创建分类"
-      : "保存修改";
->>>>>>> ruoji-v0.3.27
 
   return (
     <>
@@ -3956,15 +3871,8 @@ function CategoryManagementSheet({
         </SheetTrigger>
         <SheetContent className="grid h-full w-full! max-w-none! grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:w-[48rem]! sm:max-w-[48rem]!">
           <SheetHeader className="border-b px-6 py-5">
-<<<<<<< HEAD
             <SheetTitle>场景管理</SheetTitle>
             <SheetDescription>场景用于任务筛选与归档；修改不会影响任务执行，删除后任务会移入未设场景。</SheetDescription>
-=======
-            <SheetTitle>任务分类管理</SheetTitle>
-            <SheetDescription>
-              分类用于任务筛选与归档；修改不会影响任务执行，删除后任务会移入未分类。
-            </SheetDescription>
->>>>>>> ruoji-v0.3.27
           </SheetHeader>
           <DndContext
             sensors={sensors}
@@ -4011,13 +3919,7 @@ function CategoryManagementSheet({
                 <FieldGroup className="p-6">
                   {selectedView !== "uncategorized" && (
                     <Field>
-<<<<<<< HEAD
                       <FieldLabel htmlFor="task-category-name">场景名称</FieldLabel>
-=======
-                      <FieldLabel htmlFor="task-category-name">
-                        分类名称
-                      </FieldLabel>
->>>>>>> ruoji-v0.3.27
                       <Input
                         id="task-category-name"
                         value={draftName}
@@ -4137,13 +4039,7 @@ function CategoryManagementSheet({
                     <Field>
                       <div className="flex flex-wrap items-end justify-between gap-2">
                         <div className="flex min-w-0 flex-col gap-1">
-<<<<<<< HEAD
                           <FieldLabel>{selectedCategory ? "场景任务" : "未设场景的任务"}</FieldLabel>
-=======
-                          <FieldLabel>
-                            {selectedCategory ? "分类任务" : "未分类任务"}
-                          </FieldLabel>
->>>>>>> ruoji-v0.3.27
                           <FieldDescription>
                             {selectedCategory
                               ? `该场景包含 ${visibleTasks.length} 个任务。`
@@ -4154,19 +4050,8 @@ function CategoryManagementSheet({
                       {visibleTasks.length === 0 ? (
                         <Empty className="min-h-36 border">
                           <EmptyHeader>
-<<<<<<< HEAD
                             <EmptyTitle>{selectedCategory ? "该场景暂无任务" : "暂无未设场景的任务"}</EmptyTitle>
                             <EmptyDescription>此处将在任务归入后显示内容。</EmptyDescription>
-=======
-                            <EmptyTitle>
-                              {selectedCategory
-                                ? "该分类暂无任务"
-                                : "暂无未分类任务"}
-                            </EmptyTitle>
-                            <EmptyDescription>
-                              此处将在任务归入后显示内容。
-                            </EmptyDescription>
->>>>>>> ruoji-v0.3.27
                           </EmptyHeader>
                         </Empty>
                       ) : (
@@ -4232,18 +4117,9 @@ function CategoryManagementSheet({
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-<<<<<<< HEAD
             <AlertDialogTitle>删除场景「{selectedCategory?.name || "未命名场景"}」？</AlertDialogTitle>
             <AlertDialogDescription>
               场景删除后，其中 {selectedCategory?.task_count ?? 0} 个任务会自动移入“未设场景”，任务数据不会被删除。
-=======
-            <AlertDialogTitle>
-              删除分类「{selectedCategory?.name || "未命名分类"}」？
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              分类删除后，其中 {selectedCategory?.task_count ?? 0}{" "}
-              个任务会自动移入“未分类”，任务数据不会被删除。
->>>>>>> ruoji-v0.3.27
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -4297,7 +4173,6 @@ function CreateTaskSheet({
   const [timeoutMin, setTimeoutMin] = React.useState(""); // 任务级超时(分钟);空/0 = 不限时
   const [heartbeatMin, setHeartbeatMin] = React.useState("10"); // planner 心跳(分钟);默认10,下限10(与后端一致)
   const [seedFirstIntent, setSeedFirstIntent] = React.useState(false); // 创建时下发种子意图,worker 免等首轮 planner 直接开跑;默认关闭,走标准先规划再执行
-<<<<<<< HEAD
   const [reviewEnabled, setReviewEnabled] = React.useState(false); // 【二开·P-REVIEW·D2c】任务级意图审核总开关（m03934；默认关）
   const [assetMode, setAssetMode] = React.useState("pentest"); // 【二开·P-REVIEW·D12】资产模式（m04039：选分类带出，可改）
   // 【二开·P-TPL·U2】起 —— planner 模板/提示词覆盖/worker 数三控件状态
@@ -4312,11 +4187,8 @@ function CreateTaskSheet({
   const [execMode, setExecMode] = React.useState<"worker" | "custom">("worker");
   const [executorAgents, setExecutorAgents] = React.useState<Agent[]>([]);
   // 【二开·P-INTENT·U2】止
-=======
   const [shareGlobalAssets, setShareGlobalAssets] = React.useState(false);
->>>>>>> ruoji-v0.3.27
   const [coverageEnabled, setCoverageEnabled] = React.useState(true); // 资产覆盖度功能;默认开。关闭=不计算/展示覆盖度、不累积范围、隐藏范围类工具(company 关联不受影响)
-  const [workerCount, setWorkerCount] = React.useState(""); // 本任务 Worker 数;空/0=用全局默认
   const [interceptRules, setInterceptRules] = React.useState<
     AssetInterceptRuleInput[]
   >([]); // 任务级资产拦截规则(仅本任务生效,不进全局表)
@@ -4414,20 +4286,16 @@ function CreateTaskSheet({
         // 【二开·P-INTENT·U2】止
         planHeartbeatSeconds: heartbeatSec,
         coverageEnabled,
-<<<<<<< HEAD
         // 【二开·P-TPL·U2】起
         plannerPrompt: plannerPrompt.trim(),
         plannerTemplateId: plannerTemplateID ?? 0,
         workerPrompt: workerPrompt.trim(),
         workerTemplateId: workerTemplateID ?? 0,
-        workerCount: Math.max(0, Math.min(16, Math.floor(Number(workerCount) || 0))),
         // 【二开·P-TPL·U2】止
         reviewEnabled, // 【二开·P-REVIEW·D2c】
-=======
         shareGlobalAssets,
         workerCount: workerCountNum,
         schedule: scheduleEnabled ? { ...schedule, task_ids: [] } : undefined,
->>>>>>> ruoji-v0.3.27
         interceptRules: interceptRules
           .map((r) => ({ ...r, pattern: r.pattern.trim() }))
           .filter((r) => r.pattern !== ""),
@@ -4584,7 +4452,6 @@ function CreateTaskSheet({
                 onCategoryCreated={onCategoriesChanged}
                 portalContainer={sheetContentRef}
               />
-<<<<<<< HEAD
               <FieldDescription>可选，单个场景；用于任务列表筛选和归档，并带出场景预设（模板/审核/种子意图等建任务默认值，带出后仍可逐项调整）。</FieldDescription>
             </Field>
             {/* 【二开·P-REVIEW·D12】起 —— 资产模式选择（m04039 占位） */}
@@ -4603,11 +4470,6 @@ function CreateTaskSheet({
               <FieldDescription>资产图模式标签：随任务落库，选场景自动带出；资产展示差异化后续按此实现。</FieldDescription>
             </Field>
             {/* 【二开·P-REVIEW·D12】止 */}
-=======
-              <FieldDescription>
-                可选，单个分类；用于任务列表筛选和归档，不影响 Agent 执行。
-              </FieldDescription>
-            </Field>
             <FieldSet>
               <FieldLegend>计划启动（可选）</FieldLegend>
               <label className="flex items-center gap-2 text-sm">
@@ -4750,7 +4612,6 @@ function CreateTaskSheet({
                 </FieldGroup>
               )}
             </FieldSet>
->>>>>>> ruoji-v0.3.27
             <div className="grid gap-2">
               <Label htmlFor="description">描述</Label>
               <Textarea
@@ -4871,14 +4732,8 @@ function CreateTaskSheet({
               <CollapsibleTrigger className="group flex w-full items-center gap-2 border-t pt-4 text-sm font-medium">
                 <ChevronRightIcon className="text-muted-foreground size-4 transition-transform group-data-[state=open]:rotate-90" />
                 高级设置
-<<<<<<< HEAD
                 {/* 【二开·P-TPL·U2】尾注加「规划」 */}
                 <span className="text-muted-foreground ml-auto text-xs font-normal">超时 · 心跳 · 规划 · 首个意图</span>
-=======
-                <span className="text-muted-foreground ml-auto text-xs font-normal">
-                  超时 · 心跳 · Worker · 首个意图
-                </span>
->>>>>>> ruoji-v0.3.27
               </CollapsibleTrigger>
               <CollapsibleContent className="grid gap-5 pt-5">
                 <div className="grid gap-2">

@@ -1311,20 +1311,12 @@ export function SessionsTab({ taskId, requestedSession = "" }: { taskId: string;
   );
 
   const sessions = React.useMemo(() => {
-<<<<<<< HEAD
     // 【二开·P-INTENT·U3】REVIEW_SESSION 并入（紧随 PLANNER_SESSION）
     const items = [...mainSessions, { ...PLANNER_SESSION, live: plannerLive }, { ...REVIEW_SESSION, live: reviewLive }, ...workerSessions, SYSTEM_SESSION]; // 【二开·P-REVIEW·常驻】审核 tab 常驻：未开启审核的任务面板内显示空态
-    const located = focusSession ?? retainedSession;
-    if (located && !items.some((s) => s.id === located.id)) items.push(located);
-    return items;
-  }, [mainSessions, workerSessions, plannerLive, reviewLive, reviewEnabled, focusSession, retainedSession]); // 【二开·P-INTENT·U3】依赖加 reviewLive【二开·P-REVIEW·D2c】加 reviewEnabled
-=======
-    const items = [...mainSessions, { ...PLANNER_SESSION, live: plannerLive }, ...workerSessions, SYSTEM_SESSION];
     const located = focusSession ?? retainedSession ?? linkedSession;
     if (located && !items.some((s) => s.id === located.id)) items.push(located);
     return items;
-  }, [mainSessions, workerSessions, plannerLive, focusSession, retainedSession, linkedSession]);
->>>>>>> ruoji-v0.3.27
+  }, [mainSessions, workerSessions, plannerLive, reviewLive, reviewEnabled, focusSession, retainedSession, linkedSession]); // 【二开·P-INTENT·U3】依赖加 reviewLive【二开·P-REVIEW·D2c】加 reviewEnabled
 
   const grouped = {
     mainagent: sessions.filter((s) => s.role === "mainagent"),

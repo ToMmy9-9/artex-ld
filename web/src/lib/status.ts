@@ -127,6 +127,16 @@ const intelligence: Record<string, StatusMeta> = {
   sensitive_data: { label: "敏感数据", tone: "amber" },
 };
 
+// findingStatus 是【AntiFox 证据驱动交付】富化层的漏洞处置状态：
+// 与平台侧的 finding（发现状态）分开——这里的 open 表示「尚未确认」。
+const findingStatus: Record<string, StatusMeta> = {
+  open: { label: "待确认", tone: "amber" },
+  confirmed: { label: "已确认", tone: "red" },
+  fixed: { label: "已修复", tone: "green" },
+  false_positive: { label: "误报", tone: "slate" },
+  ignored: { label: "已忽略", tone: "neutral" },
+};
+
 const maps = {
   intelligence,
   intent,
@@ -138,6 +148,7 @@ const maps = {
   audit,
   node,
   delivery,
+  findingStatus,
 } as const;
 
 export type StatusDomain = keyof typeof maps;

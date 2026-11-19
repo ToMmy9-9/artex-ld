@@ -7,7 +7,6 @@
  */
 "use client";
 
-<<<<<<< HEAD
 import * as React from "react";
 
 import {
@@ -100,9 +99,7 @@ const SORT_STORAGE_KEY = "traffic-sort";
 // Status-class buckets for the filter dropdown; the value is sent as `status`,
 // which the backend reads as either an exact code or an "Nxx" class band.
 const STATUS_BUCKETS = ["2xx", "3xx", "4xx", "5xx"];
-=======
 import { TrafficHistory } from "@/components/traffic-history";
->>>>>>> ruoji-v0.3.27
 
 export default function TrafficPage() {
   return <TrafficHistory />;

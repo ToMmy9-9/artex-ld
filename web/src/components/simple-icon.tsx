@@ -2,12 +2,12 @@
 
 import type * as React from "react";
 
-import type { SimpleIcon as SimpleIconType } from "simple-icons";
+import type { BrandIcon } from "@/lib/brand-icons";
 
 import { cn } from "@/lib/utils";
 
 type SimpleIconProps = {
-  icon: SimpleIconType;
+  icon: BrandIcon;
   className?: string;
 } & React.SVGProps<SVGSVGElement>;
 

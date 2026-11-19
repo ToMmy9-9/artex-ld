@@ -1951,6 +1951,8 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_docs_task ON knowledge_docs(task_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_docs_cat ON knowledge_docs(category);
 CREATE INDEX IF NOT EXISTS idx_knowledge_logs_created ON knowledge_retrieval_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_logs_task ON knowledge_retrieval_logs(task_id);
+-- schema.sql 每次启动都会 Exec，触发器必须先 DROP 再建（否则二次启动报 already exists）。
+DROP TRIGGER IF EXISTS trg_knowledge_docs_updated ON knowledge_docs;
 CREATE TRIGGER trg_knowledge_docs_updated BEFORE UPDATE ON knowledge_docs
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 INSERT INTO knowledge_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;

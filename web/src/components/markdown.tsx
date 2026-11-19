@@ -5,12 +5,8 @@
  */
 "use client";
 
-<<<<<<< HEAD
-import ReactMarkdown, { type Components } from "react-markdown";
-=======
 import * as React from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
->>>>>>> ruoji-v0.3.27
 import remarkGfm from "remark-gfm";
 import { RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 

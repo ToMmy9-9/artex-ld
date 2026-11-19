@@ -13,20 +13,8 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-<<<<<<< HEAD
 import { cn, copyText, statusTone } from "@/lib/utils";
-=======
-import { cn, copyText } from "@/lib/utils";
 import { PacketCodeEditor } from "@/components/packet-code-editor";
-
-function statusTone(status: number) {
-  if (status >= 500) return "text-red-500";
-  if (status >= 400) return "text-amber-500";
-  if (status >= 300) return "text-blue-500";
-  if (status >= 200) return "text-emerald-500";
-  return "text-muted-foreground";
-}
->>>>>>> ruoji-v0.3.27
 
 const PACKET_COLORS = {
   method: "font-semibold text-violet-600 dark:text-violet-400",

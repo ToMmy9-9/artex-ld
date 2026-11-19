@@ -1,4 +1,3 @@
-<<<<<<< ours
 /**
  * proxy.ts：Next.js 请求代理，基于登录 token 做路由守卫。
  * 主要函数/类型：
@@ -6,12 +5,7 @@
  *   - config：matcher，排除内部路由、API 与静态资源
  */
 import { NextResponse } from "next/server";
-||||||| base
-import { NextResponse } from "next/server";
-=======
->>>>>>> theirs
 import type { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
 
 const AUTH_PAGES = ["/login", "/setup"];
 

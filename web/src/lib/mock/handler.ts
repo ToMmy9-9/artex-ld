@@ -1283,12 +1283,9 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       llm_failover_state: profileIDs.length ? "ready" : "default",
       source_task_ids: sourceTaskIDs,
       company_ids: companyIDs,
-<<<<<<< HEAD
       review_enabled: b.review_enabled === true, // 【二开·P-REVIEW·D2c】
       asset_mode: typeof b.asset_mode === "string" && b.asset_mode ? b.asset_mode : "pentest", // 【二开·P-REVIEW·D12】
-=======
       share_global_assets: b.share_global_assets === true,
->>>>>>> ruoji-v0.3.27
     };
     const numericTaskID = nextMockTaskAssetID++;
     mockTaskAssetIDs.set(id, numericTaskID);

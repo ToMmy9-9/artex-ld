@@ -1,26 +1,18 @@
-/**
- * page.tsx：系统设置页——流量捕获、联网搜索、代理、Chat 发送模式等全局开关与密钥配置。
- * 主要函数/类型：
- *   - SystemSettingsPage（默认导出）：设置页主体，分组加载/保存各项系统设置
- */
 "use client";
 
 import * as React from "react";
 
-<<<<<<< HEAD
-import { CpuIcon, FlaskConicalIcon, KeyboardIcon, RadioTowerIcon, ScrollTextIcon, SearchIcon, ShieldAlertIcon } from "lucide-react";
-=======
 import {
   CameraIcon,
   CpuIcon,
   FlaskConicalIcon,
   KeyboardIcon,
   RadioTowerIcon,
+  ScrollTextIcon,
   SearchIcon,
   SettingsIcon,
   ShieldAlertIcon,
 } from "lucide-react";
->>>>>>> ruoji-v0.3.27
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -107,13 +99,10 @@ export default function SystemSettingsPage() {
   const [pyInterp, setPyInterp] = React.useState("");
   const [workers, setWorkers] = React.useState("3");
   const [savingWorkers, setSavingWorkers] = React.useState(false);
-<<<<<<< HEAD
+  const [workerPools, setWorkerPools] = React.useState<WorkerPool[]>([]);
   // 【P-LOG·M0】日志级别（debug/info/warn/error）：热切换，选择后立即生效。
   const [logLevel, setLogLevel] = React.useState("info");
-=======
-  const [workerPools, setWorkerPools] = React.useState<WorkerPool[]>([]);
   const [llmProfiles, setLlmProfiles] = React.useState<LLMProfile[]>([]);
->>>>>>> ruoji-v0.3.27
   // 操作约束注入范围(默认都开)。
   const [injectPlanner, setInjectPlanner] = React.useState(true);
   const [injectWorker, setInjectWorker] = React.useState(true);
@@ -163,10 +152,10 @@ export default function SystemSettingsPage() {
     setPyInterp(s.python_interpreter ?? "");
     setWorkers(String(s.workers ?? 3));
     setWorkerPools(s.worker_pools ?? []);
+    setLogLevel(s.log_level || "info");
     setInjectPlanner(s.constraints_inject_planner !== false);
     setInjectWorker(s.constraints_inject_worker !== false);
     setNoaCompaction(!!s.noa_compaction);
-    setLogLevel(s.log_level || "info");
   }, []);
 
   // 【P-LOG·M0】日志级别热切换：选择即保存（乐观更新，失败回滚），服务端立即生效。
@@ -1856,6 +1845,32 @@ export default function SystemSettingsPage() {
               </CardContent>
             </Card>
 
+          <Card className="mb-4 break-inside-avoid md:mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ScrollTextIcon className="size-4" />
+                日志级别
+              </CardTitle>
+              <CardDescription>
+                服务端日志详细程度，<b>选择后立即生效、无需重启</b>。正常用 info；排查问题时切到
+                debug 会记录全部调试日志（含 worker 循环、MCP 交互细节），量较大，定位完记得切回。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select value={logLevel} disabled={!loaded} onValueChange={changeLogLevel}>
+                <SelectTrigger className="w-48 font-mono text-sm">
+                  <SelectValue placeholder="选择级别" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="debug">debug（全部）</SelectItem>
+                  <SelectItem value="info">info（默认）</SelectItem>
+                  <SelectItem value="warn">warn</SelectItem>
+                  <SelectItem value="error">error</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
             <Card
               className={`${isSettingVisible("chat", "会话输入框 发送键位 Enter Shift") ? "" : "hidden"} mb-4 break-inside-avoid md:mb-6`}
             >
@@ -1886,261 +1901,10 @@ export default function SystemSettingsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-<<<<<<< HEAD
-              </div>
-            )}
-
-            {webSearch && backend === "deepseek" && (
-              <div className="border-border/60 bg-muted/30 flex flex-col gap-2 rounded-md border p-3">
-                <p className="text-sm font-medium">DeepSeek 官方联网搜索</p>
-                <p className="text-muted-foreground text-xs leading-relaxed">
-                  该来源直接复用<b>当前激活的 LLM 配置</b>。因此它
-                  <b>仅支持 DeepSeek 官方模型</b>，且该配置<b>必须使用 anthropic 协议</b>
-                  ——DeepSeek 的 OpenAI 协议端点不支持服务端搜索。切换 LLM 配置后此来源可能失效。
-                </p>
-                <p className="text-muted-foreground text-xs leading-relaxed">
-                  与其它来源不同，搜索由 <b>DeepSeek 服务端执行</b>：每次搜索会额外消耗一次模型调用（产生 Token
-                  费用），搜索请求<b>不经过上面的出口代理</b>，也<b>不计入流量留痕</b>；返回结果<b>只有标题和链接</b>
-                  （无摘要），需要正文时由 WebFetch 抓取。
-                </p>
-                <p className="text-muted-foreground text-xs leading-relaxed">
-                  是否满足上述条件由你自行确认，系统不做拦截；可用下方「测试搜索」按钮实际跑一次来验证。
-                </p>
-              </div>
-            )}
-
-            {webSearch && backend === "brave-free" && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="brave-key" className="text-sm font-normal text-muted-foreground">
-                  Brave Search API Key
-                  {braveKeySet && <span className="ml-2 text-xs text-emerald-500">已配置</span>}
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="brave-key"
-                    type="password"
-                    autoComplete="off"
-                    placeholder={braveKeySet ? "已配置（留空则不变）" : "输入 Brave API Key"}
-                    value={braveKeyInput}
-                    disabled={!loaded || savingKey}
-                    onChange={(e) => setBraveKeyInput(e.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    onClick={saveBraveKey}
-                    disabled={!loaded || savingKey || braveKeyInput.trim() === ""}
-                  >
-                    保存
-                  </Button>
-                </div>
-                {braveNeedsKey && (
-                  <p className="text-xs text-amber-500">
-                    已选择 Brave 但尚未配置 Key —— 在保存 Key 之前，搜索工具不会启用。
-                  </p>
-                )}
-                <p className="text-muted-foreground text-xs">
-                  免费版额度约 2,000 次/月。前往 https://brave.com/search/api/ 获取 Key。
-                </p>
-              </div>
-            )}
-
-            {webSearch && backend === "tavily" && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="tavily-key" className="text-sm font-normal text-muted-foreground">
-                  Tavily Search API Key
-                  {tavilyKeySet && <span className="ml-2 text-xs text-emerald-500">已配置</span>}
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="tavily-key"
-                    type="password"
-                    autoComplete="off"
-                    placeholder={tavilyKeySet ? "已配置（留空则不变）" : "输入 Tavily API Key（tvly-…）"}
-                    value={tavilyKeyInput}
-                    disabled={!loaded || savingTavilyKey}
-                    onChange={(e) => setTavilyKeyInput(e.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    onClick={saveTavilyKey}
-                    disabled={!loaded || savingTavilyKey || tavilyKeyInput.trim() === ""}
-                  >
-                    保存
-                  </Button>
-                </div>
-                {webSearch && backend === "tavily" && !tavilyKeySet && (
-                  <p className="text-xs text-amber-500">
-                    已选择 Tavily 但尚未配置 Key —— 在保存 Key 之前，搜索工具不会启用。
-                  </p>
-                )}
-                <p className="text-muted-foreground text-xs">前往 https://tavily.com 注册并获取 API Key。</p>
-              </div>
-            )}
-
-            {webSearch && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="ws-proxy" className="text-sm font-normal text-muted-foreground">
-                  出口代理（可选）
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="ws-proxy"
-                    autoComplete="off"
-                    placeholder="http://host:port 或 socks5://host:port（留空=直连）"
-                    value={proxyInput}
-                    disabled={!loaded || savingProxy}
-                    onChange={(e) => setProxyInput(e.target.value)}
-                  />
-                  <Button type="button" onClick={saveProxy} disabled={!loaded || savingProxy}>
-                    保存
-                  </Button>
-                </div>
-                <p className="text-muted-foreground text-xs">
-                  独立出口代理，仅用于访问搜索端点（VPN/SOCKS 等）。与记录流量的 MITM 代理无关；网络不通时经此代理访问。
-                </p>
-              </div>
-            )}
-
-            {webSearch && (
-              <div className="flex items-center justify-between gap-4 border-t pt-4">
-                <p className="text-muted-foreground text-xs">
-                  用当前配置（来源 + 代理 + Key）实际搜索一次「test」，验证是否可用。
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={runTest}
-                  disabled={!loaded || testing}
-                  className="shrink-0"
-                >
-                  {testing ? "测试中…" : "测试搜索"}
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="mb-4 break-inside-avoid md:mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <RadioTowerIcon className="size-4" />
-              自定义脚本 · Python 解释器
-            </CardTitle>
-            <CardDescription>
-              自定义 <b>script</b> 类型工具用它跑 Python。开机会自动检测（python3 优先）；此处可手填 venv /
-              特定版本的绝对路径，留空则运行时自动检测。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Input
-                className="font-mono text-sm"
-                placeholder="/usr/bin/python3（留空=自动检测）"
-                value={pyInterp}
-                disabled={!loaded || saving}
-                onChange={(e) => setPyInterp(e.target.value)}
-              />
-              <Button variant="outline" onClick={detectPython} disabled={!loaded || saving}>
-                重新检测
-              </Button>
-              <Button onClick={savePython} disabled={!loaded || saving}>
-                保存
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="mb-4 break-inside-avoid md:mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <CpuIcon className="size-4" />
-              工作并发 · Work Agent 数
-            </CardTitle>
-            <CardDescription>
-              每个任务并发运行的工作 agent 数量（默认 3）。数值越大并发探测越多、消耗也越高。修改后
-              <b>对之后启动的任务生效</b>，正在运行的任务不受影响。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min={1}
-                className="w-32 font-mono text-sm"
-                placeholder="3"
-                value={workers}
-                disabled={!loaded || savingWorkers}
-                onChange={(e) => setWorkers(e.target.value)}
-              />
-              <Button onClick={saveWorkers} disabled={!loaded || savingWorkers}>
-                保存
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="mb-4 break-inside-avoid md:mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ScrollTextIcon className="size-4" />
-              日志级别
-            </CardTitle>
-            <CardDescription>
-              服务端日志详细程度，<b>选择后立即生效、无需重启</b>。正常用 info；排查问题时切到
-              debug 会记录全部调试日志（含 worker 循环、MCP 交互细节），量较大，定位完记得切回。
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Select value={logLevel} disabled={!loaded} onValueChange={changeLogLevel}>
-              <SelectTrigger className="w-48 font-mono text-sm">
-                <SelectValue placeholder="选择级别" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="debug">debug（全部）</SelectItem>
-                <SelectItem value="info">info（默认）</SelectItem>
-                <SelectItem value="warn">warn</SelectItem>
-                <SelectItem value="error">error</SelectItem>
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-
-        <Card className="mb-4 break-inside-avoid md:mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <KeyboardIcon className="size-4" />
-              会话输入框发送键位
-            </CardTitle>
-            <CardDescription>
-              对话页与任务详情的主 Agent 会话输入框共用此设置，选择后立即生效、无需保存。
-              <br />
-              该偏好<b>只存在本浏览器</b>，不随账号同步，换浏览器或清理站点数据后需重新设置。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-4">
-            <Label htmlFor="chat-send-mode" className="text-sm font-normal text-muted-foreground">
-              发送方式
-            </Label>
-            <Select value={sendMode} onValueChange={(v) => setChatSendMode(v as ChatSendMode)}>
-              <SelectTrigger id="chat-send-mode" className="w-72">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CHAT_SEND_MODE_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-=======
               </CardContent>
             </Card>
           </div>
         </main>
->>>>>>> ruoji-v0.3.27
       </div>
     </div>
   );

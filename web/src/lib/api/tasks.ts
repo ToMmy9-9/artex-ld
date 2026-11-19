@@ -81,9 +81,49 @@ import type {
   WorkerTemplate,
   WorkspaceFile,
   WorkspaceListing,
-} from "@/lib/types";
+  TaskSchedule,
+  ScheduleInput,
+  FindingCasePage,
+  FindingCaseDetail,
+  FindingCaseSuggestion,
+  FindingCaseReviewRun,
+  TaskAssetMutation,
+  IntelligencePage,
+  TaskIntelligence,
+  RepeaterSendRequest,
+  RepeaterSendResponse,
+  CredentialTrafficDetail,
+  TrafficExchange,
+  FindingDetailResp,
+  EnrichJob,
+  Enrichment,
+  FindingEvidenceItem, } from "@/lib/types";
+
+function schedulePayload(input: ScheduleInput) {
+  return {
+    name: input.name,
+    enabled: input.enabled ?? true,
+    timezone_mode: input.timezone_mode ?? "beijing",
+    schedule_type: input.schedule_type,
+    run_date: input.run_date ?? "",
+    end_date: input.end_date ?? "",
+    weekdays: input.weekdays ?? [],
+    start_time: input.start_time,
+    end_time: input.end_time ?? "",
+    start_immediately: input.start_immediately ?? false,
+    task_ids: input.task_ids,
+  };
+}
 
 export const tasksApi = {
+  // ---- 漏洞↔流量包关联（AntiFox：把复现步骤关联到真实录制的报文）----
+  findingTrafficList: (nodeId: string) =>
+    get<{ exchanges: TrafficExchange[] }>(`/exploration/findings/${nodeId}/traffic`).then((r) => r.exchanges ?? []),
+  findingTrafficLink: (nodeId: string, exchangeIds: string[]) =>
+    post<{ ok: boolean; linked: number }>(`/exploration/findings/${nodeId}/traffic`, { exchange_ids: exchangeIds }),
+  findingTrafficUnlink: (nodeId: string, exchangeId: string) =>
+    del<{ ok: boolean }>(`/exploration/findings/${nodeId}/traffic/${encodeURIComponent(exchangeId)}`),
+
   // 后端应用版本号（release 时由 ldflags 注入，默认 "dev"）。
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),
 
@@ -100,6 +140,7 @@ export const tasksApi = {
   task: (id: string) => get<Task>(`/tasks/${encodeURIComponent(id)}`),
   createTask: (input: {
     name?: string;
+    remark?: string;
     categoryId?: number;
     description: string;
     goal: string;
@@ -109,8 +150,10 @@ export const tasksApi = {
     timeoutSeconds?: number;
     seedFirstIntent?: boolean;
     planHeartbeatSeconds?: number;
+    shareGlobalAssets?: boolean;
     coverageEnabled?: boolean;
     interceptRules?: AssetInterceptRuleInput[];
+    schedule?: ScheduleInput;
     // 【二开·P-INTENT·U1】起 —— createTask 四新字段透传（00 册 S7）
     preAgent?: string; // 种子意图预选执行器 executor_key（配合 seedFirstIntent）
     plannerPrompt?: string; // planner 提示词全文快照（≤32KB；同传 plannerTemplateId 时本字段优先 K22）
@@ -118,12 +161,13 @@ export const tasksApi = {
     workerPrompt?: string; // Worker 提示词全文快照；优先于 workerTemplateId
     workerTemplateId?: number; // Worker 模板 id：创建时保存正文快照
     workerCount?: number; // 任务级 worker 池：0=跟随全局，1~16 专属
-    reviewEnabled?: boolean; // 【二开·P-REVIEW·D2c】任务级意图审核总开关（m03934；默认关）
+    reviewEnabled?: boolean; // 【二开·P-REVIEW·D2c】任务级意图审核总开关（m04034；默认关）
     assetMode?: string; // 【二开·P-REVIEW·D12】资产图模式（m04039；空=分类带出）
     // 【二开·P-INTENT·U1】止
   }) =>
     post<Task>("/tasks", {
       name: input.name ?? "",
+      remark: input.remark ?? "",
       category_id: input.categoryId ?? null,
       description: input.description,
       goal: input.goal,
@@ -133,8 +177,10 @@ export const tasksApi = {
       timeout_seconds: input.timeoutSeconds ?? 0,
       seed_first_intent: input.seedFirstIntent ?? false,
       plan_heartbeat_seconds: input.planHeartbeatSeconds ?? 0, // 0 = 后端归一到默认 600(10min)
+      share_global_assets: input.shareGlobalAssets ?? false, // 任务是否共享全局资产（默认关）
       coverage_enabled: input.coverageEnabled ?? true, // 默认开;false=关闭资产覆盖度功能
       intercept_rules: input.interceptRules ?? [], // 任务级资产拦截规则
+      schedule: input.schedule ? schedulePayload(input.schedule) : undefined, // 建任务同时挂计划（计划任务功能）
       // 【二开·P-INTENT·U1】透传四新字段（00 册 S7）
       // biome-ignore lint/nursery/useNullishCoalescing: 空字符串需归一为 undefined（省略字段），?? 会保留空串。
       pre_agent: input.preAgent || undefined,
@@ -173,7 +219,15 @@ export const tasksApi = {
   taskCategories: () => get<{ categories: TaskCategory[] }>("/task-categories").then((r) => arr(r.categories)),
   updateTask: (
     id: string,
-    input: { name?: string; pinned?: boolean; review_auto?: boolean; review_enabled?: boolean },
+    // 后端 TaskPatch 支持的可变字段：改名 / 备注 / 置顶 / 全局资产共享 / 审核开关。
+    input: {
+      name?: string;
+      remark?: string;
+      pinned?: boolean;
+      share_global_assets?: boolean;
+      review_auto?: boolean;
+      review_enabled?: boolean;
+    },
   ) => patch<Task>(`/tasks/${id}`, input),
   renameTask: (id: string, name: string) => patch<Task>(`/tasks/${id}`, { name }),
   pinTask: (id: string, pinned: boolean) => patch<Task>(`/tasks/${id}`, { pinned }),
@@ -518,8 +572,13 @@ export const tasksApi = {
     scope: "filtered" | "all" | "selected";
     filters?: Omit<FindingQuery, "page" | "pageSize">;
     ids?: string[];
+    includeOriginals?: boolean;
+    consolidated?: boolean;
   }) => {
     const p = new URLSearchParams({ format: opts.format, scope: opts.scope });
+    // mode=consolidated 走案例聚合导出；include_originals 同时带上原始发现。
+    p.set("mode", opts.consolidated === false ? "raw" : "consolidated");
+    p.set("include_originals", String(opts.includeOriginals ?? false));
     if (opts.scope === "selected") {
       p.set("ids", (opts.ids ?? []).join(","));
     } else if (opts.scope === "filtered" && opts.filters) {
@@ -734,6 +793,7 @@ export const tasksApi = {
     method = "",
     q = "",
     opts: {
+      taskId?: string;
       body?: string;
       path?: string;
       status?: string;
@@ -745,6 +805,7 @@ export const tasksApi = {
   ) =>
     get<TrafficResp>(
       `/traffic?page=${page}&size=${size}` +
+        (opts.taskId ? `&task_id=${encodeURIComponent(opts.taskId)}` : "") +
         (host ? `&host=${encodeURIComponent(host)}` : "") +
         (method && method !== "all" ? `&method=${encodeURIComponent(method)}` : "") +
         (q ? `&q=${encodeURIComponent(q)}` : "") +
@@ -763,6 +824,126 @@ export const tasksApi = {
   // Purges every exchange and compacts the index; `reclaimed` is the bytes of
   // index handed back to the filesystem. Evidence bound to findings is kept.
   trafficDeleteAll: () => del<{ deleted: number; reclaimed: number }>(`/traffic/all`),
+
+  // ---- 合并自 RuoJi6/ARTEX v0.3.27 ----
+  schedules: () => get<{ schedules: TaskSchedule[] }>("/schedules").then((r) => arr(r.schedules)),
+  renameSchedule: (id: number, name: string) => patch<TaskSchedule>(`/schedules/${id}/metadata`, { name }),
+  createSchedule: (input: ScheduleInput) => post<TaskSchedule>("/schedules", schedulePayload(input)),
+  updateSchedule: (id: number, input: ScheduleInput) => patch<TaskSchedule>(`/schedules/${id}`, schedulePayload(input)),
+  deleteSchedule: (id: number) => del<{ ok: boolean }>(`/schedules/${id}`),
+  pauseSchedule: (id: number) => post<{ ok: boolean }>(`/schedules/${id}/pause`, {}),
+  updateScheduleRemark: (id: number, remark: string) => patch<TaskSchedule>(`/schedules/${id}/remark`, { remark }),
+  schedule: (id: number) => get<TaskSchedule>(`/schedules/${id}`),
+  resumeSchedule: (id: number) => post<{ ok: boolean }>(`/schedules/${id}/resume`, {}),
+  runScheduleNow: (id: number) =>
+    post<{ ok: boolean; started: number; errors?: string[] }>(`/schedules/${id}/run-now`, {}),
+  findingCases: (q: FindingQuery, originalRows = false) => {
+    const p = findingFilterParams(q);
+    p.set("page", String(q.page));
+    p.set("limit", String(q.pageSize));
+    if (originalRows) p.set("original_rows", "1");
+    return get<FindingCasePage>(`/exploration/finding-cases?${p}`);
+  },
+  getFindingCase: (id: string, contextTask?: string) =>
+    get<FindingCaseDetail>(
+      `/exploration/finding-cases/${id}${contextTask ? `?context_task=${encodeURIComponent(contextTask)}` : ""}`,
+    ),
+  findingCaseMembers: (id: string, page = 1, contextTask?: string, pageSize = 20) =>
+    get<FindingsPage>(
+      `/exploration/finding-cases/${id}/members?page=${page}&limit=${pageSize}${contextTask ? `&context_task=${encodeURIComponent(contextTask)}` : ""}`,
+    ),
+  findingCaseSuggestions: (task?: string) =>
+    get<FindingCaseSuggestion[]>(
+      `/exploration/finding-case-suggestions${task ? `?task_id=${encodeURIComponent(task)}` : ""}`,
+    ),
+  findingCaseReviewRuns: () => get<FindingCaseReviewRun[]>("/exploration/finding-case-review"),
+  removeFindingCaseMember: (id: string, fid: string, reason: string) =>
+    http<{ ok: boolean }>(`/exploration/finding-cases/${id}/members/${fid}`, {
+      method: "DELETE",
+      body: JSON.stringify({ reason }),
+    }),
+  resolveFindingCaseSuggestion: (id: string, accept: boolean, excludeIds?: string[]) =>
+    post<{ case_id: string }>(`/exploration/finding-case-suggestions/${id}`, {
+      accept,
+      ...(excludeIds && excludeIds.length > 0 ? { exclude_ids: excludeIds } : {}),
+    }),
+  regenerateFindingCase: (id: string, contextTask?: string) =>
+    post<{ runs: { conversation_id: number; task_id: string }[] }>(
+      `/exploration/finding-case-review${contextTask ? `?context_task=${encodeURIComponent(contextTask)}` : ""}`,
+      { case_id: id },
+    ),
+  reviewFindingCases: (ids: string[]) =>
+    post<{ runs: { conversation_id: number; task_id: string }[] }>("/exploration/finding-case-review", {
+      finding_ids: ids,
+    }),
+  attachTaskAssets: (taskId: string, assetIds: number[], sourceSummary: string) =>
+    post<TaskAssetMutation>(`/tasks/${taskId}/assets`, {
+      asset_ids: assetIds,
+      source_summary: sourceSummary,
+    }),
+  intelligence: (scope: "tasks" | "assets", id: string, query: URLSearchParams) =>
+    get<IntelligencePage>(`/${scope}/${id}/intelligence?${query.toString()}`),
+  intelligenceDetail: (scope: "tasks" | "assets", id: string, intelligenceId: number) =>
+    get<TaskIntelligence>(`/${scope}/${id}/intelligence/${intelligenceId}`),
+  updateIntelligence: (taskId: number, intelligenceId: number, status: string) =>
+    patch<{ updated: boolean }>(`/tasks/${taskId}/intelligence/${intelligenceId}`, { status }),
+  repeaterSend: (req: RepeaterSendRequest) => post<RepeaterSendResponse>("/repeater/send", req),
+  topologyMappingStatus: (id: string) =>
+    get<{ running: boolean; conversation_id?: number }>(`/tasks/${id}/topology-mapping/status`),
+  generateFindingReport: (id: string) =>
+    post<{ queued: boolean; agent_key: "reporter"; finding_id: number; finding_node_id: number }>(
+      `/exploration/findings/${encodeURIComponent(id)}/generate-report`,
+      {},
+    ),
+
+  // ---- 合并自 RuoJi6/ARTEX v0.3.27 ----
+  credentialTraffic: (scope: "tasks" | "assets", scopeId: string, intelligenceId: number, trafficId: string) =>
+    get<CredentialTrafficDetail>(
+      `/${scope}/${scopeId}/intelligence/${intelligenceId}/traffic/${encodeURIComponent(trafficId)}`,
+    ),
+  startTopologyMapping: (id: string) =>
+    post<{ status: string; agent_key: string; conversation_id: number }>(`/tasks/${id}/topology-mapping`, {}),
+
+  // ── AntiFox 证据驱动交付：漏洞富化 / 证据截图 / 流量关联 ──
+  // 路由挂在 artex-ld 的 /api/exploration/findings/{id} 命名空间下（与既有发现页一致）。
+  findingDetail: (nodeId: string) => get<FindingDetailResp>(`/exploration/findings/${nodeId}/detail`),
+  // AI 分析是异步的：POST 启动（或重新挂到已有）任务，GET status 轮询。
+  // 生成在服务端 app ctx 上跑，切页面不会中断。
+  findingEnrich: (nodeId: string, locale?: string) =>
+    post<EnrichJob>(
+      `/exploration/findings/${nodeId}/enrich${locale ? `?locale=${encodeURIComponent(locale)}` : ""}`,
+      {},
+    ),
+  findingEnrichStatus: (nodeId: string) => get<EnrichJob>(`/exploration/findings/${nodeId}/enrich/status`),
+  // 返回已保存的富化 + `enriching`：状态置为 confirmed 时会自动触发后台 AI 富化（确认即富化）。
+  findingUpdate: (
+    nodeId: string,
+    patch: { name?: string; target?: string; severity?: string; status?: string; locale?: string },
+  ) => put<{ enrichment: Enrichment; enriching: boolean }>(`/exploration/findings/${nodeId}`, patch),
+  findingEvidenceList: (nodeId: string) =>
+    get<{ items: FindingEvidenceItem[] }>(`/exploration/findings/${nodeId}/evidence`).then((r) => r.items ?? []),
+  findingEvidenceUpload: async (nodeId: string, file: File, caption = "", stepIndex = 0) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (caption) fd.append("caption", caption);
+    fd.append("step_index", String(stepIndex));
+    const token = getToken();
+    const r = await fetch(`/api/exploration/findings/${nodeId}/evidence`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((body as { error?: string }).error || `上传失败(${r.status})`);
+    return body as FindingEvidenceItem;
+  },
+  findingEvidenceUpdate: (
+    nodeId: string,
+    eid: number,
+    patch: { caption: string; step_index: number; sort_order: number },
+  ) => put<{ ok: boolean }>(`/exploration/findings/${nodeId}/evidence/${eid}`, patch),
+  findingEvidenceDelete: (nodeId: string, eid: number) =>
+    del<{ deleted: number }>(`/exploration/findings/${nodeId}/evidence/${eid}`),
 };
 
 export type TasksApi = typeof tasksApi;

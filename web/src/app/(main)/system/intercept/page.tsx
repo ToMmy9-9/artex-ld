@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Field as FormField, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -420,12 +419,9 @@ function JudgeCard() {
                     </Button>
                   )}
                 </Field>
-<<<<<<< HEAD
-                <Field className="gap-1.5">
-                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">模型判定超时（秒）</FieldLabel>
-=======
                 {selectedIsJev && (
-                  <Field label="Jev 低置信度阈值">
+                  <Field className="gap-1.5">
+                    <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Jev 低置信度阈值</FieldLabel>
                     <Input
                       type="number"
                       min={0}
@@ -440,8 +436,8 @@ function JudgeCard() {
                     <p className="text-xs text-muted-foreground">置信度低于此值自动转人工；0 表示不因置信度转人工，默认 0.55。</p>
                   </Field>
                 )}
-                <Field label="每次模型判定超时（秒）">
->>>>>>> ruoji-v0.3.27
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">每次模型判定超时（秒）</FieldLabel>
                   <Input
                     type="number"
                     min={1}
@@ -452,53 +448,41 @@ function JudgeCard() {
                     }}
                   />
                 </Field>
-<<<<<<< HEAD
                 <Field className="gap-1.5">
-                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">模型失败时（出错 / 超时 / 无法解析）</FieldLabel>
-=======
-                <FieldGroup>
-                  <FormField>
-                    <FieldLabel htmlFor="judge-retry-count">失败重试次数</FieldLabel>
-                    <Input
-                      id="judge-retry-count"
-                      type="number"
-                      min={0}
-                      max={20}
-                      step={1}
-                      value={cfg.retry_count}
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        if (Number.isInteger(n) && n >= 0 && n <= 20) patch({ retry_count: n });
-                      }}
-                      aria-describedby="judge-retry-count-hint"
-                    />
-                    <FieldDescription id="judge-retry-count-hint">
-                      首次审批失败后额外重试 0–20 次，0 表示不重试。出错、超时或裁决无法解析时重试；正常放行、转人工或拦截后立即结束。
-                    </FieldDescription>
-                  </FormField>
-                  <FormField data-disabled={cfg.retry_count === 0}>
-                    <FieldLabel htmlFor="judge-retry-interval">重试间隔（毫秒）</FieldLabel>
-                    <Input
-                      id="judge-retry-interval"
-                      type="number"
-                      min={0}
-                      max={3600000}
-                      step={1}
-                      value={cfg.retry_interval_ms}
-                      disabled={cfg.retry_count === 0}
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        if (Number.isInteger(n) && n >= 0 && n <= 3600000) patch({ retry_interval_ms: n });
-                      }}
-                      aria-describedby="judge-retry-interval-hint"
-                    />
-                    <FieldDescription id="judge-retry-interval-hint">
-                      默认 1000 毫秒，0 表示立即重试。每次审批均有独立超时，全部尝试失败后执行下方失败策略。模型配置中的建连和空响应重试仍在每次审批内生效。
-                    </FieldDescription>
-                  </FormField>
-                </FieldGroup>
-                <Field label="模型失败时（重试耗尽后）">
->>>>>>> ruoji-v0.3.27
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">失败重试次数</FieldLabel>
+                  <Input
+                    id="judge-retry-count"
+                    type="number"
+                    min={0}
+                    max={20}
+                    step={1}
+                    value={cfg.retry_count}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      if (Number.isInteger(n) && n >= 0 && n <= 20) patch({ retry_count: n });
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">首次审批失败后额外重试 0–20 次，0 表示不重试。出错、超时或裁决无法解析时重试；正常放行、转人工或拦截后立即结束。</p>
+                </Field>
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">重试间隔（毫秒）</FieldLabel>
+                  <Input
+                    id="judge-retry-interval"
+                    type="number"
+                    min={0}
+                    max={3600000}
+                    step={1}
+                    value={cfg.retry_interval_ms}
+                    disabled={cfg.retry_count === 0}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      if (Number.isInteger(n) && n >= 0 && n <= 3600000) patch({ retry_interval_ms: n });
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">默认 1000 毫秒，0 表示立即重试。每次审批均有独立超时，全部尝试失败后执行下方失败策略。</p>
+                </Field>
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">模型失败时（重试耗尽后）</FieldLabel>
                   <Select value={cfg.fail_action} onValueChange={(v) => patch({ fail_action: v as JudgeConfig["fail_action"] })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -508,7 +492,8 @@ function JudgeCard() {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="脚本快照不完整时">
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">脚本快照不完整时</FieldLabel>
                   <Select
                     value={cfg.incomplete_script_action}
                     onValueChange={(v) => patch({ incomplete_script_action: v as JudgeConfig["incomplete_script_action"] })}

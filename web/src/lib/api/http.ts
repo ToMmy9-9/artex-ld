@@ -5,6 +5,7 @@
  * 主要函数/类型：
  *   - http / get / post / put / patch / del：带鉴权与统一错误处理的 fetch 封装（MOCK 构建短路到 mock handler）
  *   - sseUrl：构建 SSE 流地址（生产同源、开发直连 :8787）
+ *   - openSSE：打开 SSE 连接（同源带 cookie，本地开发跨端口才带凭据）
  *   - getToken：读取 localStorage 中的登录 token
  *   - arr / tq / findingFilterParams / interceptPageQuery：空数组兜底、task 查询串与筛选序列化小工具
  */
@@ -84,6 +85,17 @@ export function sseUrl(path: string): string {
   const token = base !== "" ? getToken() : null;
   const sep = path.includes("?") ? "&" : "?";
   return token ? `${base}${path}${sep}token=${encodeURIComponent(token)}` : `${base}${path}`;
+}
+
+// openSSE 打开 SSE 流。同源流已由浏览器携带 cookie，只在本地 Next/Go 开发
+// 组合下才允许带凭据跨端口；自定义远端 SSE 端点保持原样。
+export function openSSE(path: string): EventSource {
+  const url = sseUrl(path);
+  const target = new URL(url, window.location.href);
+  // Same-origin streams already send cookies. Only opt into cross-port cookies
+  // for the local Next/Go dev pair; keep custom remote SSE endpoints unchanged.
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname);
+  return new EventSource(url, { withCredentials: local && target.hostname === window.location.hostname });
 }
 
 export const get = <T>(p: string) => http<T>(p);

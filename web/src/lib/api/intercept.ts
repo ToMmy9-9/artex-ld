@@ -100,6 +100,13 @@ export const interceptApi = {
   interceptGetJudgeConfig: () => get<JudgeConfig>("/intercept/judge"),
   interceptSetJudgeConfig: (cfg: JudgeConfig) => put<{ ok: boolean }>("/intercept/judge", cfg),
   interceptJudgeUsage: (days = 30) => get<JudgeUsage>(`/intercept/judge/usage?days=${days}`),
+
+  // ---- 合并自 RuoJi6/ARTEX v0.3.27 ----
+  setBasicAuthSettings: (settings: { enabled: boolean; username: string; password: string }) =>
+    put<{ enabled: boolean; username: string; password_set: boolean }>("/settings/basic-auth", settings),
+
+  // ---- 合并自 RuoJi6/ARTEX v0.3.27 ----
+  basicAuthSettings: () => get<{ enabled: boolean; username: string; password_set: boolean }>("/settings/basic-auth"),
 };
 
 export type InterceptApi = typeof interceptApi;

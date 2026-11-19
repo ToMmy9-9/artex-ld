@@ -2,6 +2,7 @@
  * status-badge.tsx：跨状态域的通用状态徽章，依据 lib/status 元数据渲染色调与文案。
  * 主要函数/类型：
  *   - StatusBadge：状态徽章组件（domain + value，可选圆点）
+ *   - ToneDot：只渲染语义色圆点的小组件（标签页计数等只需色点的位置）
  */
 import { cn } from "@/lib/utils";
 import {
@@ -9,6 +10,7 @@ import {
   toneClasses,
   toneDot,
   type StatusDomain,
+  type Tone,
 } from "@/lib/status";
 
 export function StatusBadge({
@@ -37,4 +39,9 @@ export function StatusBadge({
       {meta.label}
     </span>
   );
+}
+
+// ToneDot 单独渲染一个语义色圆点，供只需要色点、不需要文案的位置使用。
+export function ToneDot({ tone, className }: { tone: Tone; className?: string }) {
+  return <span className={cn("size-1.5 rounded-full", toneDot[tone], className)} />;
 }

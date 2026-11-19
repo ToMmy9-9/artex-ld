@@ -37,7 +37,8 @@ import type {
   SSProject,
   SSTask,
   Tool,
-} from "@/lib/types";
+  PromptVersion,
+  PromptVar, } from "@/lib/types";
 
 export const llmAgentsApi = {
   // ---- app settings (runtime toggles) ----
@@ -49,6 +50,7 @@ export const llmAgentsApi = {
     web_search_proxy?: string;
     brave_search_api_key?: string;
     tavily_search_api_key?: string;
+    deepseek_search_api_key?: string;
   }) => post<{ ok: boolean; error?: string; count?: number; backend?: string }>(`/settings/web-search/test`, patch),
 
   // ---- 漏洞 IM 推送 ----
@@ -398,6 +400,18 @@ export const llmAgentsApi = {
   skillVisibility: (name: string) => get<{ agents: string[] }>(`/visibility/skill/${name}`).then((r) => arr(r.agents)),
   toggleSkillVisibility: (agentId: string, skillName: string, visible: boolean) =>
     post<{ ok: boolean }>("/visibility/skill/toggle", { agent_id: agentId, skill_name: skillName, visible }),
+
+  // ---- 合并自 RuoJi6/ARTEX v0.3.27 ----
+  getAgentVisibility: (key: string) => get<{ mcp: number[]; skill: string[] }>(`/agents/${key}/visibility`),
+  agentPromptVersions: (key: string) =>
+    get<{ versions: PromptVersion[] }>(`/agents/${key}/prompts`).then((r) => arr(r.versions)),
+  agentVariables: (key: string) =>
+    get<{ variables: PromptVar[] }>(`/agents/${key}/variables`).then((r) => arr(r.variables)),
+
+  // ---- 合并自 RuoJi6/ARTEX v0.3.27 ----
+  skillFiles: (name: string) => get<{ files: string[] }>(`/skills/${name}/files`).then((r) => r.files),
+  updateAgent: (key: string, name: string, description = "") =>
+    patch<{ ok: boolean }>(`/agents/${key}`, { name, description }),
 };
 
 export type LlmAgentsApi = typeof llmAgentsApi;

@@ -36,7 +36,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-<<<<<<< HEAD
 import {
   Table,
   TableBody,
@@ -53,12 +52,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn, copyText, fmtTime } from "@/lib/utils";
-=======
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HttpPacketSyntax } from "@/components/http-code-block";
-import { cn } from "@/lib/utils";
->>>>>>> ruoji-v0.3.27
 import { api } from "@/lib/api";
 import type { LLMRecordItem, LLMRecordDetail, LLMTask } from "@/lib/types";
 
@@ -96,27 +90,7 @@ function CopyButton({ text }: { text: string }) {
   // 反馈的语义（区别于 components/copy-button.tsx 的文案按钮）。
   const copy = async () => {
     if (disabled) return;
-<<<<<<< HEAD
     await copyText(text);
-=======
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // navigator.clipboard 在非安全上下文(如 http 局域网)不可用，回退到 execCommand。
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand("copy");
-      } catch {
-        /* 忽略：不支持则静默 */
-      }
-      document.body.removeChild(ta);
-    }
->>>>>>> ruoji-v0.3.27
     setCopied(true);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopied(false), 1500);

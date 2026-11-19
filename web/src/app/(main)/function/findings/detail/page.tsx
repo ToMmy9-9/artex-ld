@@ -76,14 +76,11 @@ function FindingDetailInner() {
   const [finding, setFinding] = React.useState<Finding | null>(null);
   const [loaded, setLoaded] = React.useState(false);
   const [tab, setTab] = React.useState("overview");
-<<<<<<< HEAD
   const loadSeq = React.useRef(0);
-=======
   const [reportGenerating, setReportGenerating] = React.useState(false);
   const [autoChatOpen, setAutoChatOpen] = React.useState(false);
   const [reportChatOpen, setReportChatOpen] = React.useState(false);
   const title = finding?.name || finding?.vulnclass || "未分类";
->>>>>>> ruoji-v0.3.27
 
   const load = React.useCallback(() => {
     const seq = ++loadSeq.current;
