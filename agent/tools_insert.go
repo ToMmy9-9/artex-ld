@@ -671,6 +671,10 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 		t.searchAllWorkerTraces(), t.getWorkerTrace(),
 		// node_detail：worker 拿到 intent_id/节点 id 后可查该节点完整详情（配合上面的回看）。
 		t.nodeDetail(),
+		// 【AntiFox 知识库】search_knowledge / list_knowledge_categories：
+		// worker 执行前可检索全局漏洞库与本任务专属资料（授权书/评分规则/检查项），
+		// 让方法选择与判定标准有据可依，而不是凭记忆猜。
+		t.searchKnowledge(), t.listKnowledgeCategories(),
 		// 以下工具仍【不给】worker，只留给 planner/main（读上下文、跨 work 复盘是规划职责，
 		// worker 只做单条意图的执行与写回）：list_facts / list_companies / list_worker_traces。
 	}
@@ -697,6 +701,8 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
+		// 【AntiFox 知识库】规划期可检索知识库以确定方法论与判定标准。
+		t.searchKnowledge(), t.listKnowledgeCategories(),
 	}
 }
 

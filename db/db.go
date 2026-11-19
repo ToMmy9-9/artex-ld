@@ -16,6 +16,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -179,6 +180,10 @@ func Open(dsn string) (*DB, error) {
 		}
 		return nil
 	})
+	// 【AntiFox 知识库】pgvector 扩展 + knowledge_chunks 表（语义层）是 best-effort：
+	// CREATE EXTENSION vector 需要超级用户预先安装，没装上时知识库降级为关键词检索，
+	// 绝不影响启动。结果记在 settings "knowledge.vector_available"。
+	d.ensureKnowledgeVectorSchema()
 	if err != nil {
 		sqlDB.Close()
 		return nil, err
@@ -636,4 +641,38 @@ WHERE NOT EXISTS (SELECT 1 FROM intercept_rules WHERE name = $1)`,
 		return fmt.Errorf("rule %q: %w", name, err)
 	}
 	return d.SetSetting("intercept_default_rules_v3", "done")
+}
+
+// ensureKnowledgeVectorSchema creates the pgvector extension + knowledge_chunks
+// table (the semantic layer of the knowledge base). It is best-effort and NEVER
+// fails boot: CREATE EXTENSION vector needs a superuser to have pre-installed it,
+// so on a deployment where that hasn't happened the knowledge base degrades to
+// keyword search. Records the outcome in the settings flag "knowledge.vector_available".
+func (d *DB) ensureKnowledgeVectorSchema() {
+	if _, err := d.Exec(`CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+		log.Printf("[knowledge] pgvector 不可用（%v）——语义检索禁用，降级为关键词检索。"+
+			"启用需超级用户执行一次 CREATE EXTENSION vector", err)
+		_ = d.SetBool("knowledge.vector_available", false)
+		return
+	}
+	// embedding 用不定维 vector 列 + 每 chunk 记 embed_model/dim；检索时按当前模型过滤，
+	// 换 embedder 不串味（旧模型行被忽略，重建索引后统一）。数据量级用精确扫描即可。
+	if _, err := d.Exec(`
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT NOT NULL REFERENCES knowledge_docs(id) ON DELETE CASCADE,
+    chunk_index INT NOT NULL DEFAULT 0,
+    content     TEXT NOT NULL DEFAULT '',
+    embedding   vector,
+    embed_model TEXT NOT NULL DEFAULT '',
+    embed_dim   INT NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_doc ON knowledge_chunks(doc_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_model ON knowledge_chunks(embed_model);`); err != nil {
+		log.Printf("[knowledge] 建 knowledge_chunks 失败（%v）——语义检索禁用", err)
+		_ = d.SetBool("knowledge.vector_available", false)
+		return
+	}
+	_ = d.SetBool("knowledge.vector_available", true)
 }

@@ -1137,6 +1137,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/settings/proxy-pool/{id}/activate", s.activateProxyPool)
 	mux.HandleFunc("POST /api/tasks/{id}/proxy/test", s.testTaskProxy)
 	mux.HandleFunc("GET /api/report", s.getReport)
+	// ── AntiFox 知识库（两层 RAG：全局漏洞库 + 任务授权书）──
+	mux.HandleFunc("GET /api/knowledge", s.listKnowledge)
+	mux.HandleFunc("POST /api/knowledge", s.createKnowledge)
+	mux.HandleFunc("POST /api/knowledge/upload", s.uploadKnowledge)
+	mux.HandleFunc("GET /api/knowledge/categories", s.knowledgeCategories)
+	mux.HandleFunc("POST /api/knowledge/search", s.searchKnowledge)
+	mux.HandleFunc("GET /api/knowledge/logs", s.knowledgeLogs)
+	mux.HandleFunc("GET /api/knowledge/config", s.getKnowledgeConfig)
+	mux.HandleFunc("PUT /api/knowledge/config", s.saveKnowledgeConfig)
+	mux.HandleFunc("POST /api/knowledge/config/test", s.testKnowledgeEmbedder)
+	mux.HandleFunc("POST /api/knowledge/reindex", s.reindexKnowledge)
 	// ── AntiFox 证据驱动交付：交付级报告（docx / 三语）──
 	mux.HandleFunc("POST /api/report/generate", s.generateReport)
 	mux.HandleFunc("GET /api/report/status", s.reportStatus)

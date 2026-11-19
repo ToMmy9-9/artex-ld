@@ -182,6 +182,11 @@ type ExplorationStore struct {
 	expID int64
 }
 
+// DB returns the underlying database handle (read-only accessor).
+// Used by subsystems that need the DB from a store handle, e.g. the knowledge
+// base service (【AntiFox 知识库】).
+func (s *ExplorationStore) DB() *DB { return s.db }
+
 // CreateExploration creates a new exploration root and returns its id.
 func (d *DB) CreateExploration(description, goal string) (int64, error) {
 	var id int64

@@ -10,15 +10,16 @@
 package agent
 
 import (
+	"artex/db"
+	"artex/knowledge"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
-	"strconv"
-	"strings"
-	"artex/db"
 	acperm "norma/permission"
 	actool "norma/tool"
+	"strconv"
+	"strings"
 )
 
 // compactIntents distills intents to {id, summary, state, asset_ids, parents,
@@ -101,6 +102,9 @@ type ToolSet struct {
 	// re-planned promptly (currently: a new hint). nil = no wake (the hint is still
 	// stored and read on the next round triggered by other events). debounced.
 	notify func()
+	// kb is the knowledge-base service (【AntiFox 知识库】两层 RAG). nil = the
+	// search_knowledge / list_knowledge_categories tools report "not enabled".
+	kb *knowledge.Service
 	// resolveTraffic, if set, maps a finding's structured reproduction steps to the
 	// real recorded MITM exchange ids (【AntiFox 证据驱动交付】host callback, wired by
 	// the server). It returns the reproduction with steps[].exchange_id filled where
@@ -237,7 +241,13 @@ func (w WriteCounts) String() string {
 func (t *ToolSet) Writes() WriteCounts { return t.writes }
 
 func NewToolSet(ts *db.ExplorationStore, worker string) *ToolSet {
-	return &ToolSet{ts: ts, worker: worker}
+	t := &ToolSet{ts: ts, worker: worker}
+	// 【AntiFox 知识库】工具集自带知识库服务（两层 RAG）；无 DB 时为 nil，
+	// 工具会报「知识库未启用」而不是报错。
+	if ts != nil && ts.DB() != nil {
+		t.kb = knowledge.NewService(ts.DB())
+	}
+	return t
 }
 
 // SetTaskID sets the PG task id on this ToolSet so that report_finding can
