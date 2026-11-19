@@ -1,3 +1,10 @@
+/**
+ * http-code-block.tsx：原始 HTTP 请求/响应的语法高亮展示块，支持复制与自动换行。
+ * 主要函数/类型：
+ *   - HttpCodeBlock：HTTP 报文展示组件
+ *   - StartLine / HeaderLine：请求行与头部行高亮
+ *   - JsonBody / MarkupBody / detectBodyFormat / HighlightedBody：正文格式化检测与高亮
+ */
 "use client";
 import * as React from "react";
 
@@ -6,15 +13,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn, copyText } from "@/lib/utils";
-
-function statusTone(status: number) {
-  if (status >= 500) return "text-red-500";
-  if (status >= 400) return "text-amber-500";
-  if (status >= 300) return "text-blue-500";
-  if (status >= 200) return "text-emerald-500";
-  return "text-muted-foreground";
-}
+import { cn, copyText, statusTone } from "@/lib/utils";
 
 function StartLine({ line }: { line: string }) {
   const response = /^(HTTP\/\S+)(\s+)(\d{3})(.*)$/.exec(line);

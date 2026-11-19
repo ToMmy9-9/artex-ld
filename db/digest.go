@@ -1,3 +1,11 @@
+// digest.go：冷节点压缩（cold-digest）的轮次、冷标记、内容版本与 digest 覆盖关系的持久化。
+// 主要函数/类型：
+//   - BumpRound / RoundNo：探索轮次计数的自增与读取。
+//   - ColdStamps / ApplyStampOps：节点 cold_since 时间戳的读取与批量更新。
+//   - ContentVersions：节点内容版本号查询。
+//   - ActiveDigests / AddDigest / SupersedeDigests：digest 节点的查询、创建与取代。
+//   - CoveredMembers / DigestMembers / NodeAssets：digest 与成员节点、资产的覆盖关系查询。
+
 package db
 
 // cold-digest §1/§2.3/§5: persistence for cold-node compression — the round

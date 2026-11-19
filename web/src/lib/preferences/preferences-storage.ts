@@ -1,3 +1,8 @@
+/**
+ * preferences-storage.ts：按配置把偏好值写入 cookie 或 localStorage。
+ * 主要函数/类型：
+ *   - persistPreference：依据 PREFERENCE_PERSISTENCE 持久化指定键的值
+ */
 "use client";
 
 import { setClientCookie } from "../cookie.client";

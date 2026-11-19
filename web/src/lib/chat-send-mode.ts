@@ -1,3 +1,9 @@
+/**
+ * chat-send-mode.ts：会话输入框 Enter / Ctrl+Enter 发送键位偏好（仅落 localStorage，不入库）。
+ * 主要函数/类型：
+ *   - ChatSendMode 及 CHAT_SEND_MODE_* 常量：键位取值、存储键、默认值与选项
+ *   - useChatSendMode / setChatSendMode / shouldSubmitOnKey：读取、写入偏好及按键提交判定
+ */
 "use client";
 
 import * as React from "react";

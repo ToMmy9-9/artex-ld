@@ -1,3 +1,9 @@
+// assets.go：公司与资产的增删查改、作用域管理与归属调整 HTTP API。
+// 主要函数/类型：
+//   - listCompanies / createCompany / getCompany / deleteCompany：公司列表/新增/详情/删除。
+//   - addCompanyScope：为公司添加资产作用域（自定义 JSON 解析）。
+//   - reattribute：把资产从一家公司改挂到另一家公司。
+//   - listAssets / insertAssets / deleteAssets / assetCounts：资产列表/批量导入/删除/计数统计。
 package server
 
 import (
@@ -9,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // companyScopeInputs accepts both the new [{kind,value}] contract and the
@@ -333,6 +339,24 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 	}
 	if offset < 0 {
 		offset = 0
+	}
+	if typ == "host" {
+		companyID, _ := strconv.ParseInt(q.Get("company_id"), 10, 64)
+		taskID, _ := strconv.ParseInt(q.Get("task_id"), 10, 64)
+		dsl := q.Get("dsl")
+		if dsl != "" {
+			if err := db.ValidateDSL(dsl); err != nil {
+				writeErr(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		hosts, total, err := as.QueryHosts(db.AssetHostFilter{CompanyID: companyID, TaskID: taskID, DSL: dsl, Limit: limit, Offset: offset})
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, 200, map[string]any{"count": len(hosts), "total": total, "hosts": hosts})
+		return
 	}
 
 	assets := []*db.Asset{}

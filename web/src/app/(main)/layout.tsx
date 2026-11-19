@@ -1,3 +1,9 @@
+/**
+ * layout.tsx：(main) 路由组布局，客户端鉴权守卫（未登录跳 /login）并渲染侧边栏与主内容区。
+ * 主要函数/类型：
+ *   - readPref：从 cookie 读取布局偏好（静态导出回退默认值）
+ *   - Layout：鉴权后渲染 SidebarProvider、AppSidebar 与 MainContent
+ */
 "use client";
 
 import type { ReactNode } from "react";

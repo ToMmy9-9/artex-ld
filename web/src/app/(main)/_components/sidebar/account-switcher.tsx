@@ -1,3 +1,9 @@
+/**
+ * account-switcher.tsx：顶栏头像账号菜单，展示当前用户并提供修改密码与退出登录入口。
+ * 主要函数/类型：
+ *   - AccountSwitcher：头像触发的下拉菜单组件。
+ *   - AccountUser：传入用户的 id/name/email/avatar/role 结构。
+ */
 "use client";
 
 import { useState } from "react";
@@ -17,18 +23,17 @@ import { cn, getInitials } from "@/lib/utils";
 
 import { ChangePasswordDialog } from "./change-password-dialog";
 
-export function AccountSwitcher({
-  users,
-}: {
-  readonly users: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly email: string;
-    readonly avatar: string;
-    readonly role: string;
-  }>;
-}) {
-  const [activeUser, setActiveUser] = useState(users[0]);
+interface AccountUser {
+  readonly id: string;
+  readonly name: string;
+  readonly email: string;
+  readonly avatar: string;
+  readonly role: string;
+}
+
+// AccountSwitcher 是顶栏的单账号菜单：头像触发，展开显示当前用户、修改密码与退出登录。
+// （原设计支持多账号切换，但唯一调用方固定传单用户；若恢复多账号，再把列表与选中态加回来。）
+export function AccountSwitcher({ user }: { readonly user: AccountUser }) {
   const [pwOpen, setPwOpen] = useState(false);
 
   function handleLogout() {
@@ -36,7 +41,7 @@ export function AccountSwitcher({
     window.location.href = "/login";
   }
 
-  if (!activeUser) {
+  if (!user) {
     return null;
   }
 
@@ -45,38 +50,26 @@ export function AccountSwitcher({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Avatar className="size-8 rounded-lg">
-            <AvatarImage src={activeUser.avatar || undefined} alt={activeUser.name} />
-            <AvatarFallback>{getInitials(activeUser.name)}</AvatarFallback>
+            <AvatarImage src={user.avatar || undefined} alt={user.name} />
+            <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
           </Avatar>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="min-w-56 space-y-1 rounded-lg" side="bottom" align="end" sideOffset={4}>
-          {users.map((user) => (
-            <DropdownMenuItem
-              key={user.email}
-              className={cn("p-0", user.id === activeUser.id && "bg-accent/50")}
-              aria-current={user.id === activeUser.id ? "true" : undefined}
-              onClick={() => setActiveUser(user)}
-            >
-              <div className="flex w-full items-center gap-2 px-1 py-1.5">
-                <Avatar className="size-9 rounded-lg">
-                  <AvatarImage src={user.avatar || undefined} alt={user.name} />
-                  <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-                </Avatar>
-                <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">{user.name}</span>
-                  <span className="truncate text-xs capitalize">{user.role}</span>
-                </div>
-                <span
-                  className={cn(
-                    "mr-1 flex size-5 items-center justify-center rounded-full text-primary opacity-0",
-                    user.id === activeUser.id && "opacity-100",
-                  )}
-                >
-                  <Check aria-hidden="true" />
-                </span>
+          <DropdownMenuItem className="bg-accent/50 p-0" aria-current="true">
+            <div className="flex w-full items-center gap-2 px-1 py-1.5">
+              <Avatar className="size-9 rounded-lg">
+                <AvatarImage src={user.avatar || undefined} alt={user.name} />
+                <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+              </Avatar>
+              <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-semibold">{user.name}</span>
+                <span className="truncate text-xs capitalize">{user.role}</span>
               </div>
-            </DropdownMenuItem>
-          ))}
+              <span className="mr-1 flex size-5 items-center justify-center rounded-full text-primary opacity-100">
+                <Check aria-hidden="true" />
+              </span>
+            </div>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setPwOpen(true)}>
             <KeyRound />

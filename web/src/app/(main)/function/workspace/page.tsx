@@ -1,3 +1,10 @@
+/**
+ * page.tsx：工作空间文件浏览器，支持目录浏览、文件在线编辑、上传/下载/新建目录/删除。
+ * 主要函数/类型：
+ *   - WorkspacePage：页面主体，经 api.workspaceList / workspaceRead / workspaceWrite 等管理文件
+ *   - EditState：文件编辑缓冲（内容、脏标记、保存中）
+ *   - fmtSize / fmtTime：大小与时间格式化
+ */
 "use client";
 
 import * as React from "react";

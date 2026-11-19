@@ -1,3 +1,7 @@
+// asset_intercept.go：资产拦截规则的增删改查与启停 HTTP API。
+// 主要函数/类型：
+//   - assetInterceptListRules / assetInterceptCreateRule / assetInterceptUpdateRule / assetInterceptDeleteRule / assetInterceptToggleRule：拦截规则列表/新增/更新/删除/启停。
+//   - validateAssetInterceptRuleReq：校验拦截规则请求参数。
 package server
 
 import (
@@ -6,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // --- asset intercept rule CRUD ---

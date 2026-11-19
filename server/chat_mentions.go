@@ -1,3 +1,8 @@
+// chat_mentions.go：聊天消息中 @ 引用的解析、搜索与内容展开。
+// 主要函数/类型：
+//   - parseChatMentions：解析消息中的引用标记并做数量与 ID 合法性校验。
+//   - searchChatMentions：按类型与关键词分页搜索可引用的记录。
+//   - composeChatMentionMessage / loadChatMention：把引用展开为可读内容拼回消息。
 package server
 
 import (
@@ -10,7 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 const maxChatMentions = 10

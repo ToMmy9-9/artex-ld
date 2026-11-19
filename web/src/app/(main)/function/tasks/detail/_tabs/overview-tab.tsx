@@ -1,3 +1,10 @@
+/**
+ * overview-tab.tsx：任务总览面板，展示任务统计、进度、测试范围与 LLM 用量，并含任务级拦截规则卡片。
+ * 主要函数/类型：
+ *   - OverviewTab：总览主组件（任务信息、统计卡片、范围列表）。
+ *   - TaskInterceptRulesCard：本任务生效的拦截规则增删改与启停。
+ *   - StatCard / cacheHitRate / scopeValue：统计卡片与格式化辅助。
+ */
 "use client";
 
 import * as React from "react";
@@ -40,13 +47,7 @@ import type {
   TaskNode,
   TaskScopeRow,
 } from "@/lib/types";
-
-// 紧凑格式化 token 数（12345 → 12.3k，2000000 → 2M）。
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
-  return String(n);
-}
+import { fmtTokens } from "@/lib/utils";
 
 // 缓存命中率 = 缓存读 / 输入（InputTokens 已含 cache_read 子集，故比值在 0–100%）。
 function cacheHitRate(cacheRead: number, input: number): string {

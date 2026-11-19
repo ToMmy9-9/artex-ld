@@ -1,3 +1,11 @@
+// notifier.go：通知投递后台循环，按渠道做实时/摘要发送与令牌桶限流。
+// 主要函数/类型：
+//   - Notifier / newNotifier / Run / step：通知器本体（固定 tick 驱动，单轮故障只记日志）与每轮调度。
+//   - stepRealtime / stepDigest：实时渠道逐条投递与摘要渠道按窗口合并批量投递。
+//   - send / adapt：经 notify.Channel 实际发送、回写投递状态，并按渠道配置适配通道实现。
+//   - renderSingle / renderBatch / itemFor：把投递记录渲染成单条/批量通知消息。
+//   - takeTokens / digestTickPlan：渠道级令牌桶限流与每轮摘要节奏规划。
+//   - parseSnapshot / enabled / publicBaseURL / digestInterval：投递快照解析与通知器配置读取。
 package server
 
 import (
@@ -8,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/notify"
+	"artex/db"
+	"artex/notify"
 )
 
 // 全局设置键（存在 settings 键值表里，无需建表）。

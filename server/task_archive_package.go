@@ -1,3 +1,11 @@
+// task_archive_package.go：任务归档包的文件暂存、打包、解包与崩溃恢复。
+// 主要函数/类型：
+//   - taskArchiveRoot / taskArchivePath：归档根目录与单个归档包路径解析。
+//   - stageTaskArchiveFiles / taskArchiveFileStage：归档前把任务文件移入暂存（支持 applyMoves/rollback/commit）。
+//   - writeTaskArchivePackage / extractTaskArchivePackage：把载荷目录打成 zstd tar 包（含 manifest 与 sha256）并按校验和解包。
+//   - installTaskArchiveFiles / taskArchiveRestoreFiles：恢复时安装归档文件（支持 rollback/commit）。
+//   - recoverTaskArchiveStages / recoverTaskArchiveRestoreStages / recoverTaskArchiveDeletePackages：启动时恢复中断的暂存/恢复/删除流程。
+//   - writeArchiveJournal：写阶段日志，支撑崩溃恢复。
 package server
 
 import (
@@ -15,7 +23,7 @@ import (
 	"strconv"
 	"strings"
 
-	pgdb "github.com/Autumn-27/artex/db"
+	pgdb "artex/db"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -116,27 +124,18 @@ func stageTaskArchiveFiles(dataDir string, archiveID int64, taskID string, explo
 		return nil, err
 	}
 	stage.journal = archiveStageJournal{ArchiveID: archiveID, TaskID: taskID}
-	targets := []archiveFileMove{}
+	paths, err := taskWorkspaceTargets(dataDir, taskID, explorationID)
+	if err != nil {
+		return nil, err
+	}
 	taskDir := filepath.Join(dataDir, "tasks", taskID)
-	if _, err := os.Lstat(taskDir); err == nil {
-		targets = append(targets, archiveFileMove{Source: taskDir, Relative: filepath.Join("files", "tasks", taskID)})
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-	transcriptDir := filepath.Join(dataDir, "transcripts")
-	entries, err := os.ReadDir(transcriptDir)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	prefix := fmt.Sprintf("exp%d-", explorationID)
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasPrefix(name, prefix) || (!entry.IsDir() && !strings.HasSuffix(name, ".jsonl")) {
-			continue
+	targets := make([]archiveFileMove, 0, len(paths))
+	for _, p := range paths {
+		rel := "transcripts"
+		if p == taskDir {
+			rel = "tasks"
 		}
-		targets = append(targets, archiveFileMove{
-			Source: filepath.Join(transcriptDir, name), Relative: filepath.Join("files", "transcripts", name),
-		})
+		targets = append(targets, archiveFileMove{Source: p, Relative: filepath.Join("files", rel, filepath.Base(p))})
 	}
 	// Persist the complete plan before the first rename. Recovery can therefore
 	// roll back any prefix of the moves after an abrupt process termination.

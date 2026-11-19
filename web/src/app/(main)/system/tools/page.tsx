@@ -1,3 +1,10 @@
+/**
+ * page.tsx：工具管理页——工具目录卡片、参数 Schema 编辑器、试运行与自定义工具创建。
+ * 主要函数/类型：
+ *   - ToolsPage（默认导出）：页面主体，含工具网格与编辑 Sheet
+ *   - ToolEditor / ToolGridCard / CustomToolDialog：参数编辑、工具卡片与新建自定义工具
+ *   - toRows / coerceDefault / applyRows：参数 Schema 与编辑行之间的双向转换
+ */
 "use client";
 
 import * as React from "react";

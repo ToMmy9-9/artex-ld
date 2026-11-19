@@ -1,3 +1,8 @@
+/**
+ * sheet.tsx：shadcn/ui 的 Sheet 侧边面板组件封装。
+ * 主要组件：Sheet、SheetTrigger、SheetClose、SheetContent、SheetHeader、SheetFooter、
+ *   SheetTitle、SheetDescription。
+ */
 "use client"
 
 import * as React from "react"

@@ -1,8 +1,15 @@
+/**
+ * agent-editor.tsx：单个 Agent 的分页签编辑器（配置与提示词 / MCP / Skill / Tools），用于 agents 页抽屉及整页深链。
+ * 主要函数/类型：
+ *   - AgentEditor：编辑器主组件，加载并保存 Agent 配置、提示词版本与工具绑定
+ *   - computeDiff / DiffView：提示词版本差异计算与可视化
+ *   - AgentTriggersTab：Agent 触发器编辑页签
+ */
 "use client";
 
 import * as React from "react";
 import { toast } from "sonner";
-import { EyeIcon, GitCompareIcon, InfoIcon, PencilIcon, RotateCcwIcon, SaveIcon, Trash2Icon, XIcon } from "lucide-react";
+import { EyeIcon, GitCompareIcon, PencilIcon, RotateCcwIcon, SaveIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +58,7 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
   const [skillVisible, setSkillVisible] = React.useState<string[]>([]);
   const [preview, setPreview] = React.useState("");
   const [maxTurns, setMaxTurns] = React.useState("0");
+  const [executorKey, setExecutorKey] = React.useState(""); // 【二开·P-EXEC·U7】执行器标识（空=行为不变）
   const [runSecs, setRunSecs] = React.useState("600");
   // "" = 跟随(未绑定)；否则为 profile id 字符串
   const [llmProfileId, setLlmProfileId] = React.useState("");
@@ -92,6 +100,8 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
         setMaxTurns(String(d.agent?.max_turns ?? 0));
         setRunSecs(String(d.agent?.run_seconds ?? 600));
         setLlmProfileId(d.agent?.llm_profile_id != null ? String(d.agent.llm_profile_id) : "");
+        // 【二开·P-EXEC·U7】执行器标识回填（executor_key；空=行为不变 K23）
+        setExecutorKey(d.agent?.executor_key ?? "");
         setLlmProfiles(d.llm_profiles ?? []);
         setWebSearch(!!d.agent?.web_search);
         setInteractiveShell(!!d.agent?.interactive_shell);
@@ -189,6 +199,9 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
       }
       if (showWebSearch) patch.web_search = webSearch;
       if (showInteractiveShell) patch.interactive_shell = interactiveShell;
+      // 【二开·P-EXEC·U7】起 —— executor_key 透传（空串=清除，K23 不设置则行为不变；仅自定义 agent 生效）
+      patch.executor_key = executorKey.trim();
+      // 【二开·P-EXEC·U7】止
       await api.saveAgentConfig(agentKey, patch);
       toast.success("已保存运行配置（立即生效）");
       reload();
@@ -319,6 +332,18 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
                       <Input id="run-seconds" type="number" min={0} className="h-8 w-32"
                         value={runSecs} onChange={(e) => setRunSecs(e.target.value)} />
                     </div>
+                    {/* 【二开·P-EXEC·U7】起 —— 执行器标识输入区（仅自定义 agent 展示） */}
+                    {!detail?.agent?.builtin && (
+                      <div className="grid gap-1.5">
+                        <Label htmlFor="executor-key" className="text-xs">执行器标识（executor_key）</Label>
+                        <Input id="executor-key" className="h-8 w-56" placeholder="如 intranet_agent；空=不参与 executor 路由"
+                          value={executorKey} onChange={(e) => setExecutorKey(e.target.value)} />
+                        <p className="text-muted-foreground max-w-md text-xs">
+                          声明后意图可指定本 agent 为执行器（payload.executor / 种子预选 / 审核放行下拉）；不设置则行为与现状完全一致（K23）。
+                        </p>
+                      </div>
+                    )}
+                    {/* 【二开·P-EXEC·U7】止 */}
                   </>
                 )}
                 <Button size="sm" variant="outline" onClick={saveConfig}>
@@ -909,7 +934,11 @@ function AgentTriggersTab({ agentKey, agent }: { agentKey: string; agent?: Agent
     if (t.on_task_timeout) parts.push("任务超时");
     if (t.on_tool_call) parts.push(`工具调用(${t.tool_names.length})`);
     if (t.on_task_create) parts.push("任务创建");
-    return parts.join(" · ") || "（无条件）";
+    if (parts.length > 0) return parts.join(" · ");
+    // dispatch_finding_to_agent 在工具内直接入队，不再开启 Scheduler 的
+    // on_tool_call；这里仅展示显式派发入口，避免把消息模板误读为“无条件”。
+    if (t.finding_message.trim()) return "工具调用(dispatch_finding_to_agent)";
+    return "（未配置自动触发）";
   }
 
   return (

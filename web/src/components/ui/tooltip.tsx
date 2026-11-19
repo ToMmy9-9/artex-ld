@@ -1,3 +1,7 @@
+/**
+ * tooltip.tsx：shadcn/ui 的 Tooltip 文字提示组件封装。
+ * 主要组件：Tooltip、TooltipProvider、TooltipTrigger、TooltipContent。
+ */
 "use client"
 
 import * as React from "react"

@@ -1,3 +1,11 @@
+// enrich.go：资产自动补全引擎，异步工作池解析域名并探测 Web 资产，结果回写资产图。
+// 主要函数/类型：
+//   - Engine / New：补全引擎及其构造，持有 dnsx 解析器与走流量代理的 HTTP 客户端。
+//   - ResolveDomain / ProbeSite：入队域名解析与站点 HTTP 探测任务。
+//   - enqueue / worker：去重冷却入队与任务队列消费循环。
+//   - doDNS / doHTTP：执行 DNS 解析与 HTTP 探测，建 IP/端口节点、边并回填属性。
+//   - Close：关闭引擎并等待 worker 退出。
+
 // Package enrich is the engine-side (non-AI) asset auto-completion layer described
 // in docs/资产模型与自动关联设计.md §5: an async worker pool that resolves domains
 // (dnsx) and probes web assets (HTTP, through the recording proxy) and writes the
@@ -19,7 +27,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 
 	"github.com/miekg/dns"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
@@ -262,20 +270,6 @@ func hostOf(rawURL string) string {
 		return ""
 	}
 	return u.Hostname()
-}
-
-func isBlank(v any) bool {
-	switch x := v.(type) {
-	case nil:
-		return true
-	case string:
-		return x == ""
-	case float64:
-		return x == 0
-	case int:
-		return x == 0
-	}
-	return false
 }
 
 func uniq(in []string) []string {

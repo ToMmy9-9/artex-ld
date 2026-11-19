@@ -1,3 +1,9 @@
+// archive.go：流量归档的导出与导入——按主机打包交换记录与 blob 为可迁移归档。
+// 主要函数/类型：
+//   - ArchiveSnapshot / ArchiveExchange：归档清单与单条交换记录的序列化结构。
+//   - ExportHosts：把指定主机的流量（含 blob）导出到归档目录并返回字节数。
+//   - ImportArchive：从归档目录导入流量，重建索引与文件树。
+//   - uniqueArchiveHosts：规范化并去重主机列表。
 package traffic
 
 import (

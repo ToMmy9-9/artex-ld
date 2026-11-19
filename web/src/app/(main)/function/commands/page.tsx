@@ -1,3 +1,9 @@
+/**
+ * page.tsx：命令执行记录页，分页展示工具调用命令，支持任务/关键字筛选与各工具调用次数统计。
+ * 主要函数/类型：
+ *   - CommandsPage：页面主体，拉取 api.commands 列表与 api.commandStats 统计
+ *   - toolInput / truncate：提取裸命令与单行截断的展示辅助
+ */
 "use client";
 
 import * as React from "react";
@@ -14,17 +20,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import type { CommandRecord, ToolStat } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
+import { cn, fmtTime } from "@/lib/utils";
 
 // toolInput renders a tool's raw input for display. Bash's {"command":"..."} is
 // unwrapped to the bare command; other tools show their pretty-printed JSON args.

@@ -1,3 +1,9 @@
+// mask.go：渠道凭据掩码——API 回显打码、更新时「保持原值」语义与配置合并规则。
+// 主要函数/类型：
+//   - MaskedValue / IsMasked / MaskConfig：掩码哨兵值的生成、识别与配置打码。
+//   - PrepareConfigUpdate：更新配置时校验——改投递地址必须对凭据显式重填。
+//   - MergeConfig：合并更新，掩码值保留原值、空串清空、其余覆盖。
+//   - ErrDestinationChangedWithoutCredentials：改了地址但凭据未表态的错误。
 package notify
 
 import (

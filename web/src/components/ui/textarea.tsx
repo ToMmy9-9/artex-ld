@@ -1,3 +1,7 @@
+/**
+ * textarea.tsx：shadcn/ui 的 Textarea 多行输入框组件封装。
+ * 主要组件：Textarea。
+ */
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

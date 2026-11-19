@@ -1,3 +1,9 @@
+/**
+ * stat-tile.tsx：通知页统计卡片小组件。
+ * 主要函数/类型：
+ *   - StatTile：标签 + 数值 + 提示的统计卡片
+ *   - formatBacklog：把积压时长（毫秒）格式化为可读文案
+ */
 import { Card, CardContent } from "@/components/ui/card";
 
 export function StatTile({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: string }) {

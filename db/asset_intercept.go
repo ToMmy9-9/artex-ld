@@ -1,3 +1,10 @@
+// asset_intercept.go：全局资产拦截规则表 asset_intercept_rules 的 CRUD。
+// 主要函数/类型：
+//   - AssetInterceptRule：拦截规则行结构。
+//   - ListAssetInterceptRules / CreateAssetInterceptRule：查询与新增拦截规则。
+//   - UpdateAssetInterceptRule / ToggleAssetInterceptRule：更新规则内容与启停状态。
+//   - DeleteAssetInterceptRule：删除指定拦截规则。
+
 package db
 
 import "time"

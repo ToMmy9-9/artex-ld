@@ -1,3 +1,7 @@
+// retester.go：漏洞复测 agent 的默认提示词——在独立会话中用最小验证确认已登记漏洞的当前状态。
+// 主要函数/类型：
+//   - RetesterDefaultPrompt：复测 agent 默认提示词（读上下文、最小验证、三态结论、回写结果）。
+
 package agent
 
 // RetesterDefaultPrompt is seeded once as an editable conversation agent.

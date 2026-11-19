@@ -1,3 +1,8 @@
+/**
+ * change-password-dialog.tsx：修改密码弹窗，校验输入后调用 api.changePassword。
+ * 主要函数/类型：
+ *   - ChangePasswordDialog：受控弹窗组件，关闭时重置表单字段。
+ */
 "use client";
 
 import * as React from "react";

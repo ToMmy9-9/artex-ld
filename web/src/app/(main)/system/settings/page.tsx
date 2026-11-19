@@ -1,8 +1,13 @@
+/**
+ * page.tsx：系统设置页——流量捕获、联网搜索、代理、Chat 发送模式等全局开关与密钥配置。
+ * 主要函数/类型：
+ *   - SystemSettingsPage（默认导出）：设置页主体，分组加载/保存各项系统设置
+ */
 "use client";
 
 import * as React from "react";
 
-import { CpuIcon, FlaskConicalIcon, KeyboardIcon, RadioTowerIcon, SearchIcon, ShieldAlertIcon } from "lucide-react";
+import { CpuIcon, FlaskConicalIcon, KeyboardIcon, RadioTowerIcon, ScrollTextIcon, SearchIcon, ShieldAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +43,8 @@ export default function SystemSettingsPage() {
   const [pyInterp, setPyInterp] = React.useState("");
   const [workers, setWorkers] = React.useState("3");
   const [savingWorkers, setSavingWorkers] = React.useState(false);
+  // 【P-LOG·M0】日志级别（debug/info/warn/error）：热切换，选择后立即生效。
+  const [logLevel, setLogLevel] = React.useState("info");
   // 操作约束注入范围(默认都开)。
   const [injectPlanner, setInjectPlanner] = React.useState(true);
   const [injectWorker, setInjectWorker] = React.useState(true);
@@ -60,7 +67,24 @@ export default function SystemSettingsPage() {
     setInjectPlanner(s.constraints_inject_planner !== false);
     setInjectWorker(s.constraints_inject_worker !== false);
     setNoaCompaction(!!s.noa_compaction);
+    setLogLevel(s.log_level || "info");
   }, []);
+
+  // 【P-LOG·M0】日志级别热切换：选择即保存（乐观更新，失败回滚），服务端立即生效。
+  const changeLogLevel = (v: string) => {
+    const prev = logLevel;
+    setLogLevel(v);
+    api
+      .setSettings({ log_level: v })
+      .then((s) => {
+        apply(s);
+        toast.success(v === "debug" ? "已切换到 debug：将记录全部调试日志" : `日志级别已切换为 ${v}`);
+      })
+      .catch((e) => {
+        setLogLevel(prev);
+        toast.error("切换失败：" + (e as Error).message);
+      });
+  };
 
   const saveWorkers = () => {
     const n = Number(workers);
@@ -674,6 +698,32 @@ export default function SystemSettingsPage() {
                 保存
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-4 break-inside-avoid md:mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ScrollTextIcon className="size-4" />
+              日志级别
+            </CardTitle>
+            <CardDescription>
+              服务端日志详细程度，<b>选择后立即生效、无需重启</b>。正常用 info；排查问题时切到
+              debug 会记录全部调试日志（含 worker 循环、MCP 交互细节），量较大，定位完记得切回。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select value={logLevel} disabled={!loaded} onValueChange={changeLogLevel}>
+              <SelectTrigger className="w-48 font-mono text-sm">
+                <SelectValue placeholder="选择级别" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="debug">debug（全部）</SelectItem>
+                <SelectItem value="info">info（默认）</SelectItem>
+                <SelectItem value="warn">warn</SelectItem>
+                <SelectItem value="error">error</SelectItem>
+              </SelectContent>
+            </Select>
           </CardContent>
         </Card>
 

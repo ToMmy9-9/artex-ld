@@ -1,3 +1,9 @@
+// email.go：SMTP 邮件渠道——拨号建连（显式/隐式 TLS）、构造 MIME 邮件并发送。
+// 主要函数/类型：
+//   - emailChannel：渠道实现，Send 走 SMTP 投递渲染好的 HTML 正文。
+//   - emailDial：按 tls 配置建立 SMTP 连接并完成握手。
+//   - buildEmailMessage：构造含 HTML 正文的 MIME 邮件原文。
+//   - smtpStageError / smtpReplyCode：把 SMTP 阶段错误与回复码解析成可读信息。
 package notify
 
 import (

@@ -1,10 +1,18 @@
+// toolcatalog.go：内置工具的目录化——把各执行 agent 的内置工具集展开为可播种记录，并支持 DB 覆盖描述/schema/默认值。
+// 主要函数/类型：
+//   - ToolSeed：一条工具种子（key + 描述 + 参数 schema + 默认绑定 agent）。
+//   - BuiltinToolSeeds：展开全部内置工具为种子记录，供服务端幂等播种进 tools 表。
+//   - ToolResolve（钩子变量）：运行时按 DB 行过滤/覆盖/注入工具。
+//   - DecorateTool：返回替换描述与参数 schema 的工具包装。
+//   - injectDefaults / scalarDefaults：按 schema 为调用参数注入默认值。
+
 package agent
 
 import (
 	"context"
 	"encoding/json"
 
-	actool "github.com/Autumn-27/norma/tool"
+	actool "norma/tool"
 )
 
 // 本文件把「内置工具」从纯代码变成可枚举、可被 DB 覆盖的目录：

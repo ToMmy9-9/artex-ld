@@ -1,3 +1,9 @@
+// llmretry.go：LLM 五层重试策略的全局配置存取（settings 键 llm_retry_policy）。
+// 主要函数/类型：
+//   - RetryRule：单层重试的次数与间隔配置（0=未配置，-1=显式关闭）。
+//   - RetryOverride / LLMRetryPolicy：按配置 profile 的覆盖项与全局五层重试策略。
+//   - LLMRetryPolicy / SetLLMRetryPolicy：读取全局策略 / 持久化（写入前先 clamp）。
+//   - RetryRule.Interval / Or / Clamped：间隔换算、继承合并与安全区间钳制。
 package db
 
 import (

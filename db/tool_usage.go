@@ -1,3 +1,9 @@
+// tool_usage.go：工具调用台账（tool_usage 表）的写入与统计。
+// 主要函数/类型：
+//   - ToolUsage：一次目录工具调用的归属维度记录（不含参数与结果）。
+//   - InsertToolUsage：写入一条调用记录。
+//   - ToolUsageCounts：按工具统计调用次数。
+
 package db
 
 // ToolUsage is one catalog tool invocation. It stores attribution dimensions only:

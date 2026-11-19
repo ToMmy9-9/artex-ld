@@ -73,8 +73,7 @@ def chunk_urls(base, js_text):
         for cid, h in idmap.items():
             if cid == "__vite__":
                 fn = h  # already "assets/xx.js"
-                for pp in paths:
-                    out.add(urllib.parse.urljoin(origin + "/", fn))
+                out.add(urllib.parse.urljoin(origin + "/", fn))
                 continue
             for pp in paths:
                 if pp.startswith("http"): bareorigin = ""; prefix = pp

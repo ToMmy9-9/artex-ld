@@ -1,3 +1,8 @@
+/**
+ * use-side-questions.ts：侧问面板的状态管理 Hook（加载、轮询、SSE 快照、提问与取消）。
+ * 主要函数/类型：
+ *   - useSideQuestions / SideQuestions：管理侧问列表、草稿、流式更新的 Hook 及其返回类型
+ */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";

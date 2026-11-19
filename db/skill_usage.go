@@ -1,3 +1,9 @@
+// skill_usage.go：技能调用计量表（skill_usage）的写入与聚合统计。
+// 主要函数/类型：
+//   - SkillUsage：一次 Skill() 调用的计量行，只含维度（技能/agent/任务/会话），不含内容。
+//   - InsertSkillUsage：写入技能调用计量（丢失不阻断调用本身）。
+//   - SkillStats / MissingSkillStats：按技能聚合的命中/未命中统计。
+//   - RecentSkillCalls / SkillCallsByTask：技能的最近调用列表与按任务聚合。
 package db
 
 import (

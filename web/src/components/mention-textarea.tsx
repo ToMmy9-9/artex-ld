@@ -1,3 +1,8 @@
+/**
+ * mention-textarea.tsx：支持 @提及 自动补全的文本域，含搜索弹层、键盘导航与分页加载。
+ * 主要函数/类型：
+ *   - MentionTextarea：提及文本域组件（value/onValueChange 受控）
+ */
 "use client";
 
 import * as React from "react";

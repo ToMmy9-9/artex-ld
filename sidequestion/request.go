@@ -1,3 +1,9 @@
+// request.go：旁路问答请求的组装——历史截取、输入/输出 token 预算控制与消息拼装。
+// 主要函数/类型：
+//   - Exchange：一条旁路问答记录（问题、回答、状态、用量）。
+//   - EstimateInputTokens / outputBudget / inputBudget：估算输入规模并分配输出/输入预算。
+//   - assemble / exchangeMessages：把快照、摘要与历史问答拼成请求消息。
+//   - BuildRequest：基于不可变快照与历史构建旁路 CompletionRequest（超限则报错）。
 package sidequestion
 
 import (
@@ -6,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/norma/compaction"
-	"github.com/Autumn-27/norma/llm"
+	"norma/compaction"
+	"norma/llm"
 )
 
 type Exchange struct {

@@ -1,19 +1,29 @@
+// planner.go：规划者——读态势、判目标、生成探索意图的执行循环与态势渲染。
+// 主要函数/类型：
+//   - Planner / NewPlanner：规划者状态与构造。
+//   - Plan：跑一轮规划（装配工具、渲染触发与态势、执行、返回目标是否达成）。
+//   - plannerSystem：四级模板覆盖链渲染规划者系统提示词。
+//   - TriggerEvent / renderTriggers：本轮触发事件结构及提示词渲染。
+//   - renderGraphOverview / intentSummary / workerOutput：图态势概览与意图/产物摘要。
+//   - renderPlannerTodos / todoFor：待办渲染与会话待办存储。
 package agent
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log" // 【二开·P-TPL·A4】四级链回退 WARN
 	"strings"
 	"sync"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/norma/agentcore"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/db"
+	"artex/intercept"
+	"artex/xlog" // 【二开·P-TPL·A4】四级链命中 DEBUG
+	"norma/agentcore"
+	"norma/llm"
+	"norma/permission"
+	actool "norma/tool"
+	"norma/transcript"
 )
 
 // Planner is the event-driven LLM planner (docs §4.3): each time the asset or
@@ -35,10 +45,18 @@ type Planner struct {
 	webSearch         WebSearchOpts                          // web_search tool backend selection (off by default)
 	workDir           string                                 // shared work dir (surfaced in prompt as artifact-output target)
 	injectConstraints func() bool                            // resolver: inject task operation constraints into system prompt? (nil = yes)
-	nonStreamingFn    func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
-	noaEnabledFn      func() bool                            // resolver: use experimental noa compaction? (nil = off)
-	maxTokensFn       func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
-	compactor         *Compactor                             // cold-node compaction (§7); nil = disabled
+	// 【二开·P-TPL·A4】起 —— 任务级 planner 提示词快照读取器（tasks.planner_prompt_override；
+	// 建任务时原子写入，运行中无修改入口；每轮现读保持与其它 resolver 同风格）
+	taskPromptFn func() string
+	// 【二开·P-TPL·A4】止
+	nonStreamingFn func() bool // resolver: use non-streaming (Complete) path? (nil = streaming)
+	noaEnabledFn   func() bool // resolver: use experimental noa compaction? (nil = off)
+	maxTokensFn    func() int  // resolver: per-reply output cap (nil/0 = send no cap)
+	compactor      *Compactor  // cold-node compaction (§7); nil = disabled
+	// 【二开·审核流 PR1】planner 侧审核流回调：每轮 Plan 注入 ToolSet。
+	notifyReview    func(taskID int64)      // §2.6：送审成功唤醒 ReviewRunner（nil = 只靠 60s ticker 兜底）
+	reviewEnabledFn func(taskID int64) bool // §2.4：任务级审核总开关即时解析（nil = 不校验）
+	checkExecutor   func(key string) error  // §2.9.3：target_executor 合法性校验（nil = 不校验）
 
 	// todos keeps ONE plan-scratchpad per task (keyed by exploration id) so the
 	// planner's multi-step plan survives across wake-ups — each Plan() is a fresh
@@ -100,6 +118,22 @@ func (p *Planner) SetWebSearch(o WebSearchOpts) { p.webSearch = o }
 // settings toggle takes effect without rebuilding the agent. nil = inject (default).
 func (p *Planner) SetConstraintInject(fn func() bool) { p.injectConstraints = fn }
 
+// ═══ ARTEX 二开 · [P-TPL·A4 planner 提示词四级链] ═══
+// 功能介绍：SetTaskPromptOverride 接线任务级提示词快照读取器（四级链第①级来源），
+//
+//	仿 :101 SetConstraintInject 风格；nil = 无任务级覆盖（落②③④）。
+//
+// 二开日期：2026-10-21
+func (p *Planner) SetTaskPromptOverride(fn func() string) { p.taskPromptFn = fn }
+
+// taskPromptOverride 每轮现读任务级快照（空串=未设置）。
+func (p *Planner) taskPromptOverride() string {
+	if p.taskPromptFn == nil {
+		return ""
+	}
+	return p.taskPromptFn()
+}
+
 // wantConstraints reports whether constraint injection is enabled (default yes).
 func (p *Planner) wantConstraints() bool { return p.injectConstraints == nil || p.injectConstraints() }
 
@@ -123,6 +157,18 @@ func (p *Planner) SetKillWork(fn func(intentID int64) error) { p.killWork = fn }
 // SetSteerWork wires the engine's per-work steering callback so the planner's
 // steer_work tool can inject a mid-run course-correction into a running worker.
 func (p *Planner) SetSteerWork(fn func(intentID int64, msg string) error) { p.steerWork = fn }
+
+// 【二开·审核流 PR1/§2.6】SetNotifyReview wires the ReviewRunner wake channel for
+// the planner's add_review_intent（送审即唤醒，不再空等一个扫描周期）。
+func (p *Planner) SetNotifyReview(fn func(taskID int64)) { p.notifyReview = fn }
+
+// 【二开·审核流 PR1/§2.4】SetReviewEnabled wires the per-task review gate resolver
+// (tasks.review_enabled，落库前即时现读)。
+func (p *Planner) SetReviewEnabled(fn func(taskID int64) bool) { p.reviewEnabledFn = fn }
+
+// 【二开·审核流 PR1+PR8/§2.9.3】SetExecutorChecker wires the target_executor validator
+// (server 侧复用 engine.resolveExecutor)。
+func (p *Planner) SetExecutorChecker(fn func(key string) error) { p.checkExecutor = fn }
 
 // renderPlannerTodos formats the persistent planning todo for injection into the
 // wake-up prompt (empty when there are no todos yet — first wake-up).
@@ -155,6 +201,9 @@ func renderPlannerTodos(items []actool.Todo) string {
 //	"goal_edited"  — the human edited a goal from 总览的目标管理 (OldGoal→NewGoal 文本).
 //	"cancelled" — the human deleted intent IntentID (Detail = 删除原因). The intent is
 //	            stopped (not deleted) and the reason is attached to it as a fact.
+//	"revision_requested" — 意图 IntentID 被审核驳回退回修订（Detail = 驳回理由）。
+//	            【二开·审核流 PR5/§4.2.3】三件套之一：本 case 必须存在——switch 无枚举
+//	            校验，漏加 case 会静默落进 default(="done") 文案，既不报错也不像驳回。
 type TriggerEvent struct {
 	Kind     string
 	IntentID int64
@@ -203,6 +252,12 @@ func renderTriggers(ts *db.ExplorationStore, evs []TriggerEvent) string {
 				sm = intentSummary(ts, ev.IntentID)
 			}
 			b.WriteString(fmt.Sprintf("\n- 意图 #%d 由用户删除，意图内容是：%s、删除原因是：%s。该意图已删除（不再执行）；请据此重新规划。", ev.IntentID, sm, ev.Detail))
+		case "revision_requested":
+			// 【二开·审核流 PR5/§4.2.3】驳回退回修订：明确指向修订同一节点，禁止新建替代。
+			b.WriteString(fmt.Sprintf(
+				"\n- 意图 #%d 被审核驳回，理由：%s。请用 update_intent 修改这条意图本身"+
+					"（不要新建替代意图，不要丢掉它的资产与血缘），改完会自动重新送审。",
+				ev.IntentID, ev.Detail))
 		default: // "done"
 			b.WriteString(fmt.Sprintf("\n- 意图 #%d（%s）的 worker 结束，输出结论：%s", ev.IntentID, intentSummary(ts, ev.IntentID), workerOutput(ts, ev.IntentID)))
 			if fids := factIDsYielded(ts, ev.IntentID); fids != "" {
@@ -299,6 +354,8 @@ const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 
 任务目标：{{.Goal}}
 
+**操作纪律**：禁止破坏性操作（删改业务数据、DoS、关闭审计、持久化后门）；发现的新资产和方向可继续规划探索。
+
 **本轮该产出几个意图（先想清楚这条）**：
 - **硬底线（最高优先）**：只要【目标未达成】且【当前没有任何 open 或 running 意图】（frontier_open=0 且 running_intents 为空），本轮就【必须】产出至少一个向目标推进的意图——没有在跑的 work 可等、也没有在排队的方向时，产出 0 意图=任务停摆；哪怕已知方向都只在 recent_done 里，也要据下面 done/exhausted/blocked 的判断另开一条或续派一条。
 - 硬底线之外，**产出 0 个意图是正常结果，但要有正当理由**（不是"少派更稳"的默认）：①**已覆盖**——你想到的方向都已被仍在 open/running 的意图处理（换措辞重复生成已存在的意图是严重错误）；②**等待依赖**——下一步依赖当前在跑 work 的产出、而它还没出来（此时硬派会让下游拿不到前置而空转，应等下次唤醒图更新后再派）。
@@ -314,6 +371,93 @@ const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 
 2. **判目标（核心职责）**：goals 字段已含目标与状态；对已被某发现/事实证明的未达成目标，调 prove_goal(goal_id, evidence_id, reason) 标 met。**当你标记的恰是最后一个未完成目标时，系统自动判定整个任务完成**——收官只由逐个 prove_goal 驱动，没有别的"一键完成"手段。
    - ⚠️ **量化验收核对（严禁提前盖章）**：目标含可量化条件（覆盖度达 X%、拿 N 个 flag、获得某权限）时，prove_goal 前【必须】核对上方 graph_overview 的实测值（coverage.pct、findings_total 计数等）：未达标就【禁止】prove_goal，改派意图补差；不得以"大体达成/核心已拿下"为由提前标 met。例：要求覆盖度 100% 而实测 coverage.pct=40% → 未达成，继续派补测意图。
+   - **Getshell 目标验收与证据语义匹配（仅 vulnclass=getshell）**：
+     · 优先使用 Finding 的结构化 vulnclass，关键词只辅助理解证据，不能用孤立关键词覆盖结构化类型。只有 webshell、reverse_shell 或 getshell 类型的确认 Finding，且证据指向目标资产并证明立足点实际可用，才能作为 prove_goal 的立足点证据。
+     · WebShell 证据包括：webshell connected、shell_test success、connection successful、command executed、AntSword、Behinder、Godzilla；WebShell 已连接、连接成功、蚁剑/哥斯拉/冰蝎连接、执行命令有回显、whoami/id 返回目标主机结果。反弹/C2 证据包括：session opened、shell session established、reverse connection accepted、beacon online、meterpreter session、C2 online、callback received；反弹/回连成功、会话已建立/上线、Beacon/C2 上线、Meterpreter 会话、目标主机上线、交互命令有回显。攻击机本地 Shell、监听端口启动不算目标上线。
+     · RCE、remote code execution、command execution、id/whoami 回显、root 命令回显；文件上传/JSP 写入成功、文件存在、HTTP 200、木马/WebShell 已上传；反序列化成功、权限提升成功、获得 root 权限、监听端口已启动、PoC 执行成功，均不能单独证明 getshell。它们可以完成相应的 rce、file_upload、deserialization、sqli 或权限验证目标，不要求继续建立 Shell。
+     · getshell 目标当前只有 RCE、上传或普通事实时，禁止 prove_goal，改派「建立并验证交互立足点」的意图；失败时记录真实受阻原因，不得提前收官或要求 Worker 伪造证据。调用 goal_met 前同样检查是否存在未完成的 getshell 目标，不得绕过验收条件。
+
+【Finding 后续 Agent 派发】
+
+当前场景：外网渗透。
+
+### 1. 可派发 Agent
+
+Planner 可通过 dispatch_finding_to_agent 调用以下 Agent：
+
+| agent_key | 职责 |
+|---|---|
+| vuln_dispatcher | 根据 Finding 证据派发或补充后续漏洞利用、后渗透任务 |
+| trace_cleaner | 核对本任务投放事实，生成并在确认后执行痕迹清理计划 |
+
+不得使用未列入本清单的 agent_key。
+
+### 2. 通用前置检查
+
+使用独立漏洞记录 ID finding_id（findings.id，不是 finding_node_id）：
+- 读取 Finding 详情及 proof/verification traffic；
+- 必要时读取产生该 Finding 的 worker trace；
+- 识别任务的 execution_mode；缺失或无法识别时按 foothold 处理。
+
+每个 Finding 都按下方规则独立判断各个 Agent。
+不同 Agent 的派发互不排斥，同一 Finding 可以分别派发给多个 Agent。
+
+### 3. Agent 派发规则
+
+#### vuln_dispatcher
+
+用途：在漏洞证据满足要求时，派发后续利用或后渗透任务。
+
+派发条件按 execution_mode 区分：
+
+- foothold：
+  已经取得可继续操作的立足点，例如 WebShell 实连、交互命令有真实回显、
+  C2/反弹会话已经上线。
+- vulnerability_only：
+  已有确认且可复现的漏洞证据，不要求取得立足点。
+
+满足对应条件时调用：
+
+dispatch_finding_to_agent(
+  agent_key="vuln_dispatcher",
+  finding_id=<独立漏洞记录ID>,
+  reason=<证据、execution_mode 和派发原因>
+)
+
+条件不足时不调用，并说明缺少的证据。
+
+#### trace_cleaner
+
+用途：核对本任务的投放事实并开展痕迹清理审计。
+
+同时具备以下条件时调用：
+- 已经取得可继续操作的立足点；
+- 当前任务存在至少一条已确认的 [投放] 事实。
+
+调用：
+
+dispatch_finding_to_agent(
+  agent_key="trace_cleaner",
+  finding_id=<独立漏洞记录ID>,
+  reason=<立足点证据、[投放]事实ID及派发原因>
+)
+
+条件不足时不调用，并说明缺少立足点还是 [投放] 事实。
+
+该 Agent 默认保留 WebShell 等立足点和取证材料。
+产物是否用完、哪些对象允许删除，由该 Agent 在清理审计中判断。
+生成清理计划和取得真实用户确认属于后续执行环节，不影响本次派发。
+
+### 4. 调用与去重
+
+- finding_id 必须使用 findings.id。
+- 去重键为 agent_key + finding_id。
+- 同一 Agent 对同一 Finding 不重复派发。
+- 一个 Agent 已派发或已存在会话，不影响其他 Agent 的独立判断。
+- enqueued/retry_scheduled 只表示已入队或等待补发，不表示已经执行或完成。
+- 不等待下游执行结果，不虚构下游处理情况。
+
+本轮结束时，按 Finding 简要记录实际派发结果；未派发的说明未满足的条件。
 
 3. **（可选，仅开局、极轻量）探测理解**：仅当图里几乎还没有 fact（recent_facts 基本为空、任务刚开始）、仅凭态势无法把初始意图说具体时，才用 Bash 等对目标做极少量、只读的探测（如 1–2 次 curl 看首页/指纹）。**唯一合法产物是一句更精准的意图描述**——绝不是漏洞的发现/验证/利用，也不是端点/目录/参数的枚举结果（那些是 worker 的活，写成意图派下去）。三条硬边界：
    - 图里已有 worker 产出的 fact（facts>0 / recent_facts 非空）→【禁止】再自己探测，一切判断基于已有 fact，本轮产物只能是"派新意图"或"结束"；想深挖某线索 → 派意图让 worker 去查，不是自己 curl。
@@ -328,20 +472,71 @@ const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
    - 完全无任何意图覆盖的全新方向 → 生成。
    - 所有已知方向都被仍在 open/running 的意图覆盖 → 不生成、直接结束（有在跑/在排队的 work，等它们推进）；但若只剩 recent_done 覆盖、已无 open/running 而目标未达成 → 按顶部硬底线必须另开或续派。
    - **深度优先于覆盖度**：coverage 是下限/验收项、不是探索目标本身；发现高价值入口（可能通向 RCE/提权/数据外泄）后，优先派意图把那条路【往深打穿】，而不是为拉平覆盖度去铺广、逐个资产浅测。
-   - **保持路线多样、别过早收敛**：目标未达成时，若现有意图都挤在同一条路线/入口，而存在【本质不同】的未覆盖方向（另一入口面/另一类资产/另一条利用链），优先补那条分歧方向，而不是在同一线上加同义意图（看实质差异，不看措辞）；若该分歧方向已被现有意图覆盖，仍不生成。理想是 2–3 条机理不同的路线并存（如"从上传链打"与"从认证绕过打"），某条交出【目标逼近】的证据后才把资源集中过去。**但多样性永远服从顶部【操作约束】**：被约束排除的入口面/端口/主机/操作，即使本质不同也绝不生成意图。
+   - **保持路线多样、别过早收敛**：目标未达成时，若现有意图都挤在同一条路线/入口，而存在【本质不同】的未覆盖方向（另一入口面/另一类资产/另一条利用链），优先补那条分歧方向，而不是在同一线上加同义意图（看实质差异，不看措辞）；若该分歧方向已被现有意图覆盖，仍不生成。理想是 2–3 条机理不同的路线并存（如"从上传链打"与"从认证绕过打"），某条交出【目标逼近】的证据后才把资源集中过去。
 
    **串行利用链：分步派，别拆成并行。** 强依赖串行链（①→②→③，后一步依赖前一步的实际产出）：不要一次性并行下发（下游拿不到还不存在的前置只会重复/空转）；用 TodoWrite 把整条链记成待办（每步一条），本轮只派"前置已满足"的那步（通常第一步），待它产出 fact 后下次唤醒（提示会带上待办清单）再派下一步并把已满足的标 completed。"同一件事"别拆两条（"确认触发点"和"触发触发点"是同一步）；只有【平行、互不依赖】的维度（如枚举多个不相关端点）才用多意图并行。
 
-5. **提交**：用【一次】add_intent 批量提交筛出的新方向（intents 数组，最多 4 个最高价值的，不要逐条多次调）：
+5. **提交**：用【一次】add_intent 批量提交筛出的新方向（intents 数组，最多 4 个最高价值的，不要逐条多次调）——**若本任务开启了意图审核**（系统提示中有【意图审核已开启】最高优先级约束），改用【一次】add_review_intent 批量送审（参数相同，另可带 target_executor 预选执行器、replaces 标注被替代的旧意图），严禁 add_intent 直投；被驳回的稿在概览 rejected_intents 块（附驳回理由与 revision_count），用 update_intent 修订后自动重送审，确认无价值的用 cancel_intent 取消：
    - **summary**：一句话自然语言描述该方向（测试目标完整地址 + 做什么 + 为什么），不套固定分类；去重主要靠它与已有意图比对。
    - **asset_ids**：本方向要测试/攻击的目标资产 id（尽量传，0/1/多个，来自 list_assets）——只要方向围绕具体资产（站点/接口/参数/主机）就务必传，用于覆盖去重、连入资产链路，跨多资产就都传；纯全局侦察无具体资产才留空。
    - **parent_ids**：本方向由哪些上游节点综合得出（可选，0/1/多个）——多个事实结合产生一个意图就都传，派生自某上游意图/发现也传其 id，顶层全新方向留空。
 
 不重复、不硬凑；但目标未达成、又有未覆盖且更深的打法时，该派就派。简洁、聚焦、高效。`
 
-func plannerSystem(goal, dataDir, workDir string) string {
-	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
-	return body + artifactSpec(workDir)
+// ═══ ARTEX 二开 · [P-TPL·A4 planner 提示词四级链] ═══
+// 功能介绍：plannerSystem 四级优先级链（m00521 拍板）——
+//
+//	① 任务级覆盖（tasks.planner_prompt_override 快照：手改 planner_prompt / 模板正文快照）
+//	② 全局 DB（agent_prompts 覆盖链，PromptOverride 现状）
+//	③ planner_templates 默认模板（只兜直写库建任务的边角路径——正常路径 S13 已快照进①）
+//	④ 内置默认（plannerDefaultTmpl）
+//	渲染失败逐级回退；代码占有的尾部规约（artifactSpec）渲染后追加，任何一级不可覆盖。
+//
+// 二开日期：2026-10-21
+func plannerSystem(goal, dataDir, workDir, taskOverride string) string {
+	vars := PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr()}
+	// ① 任务级覆盖快照
+	if strings.TrimSpace(taskOverride) != "" {
+		if out, err := renderTmpl(taskOverride, vars); err == nil {
+			// 【二开·P-LOG·A4】命中①任务级覆盖（DEBUG 级）
+			xlog.Debugf("[planner] plannerSystem 命中①任务级覆盖：bytes=%d", len(taskOverride))
+			return out + plannerExecutionModeSpec(goal) + artifactSpec(workDir)
+		} else {
+			// 【二开·P-LOG·A4】渲染失败回退（WARN 级）
+			log.Printf("[planner] plannerSystem 渲染失败 ⚠ 回退下一级：level=1 err=%v", err)
+		}
+	}
+	// ② 全局 DB 覆盖链（agent_prompts，PromptOverride 现状）
+	if PromptOverride != nil {
+		if t, ok := PromptOverride("planner"); ok && t != "" {
+			if out, err := renderTmpl(t, vars); err == nil {
+				// 【二开·P-LOG·A4】命中②全局 DB 覆盖（DEBUG 级）
+				xlog.Debugf("[planner] plannerSystem 命中②全局 DB 覆盖：bytes=%d", len(t))
+				return out + plannerExecutionModeSpec(goal) + artifactSpec(workDir)
+			} else {
+				log.Printf("[planner] plannerSystem 渲染失败 ⚠ 回退下一级：level=2 err=%v", err)
+			}
+		}
+	}
+	// ③ planner_templates 默认模板（is_default 行；只兜直写库建任务的边角路径）
+	if PlannerDefaultTemplateBodyFn != nil {
+		if body := PlannerDefaultTemplateBodyFn(); body != "" {
+			if out, err := renderTmpl(body, vars); err == nil {
+				// 【二开·P-LOG·A4】命中③模板库默认模板（DEBUG 级）
+				xlog.Debugf("[planner] plannerSystem 命中③模板库默认模板：bytes=%d", len(body))
+				return out + plannerExecutionModeSpec(goal) + artifactSpec(workDir)
+			} else {
+				log.Printf("[planner] plannerSystem 渲染失败 ⚠ 回退下一级：level=3 err=%v", err)
+			}
+		}
+	}
+	// ④ 内置默认（渲染失败=模板自身坏，返回未渲染原文兜底）
+	// 【二开·P-LOG·A4】命中④内置默认模板（DEBUG 级）
+	xlog.Debugf("[planner] plannerSystem 命中④内置默认模板")
+	if out, err := renderTmpl(plannerDefaultTmpl, vars); err == nil {
+		return out + plannerExecutionModeSpec(goal) + artifactSpec(workDir)
+	}
+	return plannerDefaultTmpl + plannerExecutionModeSpec(goal) + artifactSpec(workDir)
 }
 
 // Plan runs one planning round. emit, if non-nil, receives the planner's execution
@@ -367,6 +562,12 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	tsx.SetCoverageEnabled(as == nil || as.CoverageEnabled(taskID))
 	tsx.killWork = p.killWork   // enable kill_work tool (nil = unavailable)
 	tsx.steerWork = p.steerWork // enable steer_work tool (nil = unavailable)
+	// 【二开·审核流 PR1】审核流三回调注入 planner ToolSet（每轮现接，跟随任务实时配置）。
+	tsx.SetNotifyReview(p.notifyReview)
+	if p.reviewEnabledFn != nil {
+		tsx.SetReviewEnabled(func() bool { return p.reviewEnabledFn(taskID) })
+	}
+	tsx.SetExecutorChecker(p.checkExecutor)
 	if origin, _ := ts.OriginFactID(); origin > 0 {
 		tsx.SetOwnerNode(origin) // planner-side anchors default to the task root (origin fact)
 	}
@@ -390,9 +591,13 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	// 本任务的工作目录 <workDir>/tasks/<taskID>，先建好。
 	taskDir := ensureRunDir(p.workDir, taskID, 0)
 	ctx = intercept.WithReviewContext(ctx, taskDir, intercept.ReviewBackground{})
-	sysBody := plannerSystem(goal, p.workDir, taskDir)
+	sysBody := plannerSystem(goal, p.workDir, taskDir, p.taskPromptOverride()) // 【二开·P-TPL·A4】第①级任务级快照
+	// 【二开·审核流 PR1/审核-2 P0】开审核的任务必须显式送审：该指令对全部四级模板一律追加
+	// （含用户自定义模板），保证 add_intent 直投不会在审核任务里绕过待审队列。
+	if p.reviewEnabledFn != nil && p.reviewEnabledFn(taskID) {
+		sysBody += "\n\n【意图审核已开启（最高优先级约束）】：本任务开启了人工审核流——创建新意图必须改用 add_review_intent 送审（参数同 add_intent，另可带 target_executor 预选执行器、replaces 标注替代的旧意图）；不要用 add_intent 直投 open。被驳回的意图（概览 rejected_intents 块，附驳回理由）用 update_intent 修订原稿后自动重送审；确认无价值的用 cancel_intent 取消（reason 必填）。"
+	}
 	if p.wantConstraints() {
-		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,框定探索边界
 	}
 	system, boundary := deferredSystem(sysBody, def)
 	// planner 无自身墙钟预算;有 deadline 时把 MaxDuration 夹逼到剩余,让在跑的规划轮在
@@ -425,6 +630,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		WebSearchProxy:        p.webSearch.Proxy,
 		BashEnv:               proxyEnv(p.proxyAddr, p.proxyCACert), // Bash 子命令默认走代理+信任 CA
 		WorkingDir:            taskDir,                              // 本任务工作目录 <workDir>/tasks/<taskID>
+		Root:                  p.workDir,                            // 文件工具硬边界（同 worker）
 		ToolOutputDir:         cmdOutDir(taskDir),
 		MaxTurns:              p.maxTurns, // 0 = unlimited (configurable in agent management)
 		MaxDuration:           maxDur,     // 0=不限;有 deadline 时=距 deadline 剩余

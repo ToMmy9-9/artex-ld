@@ -1,3 +1,10 @@
+/**
+ * broadcast-tab.tsx：任务探索播报面板，以时间轴流水展示探索节点（目标/意图/事实/发现等），支持筛选、搜索与直播刷新。
+ * 主要函数/类型：
+ *   - BroadcastTab：播报列表主组件（轮询直播、筛选、分页）。
+ *   - BroadcastRow：单条播报行，展开显示 payload 与上下游关联。
+ *   - RelatedList / RelatedNodeCard / AssetList：上下游节点与关联资产展示。
+ */
 "use client";
 
 import * as React from "react";

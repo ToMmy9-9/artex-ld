@@ -1,3 +1,10 @@
+/**
+ * coverage-graph-tab.tsx：资产覆盖图面板，用 G6 绘制公司→域名→服务覆盖关系，按已测/未测着色并支持折叠分组。
+ * 主要函数/类型：
+ *   - CoverageGraphTab：面板入口，Card 包裹的图容器。
+ *   - GraphInner：加载覆盖图数据并驱动 G6 渲染与交互。
+ *   - computeVisible / toG6Nodes / nodeFill：折叠计算与 G6 数据/样式映射。
+ */
 "use client";
 
 import * as React from "react";
@@ -14,7 +21,6 @@ import {
   Waypoints,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,8 +31,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
-import type { CoverageAssetRef, CoverageAssetRefs, CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
+import type { CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import { AssetRefsSection, useAssetRefs } from "./topology/asset-refs-section";
 
 // 每个父节点下、同一类型的子节点默认展示的数量；超出折叠，"展示更多"每次再拉这么多。
 const FOLD_LIMIT = 20;
@@ -266,34 +274,6 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function RefList({ title, items }: { title: string; items: CoverageAssetRef[] }) {
-  if (items.length === 0) return null;
-  return (
-    <div>
-      <h4 className="text-muted-foreground mb-1 text-xs font-medium">
-        {title}（{items.length}）
-      </h4>
-      <div className="flex flex-col gap-1">
-        {items.map((r) => (
-          <div
-            key={`${r.kind}-${r.id}`}
-            className="flex flex-wrap items-start gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-xs"
-          >
-            <span className="shrink-0 font-mono text-muted-foreground">#{r.id}</span>
-            {r.state && <span className="shrink-0 text-muted-foreground">{r.state}</span>}
-            <span className="min-w-32 flex-1 break-words text-foreground">{r.summary || "—"}</span>
-            {r.inherited && r.source_task_id && (
-              <Badge variant="outline" className="shrink-0">
-                来源 #{r.source_task_id} · 只读
-              </Badge>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function AssetSheet({
   node,
   taskId,
@@ -306,24 +286,7 @@ function AssetSheet({
   const meta = node ? kindMeta[node.kind] : null;
   const Icon = meta?.icon;
   const raw = node ? JSON.stringify(node, null, 2) : "";
-  const [refs, setRefs] = React.useState<CoverageAssetRefs | null>(null);
-
-  React.useEffect(() => {
-    setRefs(null);
-    if (!node?.asset_id) return;
-    let cancelled = false;
-    api
-      .taskAssetRefs(taskId, node.asset_id)
-      .then((r) => {
-        if (!cancelled) setRefs(r);
-      })
-      .catch(() => {
-        /* 无关联或出错：不展示该区块 */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [node, taskId]);
+  const refs = useAssetRefs(taskId, node?.asset_id);
   return (
     <Sheet open={node !== null} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 data-[side=right]:sm:max-w-md">
@@ -374,9 +337,7 @@ function AssetSheet({
                 </section>
                 {refs && (refs.intents.length > 0 || refs.facts.length > 0 || refs.findings.length > 0) && (
                   <section className="flex flex-col gap-3 border-t pt-3">
-                    <RefList title="关联意图" items={refs.intents} />
-                    <RefList title="关联事实" items={refs.facts} />
-                    <RefList title="关联发现" items={refs.findings} />
+                    <AssetRefsSection refs={refs} />
                   </section>
                 )}
                 <section className="border-t pt-3">

@@ -1,3 +1,11 @@
+// trace.go：单次 Prompt 调用的拦截审计追踪，捕获上下文条目与工具调用并落审计记录。
+// 主要函数/类型：
+//   - Trace / WithTrace：追踪对象及其上下文挂载，持有截断的用户消息与历史条目。
+//   - Start / Append：记录工具调用开始与外部上下文条目（带条数与长度上限）。
+//   - WithCall：模型审查前认领事件，防止后续工具改变本次审批的上下文。
+//   - Complete / Finish：结果返回时补全审计状态回调；结束时将未收到结果的工具标记为 unknown。
+//   - auditFor：从上下文取回审计骨架并填入裁决字段。
+
 package intercept
 
 import (
@@ -11,7 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 const (

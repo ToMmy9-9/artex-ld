@@ -1,3 +1,12 @@
+// server_mgmt.go：agent、提示词、工具、MCP 与技能的 HTTP 管理接口及任务删除辅助。
+// 主要函数/类型：
+//   - pgListAgents / pgCreateAgent / pgUpdateAgent / pgDeleteAgent / pgSaveAgentConfig / pgGetAgent：agent 的增删改查与配置保存。
+//   - pgSavePrompt / pgResetPrompt / pgPreviewPrompt / pgListPromptVersions：提示词保存、重置、预览与版本列表。
+//   - pgListTools / pgUpdateTool / pgResetTool：内置工具的管理接口。
+//   - pgListMCP / pgSaveMCP / pgDeleteMCP / pgRefreshMCP / pgMCPTools：MCP server 管理接口。
+//   - pgDeleteTask / beginTaskDelete / abortTaskDelete / waitTaskQuiescent：任务删除的串行化、静默等待与落库。
+//   - fsListSkills / fsSkillUsage / fsMissingSkills：技能目录、用量与缺失技能查询。
+//   - validSkillName / canonicalTaskID / decode / pathInt：通用入参校验与解析辅助。
 package server
 
 import (
@@ -23,10 +32,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/skill"
+	"artex/agent"
+	"artex/db"
+	"norma/llm"
+	"norma/skill"
 )
 
 // validSkillName checks the agentskills.io name constraints, widened so a skill can
@@ -155,6 +164,7 @@ func (s *Server) pgDeleteTask(w http.ResponseWriter, r *http.Request) {
 	// Main-agent runs use a separate context from planner/workers. Cancel it, then
 	// wait until both execution domains have returned before removing transcripts.
 	s.cancelTaskChat(id, agent.AbortTaskDeleted)
+	s.cancelTaskReview(id)
 	drainCtx, cancelDrain := context.WithTimeout(r.Context(), taskDeleteDrainTimeout)
 	defer cancelDrain()
 	if err := s.waitTaskQuiescent(drainCtx, id); err != nil {
@@ -367,6 +377,8 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 		TriggerRunMode     *string `json:"trigger_run_mode"`
 		TriggerMergeMode   *string `json:"trigger_merge_mode"`
 		TriggerMaxParallel *int    `json:"trigger_max_parallel"`
+		// 【二开·P-EXEC·U7】执行器标识：缺省=不动；""=清除；非空=声明（K18 仅自定义 agent）
+		ExecutorKey *string `json:"executor_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, err.Error())
@@ -419,6 +431,29 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.InteractiveShell != nil {
 		if err := pg.SetAgentInteractiveShell(a.Key, *req.InteractiveShell); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	// 【二开·P-EXEC·U7】executor_key 持久化（m05023 bug：前端透传但 server 无接收入口）。
+	// 校验与 db/schema.sql:862 agents_executor_key_ck 同口径；唯一性预检换友好 409。
+	if req.ExecutorKey != nil {
+		ek := strings.TrimSpace(*req.ExecutorKey)
+		if ek != "" {
+			if a.Builtin {
+				writeErr(w, 400, "内置 agent 不可声明 executor_key（K18：仅自定义 agent）")
+				return
+			}
+			if len(ek) > 64 || !reAgentKey.MatchString(ek) {
+				writeErr(w, 400, "executor_key 格式：小写字母开头，仅小写字母/数字/下划线，≤64 字符")
+				return
+			}
+			if other, oErr := pg.GetAgentByExecutorKey(ek); oErr == nil && other != nil && other.Key != a.Key {
+				writeErr(w, 409, fmt.Sprintf("executor_key %q 已被 agent「%s」占用", ek, other.Key))
+				return
+			}
+		}
+		if err := pg.SetAgentExecutorKey(a.Key, ek); err != nil { // 既有 setter（config.go:543）：格式/内置校验+NULLIF 清除
 			writeErr(w, 500, err.Error())
 			return
 		}
@@ -1502,10 +1537,9 @@ func skillPathRune(r rune) bool {
 // maxSkillPathLen caps a relative path so a pathological name can't reach the syscall.
 const maxSkillPathLen = 512
 
-// skillRelPath validates a relative file path supplied by the client.
-// Returns the cleaned path and an empty error string on success.
-// Validation order matters: character check first (before Clean) so encoding tricks
-// can't survive normalization.
+// skillRelPath validates a client-supplied relative path and returns a canonical
+// slash-separated path for filesystem joins and URL/JSON round trips.
+// Character validation happens before cleaning so normalization cannot hide invalid input.
 func skillRelPath(file string) (string, string) {
 	// 1. Character check — before normalization. Defeats null bytes, backslash,
 	//    '%', control characters and unicode look-alikes; CJK names pass through.
@@ -1536,14 +1570,11 @@ func skillRelPath(file string) (string, string) {
 	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return "", "invalid path"
 	}
-	return clean, ""
+	return filepath.ToSlash(clean), ""
 }
 
-// walkSkillFiles returns all files under root (relative to root), sorted,
-// including files in subdirectories (scripts/, references/, assets/, etc.).
-// walkSkillFiles returns all entries under root relative to root.
-// Directories are included with a trailing "/" so the frontend can distinguish
-// them from files and render empty folders in the tree.
+// walkSkillFiles lists files and directories below root using slash-separated
+// relative paths. Directory entries have a trailing slash for frontend tree rendering.
 func walkSkillFiles(root string) ([]string, error) {
 	var entries []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -1554,6 +1585,7 @@ func walkSkillFiles(root string) ([]string, error) {
 		if relErr != nil || rel == "." {
 			return nil
 		}
+		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
 			entries = append(entries, rel+"/")
 		} else {

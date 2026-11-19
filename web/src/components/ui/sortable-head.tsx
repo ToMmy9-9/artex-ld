@@ -1,5 +1,11 @@
 "use client";
 
+/**
+ * sortable-head.tsx：可排序表格表头单元格组件，职责为点击切换列排序方向并显示排序图标。
+ * 主要函数/类型：
+ *   - SortableHead：渲染可点击的表头单元格（泛型 Field），处理 aria-sort 与排序图标。
+ */
+
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import type * as React from "react";
 

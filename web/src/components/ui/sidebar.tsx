@@ -1,3 +1,9 @@
+/**
+ * sidebar.tsx：shadcn/ui 的 Sidebar 侧边栏组件封装（含 Provider 上下文与 useSidebar hook）。
+ * 主要组件：Sidebar、SidebarProvider、SidebarTrigger、SidebarContent、SidebarHeader、
+ *   SidebarFooter、SidebarInset、SidebarRail、SidebarSeparator、SidebarInput、SidebarGroup
+ *   系列、SidebarMenu 系列、SidebarMenuSkeleton、useSidebar。
+ */
 "use client"
 
 import * as React from "react"

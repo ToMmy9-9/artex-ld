@@ -1,3 +1,9 @@
+// render.go：UTF-8 安全的文本截断与打包工具——按字节/字符/HTML 截断及批内条数计算。
+// 主要函数/类型：
+//   - TruncateBytes / TruncateRunes：按字节、按字符截断且不切断 UTF-8 字符。
+//   - TruncateHTML：按字符截断 HTML 且不产生残缺标签。
+//   - OneLine：折叠多行文本为单行标题。
+//   - packItemCount：计算字节预算内汇总批能装下的条目数。
 package notify
 
 import (

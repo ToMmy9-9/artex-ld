@@ -1,3 +1,11 @@
+// task_llm.go：任务级 LLM 运行时——provider 解析优先级、流式/非流式调用与故障转移审计。
+// 主要函数/类型：
+//   - taskLLMRuntime / current：按 角色绑定→任务配置链→全局 顺序解析当前 provider。
+//   - Complete / streamTaskLLM / completeTaskLLM：非流式补全与流式输出（含同 provider 重试）。
+//   - agentsForTask / invalidateTaskAgents：按任务缓存 goals/planner/worker/main 运行时组。
+//   - taskRuntimeAvailable：判定任务各角色是否都能解析到可用 provider。
+//   - emitTaskLLMTransition / emitManualTaskLLMSwitch：故障转移与手动切换的活动审计记录。
+//   - CompactionWindow：取任务配置链各 profile 压缩窗口的最小值。
 package server
 
 import (
@@ -12,11 +20,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/llmrec"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/agent"
+	"artex/db"
+	"artex/llmrec"
+	"norma/llm"
+	"norma/transcript"
 )
 
 type taskAgentBundle struct {
@@ -571,6 +579,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	wk.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	wk.SetWebSearch(s.webSearchFor("worker"))
 	wk.SetConstraintInject(s.constraintInjectWorker) // 操作约束注入 worker(可配置,默认开)
+	wk.SetTaskPromptOverride(func() string { return t.WorkerPromptOverride })
 	pl := agent.NewPlanner(plannerRuntime, "task-router", s.m.dir, tx, plannerRuntime.CompactionWindow(), s.agentMaxTurns("planner"))
 	pl.SetFindingRecorder(s.evidenceStore())
 	pl.SetCompactionWindowResolver(plannerRuntime.CompactionWindow)
@@ -579,9 +588,14 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	pl.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(平台级开关,每 run 读)
 	pl.SetKillWork(s.engine.KillWork)
 	pl.SetSteerWork(s.engine.SteerWork)
+	// 【二开·审核流 PR1】planner 侧审核流三回调：送审唤醒 / 任务审核开关现读 / target_executor 校验。
+	pl.SetNotifyReview(func(int64) { s.wakeReviewRunner() })
+	pl.SetReviewEnabled(func(int64) bool { return t.ReviewEnabled })
+	pl.SetExecutorChecker(s.checkExecutorKey)
 	pl.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	pl.SetWebSearch(s.webSearchFor("planner"))
-	pl.SetConstraintInject(s.constraintInjectPlanner) // 操作约束注入 planner(可配置,默认开)
+	pl.SetConstraintInject(s.constraintInjectPlanner)                          // 操作约束注入 planner(可配置,默认开)
+	pl.SetTaskPromptOverride(func() string { return t.PlannerPromptOverride }) // 【二开·P-TPL·A4】第①级任务级快照（每轮现读；建任务时原子写入，运行中无修改入口 m00414）
 	// cold-digest §7: 冷节点后台压缩。引擎经权威解析器实际驱动的就是这套 per-task planner
 	// (agentsForTask),Compactor 必须接在这里。走任务路由的 planner provider(§4:与 agent
 	// 同模型,随任务 LLM 链解析),压缩用 Complete 一次性生成 body。

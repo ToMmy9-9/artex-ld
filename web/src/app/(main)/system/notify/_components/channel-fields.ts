@@ -4,6 +4,10 @@
 // 各自该用什么控件，以及表单文本到配置值（JSON）的双向转换。
 // 单独放一个文件后，新增渠道只需要动这里，页面本身不必改。
 // 渠道类型的展示名与简介。放在前端是因为它只影响文案，后端不需要知道。
+// 主要函数/类型：
+//   - KIND_LABEL / CHANNEL_FIELDS / SEVERITY_OPTIONS：渠道展示名、各渠道字段定义、严重级别选项
+//   - FieldKind / FieldDef / ChannelForm：字段控件类型、字段定义与表单状态类型
+//   - emptyForm / parseKV / parseIDs / parseKeywords：表单初始值与 KV/ID/关键词文本解析
 export const KIND_LABEL: Record<string, string> = {
   dingtalk: "钉钉",
   feishu: "飞书",

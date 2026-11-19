@@ -1,5 +1,11 @@
 // TEMPORARY: offline build fallback — uses local Geist fonts instead of Google Fonts.
 // Restore registry.ts.bak after build.
+/**
+ * 主要函数/类型：
+ *   - fontRegistry / FontKey：可用字体注册表（key → next/font 实例）
+ *   - fontVars：全部字体的 CSS 变量名列表
+ *   - fontOptions：字体下拉选项（label + variable）
+ */
 import localFont from "next/font/local";
 import { GeistPixelSquare } from "geist/font/pixel";
 

@@ -1,3 +1,9 @@
+// assembly.go：启动装配，把数据库工具、可见技能与宿主工具注入 agent 运行时并做内置种子。
+// 主要函数/类型：
+//   - wireAgentAugment：装配 agent.ToolAugment，按 agent 加载可见技能、MCP 与宿主工具。
+//   - wireTools：种子内置领域工具并挂接自定义工具解析。
+//   - buildDomainReg：从资产存储构建领域工具注册表。
+//   - seedPrompts：首次插入内置提示词种子，不覆盖用户修改。
 package server
 
 import (
@@ -8,11 +14,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
-	"github.com/Autumn-27/norma/skill"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/agent"
+	"artex/db"
+	"artex/traffic"
+	"norma/skill"
+	actool "norma/tool"
 )
 
 // wireAgentAugment connects the PG agent_visibility table into the agent runtime:
@@ -202,6 +208,85 @@ func seedPrompts(pg *db.DB) {
 			log.Printf("[prompts] seed %s 失败: %v", key, err)
 		}
 	}
+	// 【二开·P-TPL·D11】起 —— 内置默认规划模板 seed：首插入 only，与上面 agent_prompts 的
+	// SeedPromptIfEmpty 同区同模式；正文单源=agent/planner.go plannerDefaultTmpl
+	// （BuiltinPromptSeeds()["planner"] 透出），db 层不复制、不反向 import agent。
+	// 【二开·P-LOG·S11】INFO 仅首插记一条（排障：模板库里"外网渗透"是哪次启动进来的）。
+	if inserted, err := pg.SeedPlannerTemplateIfEmpty(db.PlannerTemplateBuiltinName, db.PlannerTemplateBuiltinNKey, agent.BuiltinPromptSeeds()["planner"], true); err != nil {
+		log.Printf("[prompts] seed planner_templates 内置默认模板失败: %v", err)
+	} else if inserted {
+		log.Printf("[tpl] planner 模板首插：外网渗透（nkey=%s）", db.PlannerTemplateBuiltinNKey)
+	}
+	if inserted, err := pg.SeedWorkerTemplateIfEmpty(db.WorkerTemplateBuiltinName, db.WorkerTemplateBuiltinNKey, agent.BuiltinPromptSeeds()["worker"], true); err != nil {
+		log.Printf("[prompts] seed worker_templates 外网渗透默认模板失败: %v", err)
+	} else if inserted {
+		log.Printf("[tpl] worker 模板首插：外网渗透（nkey=%s）", db.WorkerTemplateBuiltinNKey)
+	}
+	// 【二开·P-TPL·D11】止
+	// 【二开·P-TPL·DOMAIN】起 —— 五领域 planner 模板 seed（内网渗透/权限提升/漏洞利用/漏洞挖掘/代码审计）：
+	// builtin=true、is_default=false（默认仍是「外网渗透」）；ON CONFLICT (nkey) DO NOTHING 幂等，
+	// 同名自定义模板已存在时静默跳过、不覆盖用户改动。正文单源=agent/planner_domain_templates.go。
+	for name, body := range agent.PlannerDomainSeeds() {
+		if inserted, err := pg.SeedPlannerTemplateIfEmpty(name, name, body, false); err != nil {
+			log.Printf("[prompts] seed planner 领域模板 %s 失败: %v", name, err)
+		} else if inserted {
+			log.Printf("[tpl] planner 领域模板首插：%s", name)
+		}
+	}
+	// Worker 与 Planner 使用同一组场景 nkey；正文保存完整 Worker 提示词，
+	// 首插后不覆盖管理员对内置场景模板的修改。
+	for _, seed := range agent.WorkerDomainSeeds() {
+		if inserted, err := pg.SeedWorkerTemplateIfEmpty(seed.NKey, seed.NKey, seed.Body, false); err != nil {
+			log.Printf("[prompts] seed worker 场景模板 %s 失败: %v", seed.NKey, err)
+		} else if inserted {
+			log.Printf("[tpl] worker 场景模板首插：%s", seed.NKey)
+		}
+	}
+	// 【二开·P-TPL·DOMAIN】止
+	if err := upgradeScopeAuthorizationPrompts(pg); err != nil {
+		log.Printf("[prompts] 授权范围提示词迁移失败: %v", err)
+	}
+	if err := upgradeWorkerDeliveryFacts(pg); err != nil {
+		log.Printf("[prompts] Worker 投放事实提示词迁移失败: %v", err)
+	}
+	if err := upgradeInternalWorkerTopologyPrompt(pg); err != nil {
+		log.Printf("[prompts] 内网 Worker 拓扑提示词迁移失败: %v", err)
+	}
+	if err := upgradeWorkerTopologyFactPrompt(pg); err != nil {
+		log.Printf("[prompts] 内网 Worker 拓扑 fact 提示词迁移失败: %v", err)
+	}
+	// 【二开·P-SCENARIO·MERGE】起 —— 外网渗透 + 内置五领域场景 seed 为「分类预设包」：
+	// 模板按 nkey 解析 id（模板 seed 就在上方，天然有序）；内网渗透/权限提升/漏洞利用默认开审核，
+	// 外网渗透/漏洞挖掘/代码审计默认关；种子意图默认关。ON CONFLICT (nkey) DO NOTHING 幂等：
+	// 用户已有同名分类或改过预设时重启不覆盖。
+	catScenarios := []struct {
+		name   string
+		tplKey string
+		review bool
+	}{
+		{"外网渗透", "外网渗透", false},
+		{"内网渗透", "内网渗透", true},
+		{"权限提升", "权限提升", true},
+		{"漏洞利用", "漏洞利用", true},
+		{"漏洞挖掘", "漏洞挖掘", false},
+		{"代码审计", "代码审计", false},
+	}
+	for _, sc := range catScenarios {
+		var tplID, workerTplID int64
+		if tpl, err := pg.GetPlannerTemplateByNKey(sc.tplKey); err == nil && tpl != nil {
+			tplID = tpl.ID
+		}
+		if tpl, err := pg.GetWorkerTemplateByNKey(sc.tplKey); err == nil && tpl != nil {
+			workerTplID = tpl.ID
+		}
+		if inserted, err := pg.SeedTaskCategoryPresetIfEmpty(sc.name, sc.review, tplID, workerTplID, false, ""); err != nil {
+			log.Printf("[prompts] seed 场景分类 %s 失败: %v", sc.name, err)
+		} else if inserted {
+			log.Printf("[tpl] 场景分类首插：%s（review=%v）", sc.name, sc.review)
+		}
+	}
+	upgradeExternalPentestReviewDefault(pg)
+	// 【二开·P-SCENARIO·MERGE】止
 }
 
 // wireTools seeds the built-in tool catalog (idempotent, first-insert only so page
@@ -247,6 +332,31 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 			byKey[t.Key] = t
 		}
 		runInfo := agent.RunInfoFrom(ctx)
+		// 【二开·P-CLEAN】触发运行携带 taskID（RunInfo）时，懒建一个任务绑定的领域工具
+		// 注册表：注入的 record_fact 等探索图工具落到该任务的图上，而不是撞上 server 级
+		// 注册表的 nil store 被拒。查找失败→taskReg 为 nil→回退 domainReg（旧行为）。
+		var taskReg map[string]actool.CoreTool
+		taskRegLoaded := false
+		taskDomain := func(key string) (actool.CoreTool, bool) {
+			if runInfo.TaskID > 0 && !taskRegLoaded {
+				taskRegLoaded = true
+				if t, err := pg.GetTask(runInfo.TaskID); err == nil && t != nil && t.ExplorationID > 0 {
+					tts := agent.NewToolSet(pg.Exploration(t.ExplorationID), agentKey)
+					if as := pg.Assets(); as != nil {
+						tts.SetAssetStore(as, as.Companies())
+					}
+					taskReg = map[string]actool.CoreTool{}
+					for _, dt := range tts.AllDomainTools() {
+						taskReg[dt.Name()] = dt
+					}
+				}
+			}
+			if inst, ok := taskReg[key]; ok {
+				return inst, true
+			}
+			inst, ok := domainReg[key]
+			return inst, ok
+		}
 		resolve := func(t actool.CoreTool, row *db.Tool) actool.CoreTool {
 			var schema map[string]any
 			if len(row.Schema) > 0 {
@@ -280,7 +390,7 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 				if row.Kind == "shell" || !row.Enabled || !contains(row.Agents, agentKey) || inList[row.Key] {
 					continue
 				}
-				inst, ok := domainReg[row.Key]
+				inst, ok := taskDomain(row.Key)
 				if !ok {
 					continue // not a domain tool; custom/host tools are injected via hostTools()
 				}

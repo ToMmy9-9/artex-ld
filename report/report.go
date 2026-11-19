@@ -1,3 +1,9 @@
+// report.go：渲染可交付的渗透测试 Markdown 报告（任务目标、摘要、确认发现与证据）。
+// 主要函数/类型：
+//   - Input / findingView：报告输入与发现的渲染视图数据结构。
+//   - Markdown：根据 Input 渲染完整渗透测试报告 Markdown。
+//   - parseFinding / nz：把图节点解析为发现视图并提供空值兜底。
+//
 // Package report renders a deliverable Markdown report from the exploration
 // graph: confirmed findings (with severity/evidence) (docs §15 P5).
 package report
@@ -9,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // Input bundles what the report needs.

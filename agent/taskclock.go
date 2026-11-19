@@ -1,3 +1,9 @@
+// taskclock.go：把任务级绝对截止时间经 ctx 传入运行，让运行裁剪自身预算并区分收尾口径。
+// 主要函数/类型：
+//   - TaskClock：任务绝对截止时间（DeadlineUnix）与是否最终轮（Final）标记。
+//   - WithTaskClock / taskClockFrom：向 ctx 附加/读取 TaskClock。
+//   - clampMaxDuration：把运行自身预算裁剪到任务剩余时间内。
+
 package agent
 
 import (

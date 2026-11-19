@@ -1,5 +1,13 @@
+// provider.go：从环境/参数构造 LLM Provider 配置（Anthropic 或 OpenAI 格式端点），并探测连通性。
+// 主要函数/类型：
+//   - Config / RetryConfig：Provider 配置与重试策略（含压缩窗口推导）。
+//   - FromEnv / ConfigFrom：从环境变量或显式参数构造 Config。
+//   - Config.NewProvider：按配置创建 llm.Provider（含配额感知 HTTP 客户端）。
+//   - IsQuotaExhaustedMessage：识别配额/限流类错误，供重试与熔断判断。
+//   - TestConnection：实测端点连通性并返回耗时与诊断信息。
+
 // Package agent wires real LLM-driven planner and work agents (on top of the
-// agent-core SDK) to the dual SQLite graph. See docs/ARTEX-架构设计.md
+// agent-core SDK) to the dual SQLite graph. See ARCHITECTURE.md (repo root)
 // §4.3 (planner) and §4.4 (work agent).
 //
 // Provider configuration is read from the environment so the system runs with
@@ -20,12 +28,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/llmrec"
-	"github.com/Autumn-27/norma/agentcore"
-	"github.com/Autumn-27/norma/compaction"
-	"github.com/Autumn-27/norma/llm"
-	acperm "github.com/Autumn-27/norma/permission"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/llmrec"
+	"norma/agentcore"
+	"norma/compaction"
+	"norma/llm"
+	acperm "norma/permission"
+	"norma/transcript"
 )
 
 // Config describes the LLM backend resolved from the environment.
@@ -399,6 +407,10 @@ func requestBodySnapshot(req *http.Request) string {
 
 func quotaAwareHTTPClient(proxy, sessionHeaderKey string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// 【二开·review chat 卡死排查】禁用自动 gzip：SSE 流被 gzip 压缩后经中转代理
+	// （Clash 等）缓冲不冲刷，SSE 实时性被破坏，客户端永远阻塞在 flate inflate
+	// （goroutine dump 实锤：http2gzipReader→flate）。与 llm.defaultHTTPClient 同理。
+	transport.DisableCompression = true
 	proxy = strings.TrimSpace(proxy)
 	if proxy == "" {
 		transport.Proxy = nil // 留空=直连,不回退 HTTP_PROXY/HTTPS_PROXY 环境变量

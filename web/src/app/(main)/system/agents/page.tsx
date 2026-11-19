@@ -1,30 +1,20 @@
+/**
+ * page.tsx：Agent 管理页——卡片网格、新建对话框与编辑抽屉。
+ * 主要函数/类型：
+ *   - AgentsPage：默认导出页组件，加载 agent 列表并管理编辑 Sheet / 模板库面板
+ *   - AgentGridCard：可点击的 agent 瓦片（含删除按钮与模板库入口）
+ *   - CreateAgentDialog：新建 agent 的对话框
+ */
 "use client";
 
 import * as React from "react";
-import { toast } from "sonner";
-import { Bot, PlusIcon, Trash2Icon } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Bot, PlusIcon, Trash2Icon } from "lucide-react";
+import { toast } from "sonner";
+
+import { AgentEditor } from "@/components/agent-editor";
+// 【二开·P-TPL·U8】起
+import { PlannerTemplateManager, WorkerTemplateManager } from "@/components/prompt-template-manager";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,21 +26,45 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { AgentEditor } from "@/components/agent-editor";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import type { Agent } from "@/lib/types";
 
+// 【二开·P-TPL·U8】止
+
+// ═══ ARTEX 二开 · [P-TPL·U8 AgentGridCard planner 瓦片入口 chip] ═══
+// 功能介绍：AgentGridCard 加 onOpenPlannerTemplates 可选属性——仅 planner 瓦片传入，
+//           在统计行渲染「提示词：模板库 →」chip，点击打开 planner模板管理 Sheet（U8-c）
+// 二开日期：2026-10-21
 // AgentGridCard is one clickable tile opening the agent's editor drawer. Custom
 // (non-builtin) agents get a delete button.
 function AgentGridCard({
   agent,
   onOpen,
   onDeleted,
+  onOpenPlannerTemplates, // 【二开·P-TPL·U8】仅 planner 瓦片传入：打开 planner模板管理面板
+  onOpenWorkerTemplates,
 }: {
   agent: Agent;
   onOpen: () => void;
   onDeleted: () => void;
+  onOpenPlannerTemplates?: () => void; // 【二开·P-TPL·U8】
+  onOpenWorkerTemplates?: () => void;
 }) {
   async function del() {
     try {
@@ -83,13 +97,37 @@ function AgentGridCard({
             </Badge>
           )}
         </div>
-        <p className="text-muted-foreground line-clamp-2 min-h-8 text-xs">
-          {agent.description || "（无描述）"}
-        </p>
+        <p className="text-muted-foreground line-clamp-2 min-h-8 text-xs">{agent.description || "（无描述）"}</p>
         <div className="text-muted-foreground flex flex-wrap gap-1.5 text-[10px]">
           <span className="rounded border px-1.5 py-0.5">MCP {agent.mcp_count ?? 0}</span>
           <span className="rounded border px-1.5 py-0.5">Skill {agent.skill_count ?? 0}</span>
           <span className="rounded border px-1.5 py-0.5">工具 {agent.tool_count ?? 0}</span>
+          {/* 【二开·P-TPL·U8】起 —— 「提示词：模板库 →」chip：打开 planner模板管理 Sheet（span 而非 <a>/<button>：button 内不能嵌交互元素） */}
+          {onOpenPlannerTemplates && (
+            <span
+              className="hover:border-foreground cursor-pointer rounded border px-1.5 py-0.5"
+              title="planner 提示词由模板库管理；新建任务时选择模板，未选则用默认模板打底"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenPlannerTemplates();
+              }}
+            >
+              提示词：模板库 →
+            </span>
+          )}
+          {onOpenWorkerTemplates && (
+            <span
+              className="hover:border-foreground cursor-pointer rounded border px-1.5 py-0.5"
+              title="worker 提示词由模板库管理；新建任务时选择模板，未选则用默认模板打底"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenWorkerTemplates();
+              }}
+            >
+              提示词：模板库 →
+            </span>
+          )}
+          {/* 【二开·P-TPL·U8】止 */}
         </div>
       </button>
       {!agent.builtin && (
@@ -178,12 +216,7 @@ function CreateAgentDialog({ onCreated }: { onCreated: (key: string) => void }) 
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="agent-name">名称</Label>
-            <Input
-              id="agent-name"
-              placeholder="如 研究助手"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+            <Input id="agent-name" placeholder="如 研究助手" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="agent-desc">描述</Label>
@@ -209,9 +242,16 @@ function CreateAgentDialog({ onCreated }: { onCreated: (key: string) => void }) 
 export default function AgentsPage() {
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [editKey, setEditKey] = React.useState<string | null>(null);
+  // 【二开·P-TPL·U8】起 —— planner模板管理面板开合状态（模板数据由 PlannerTemplateManager 自管，本页不拉列表）
+  const [plannerTplMgrOpen, setPlannerTplMgrOpen] = React.useState(false);
+  const [workerTplMgrOpen, setWorkerTplMgrOpen] = React.useState(false);
+  // 【二开·P-TPL·U8】止
 
   const reload = React.useCallback(() => {
-    api.agents().then(setAgents).catch(() => setAgents([]));
+    api
+      .agents()
+      .then(setAgents)
+      .catch(() => setAgents([]));
   }, []);
   React.useEffect(() => {
     reload();
@@ -224,9 +264,7 @@ export default function AgentsPage() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Agent</h1>
-          <p className="text-muted-foreground text-sm">
-            内置 Agent 的提示词/配置，以及自定义会话 Agent 的创建与管理
-          </p>
+          <p className="text-muted-foreground text-sm">内置 Agent 的提示词/配置，以及自定义会话 Agent 的创建与管理</p>
         </div>
         <CreateAgentDialog
           onCreated={(key) => {
@@ -247,12 +285,26 @@ export default function AgentsPage() {
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {agents.map((a) => (
-                <AgentGridCard key={a.key} agent={a} onOpen={() => setEditKey(a.key)} onDeleted={reload} />
+                <AgentGridCard
+                  key={a.key}
+                  agent={a}
+                  onOpen={() => setEditKey(a.key)}
+                  onDeleted={reload}
+                  // 【二开·P-TPL·U8】起
+                  onOpenPlannerTemplates={a.key === "planner" ? () => setPlannerTplMgrOpen(true) : undefined}
+                  onOpenWorkerTemplates={a.key === "worker" ? () => setWorkerTplMgrOpen(true) : undefined}
+                  // 【二开·P-TPL·U8】止
+                />
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* 【二开·P-TPL·U8】起 —— planner模板管理 Sheet：planner 瓦片「提示词：模板库 →」chip 打开 */}
+      <PlannerTemplateManager open={plannerTplMgrOpen} onOpenChange={setPlannerTplMgrOpen} />
+      <WorkerTemplateManager open={workerTplMgrOpen} onOpenChange={setWorkerTplMgrOpen} />
+      {/* 【二开·P-TPL·U8】止 */}
 
       <Sheet open={!!editing} onOpenChange={(o) => !o && setEditKey(null)}>
         <SheetContent

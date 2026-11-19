@@ -1,3 +1,11 @@
+// asset_intercept_match.go：资产拦截规则的匹配与放行判定逻辑（纯内存计算，无 DB 写）。
+// 主要函数/类型：
+//   - MatchAssetInterceptRules：对域名/IP/URL 批量匹配规则集并返回命中。
+//   - EvaluateAssetGate / AssetGateDecision：block/allow 双规则集下的资产放行决策。
+//   - AssetInterceptHit / CheckAssetsIntercept：批量检查资产拦截命中结果。
+//   - Asset.interceptCandidates / InterceptLabel：提取资产候选标识与展示标签。
+//   - AssetInterceptKindLabel / Reason：规则类型与命中原因的展示文案。
+
 package db
 
 import (

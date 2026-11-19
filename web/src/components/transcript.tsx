@@ -1,3 +1,11 @@
+/**
+ * transcript.tsx：会话/任务执行过程转录渲染器，按 lane 分组活动并懒加载离屏详情。
+ * 主要函数/类型：
+ *   - Transcript：转录主组件（活动流渲染 + 详情拉取）
+ *   - groupSteps / workerColor：活动分组与执行者颜色
+ *   - useInView：离屏懒加载观察 hook
+ *   - MessageBlock / ToolBlock / InterceptCard / UserRow / AnswerBlock / ExecView：各类活动块渲染
+ */
 "use client";
 
 import * as React from "react";
@@ -23,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ApprovalDetail } from "@/components/approval-records";
 import type { Activity, InterceptPending } from "@/lib/types";
+import { fmtBytes } from "@/lib/utils";
 
 // ---- per-agent lane color (planner + work#1/#2/#3 …) ---------------------------
 const workerColors = [
@@ -552,14 +561,7 @@ function MessageBlock({
 // sent the main agent) or, in a worker session, the LLM-generated intent that leads
 // it (intent=true) — same bubble, but a target icon instead of the human avatar.
 // summary is a truncated first line, so the full message is pulled from the detail
-// and shown in full (bubble is whitespace-pre-wrap, so long/multi-line text wraps).
-// fmtBytes renders a human file size for attachment chips.
-function fmtBytes(n: number): string {
-  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
-  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
-  return `${n} B`;
-}
-
+// shown in full (bubble is whitespace-pre-wrap, so long/multi-line text wraps).
 type MsgAttachment = { name: string; path: string; size: number };
 
 // parseUserBody splits a user turn's body into text + attachments. The backend stores

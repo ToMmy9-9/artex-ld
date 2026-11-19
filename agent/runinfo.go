@@ -1,9 +1,14 @@
+// runinfo.go：用 ctx 携带运行归属信息（任务/探索/意图/会话 id），让装配期闭包能正确归因工具调用。
+// 主要函数/类型：
+//   - RunInfo：一次运行的归属标识（TaskID/ExplorationID/IntentID/SessionID）。
+//   - WithRunInfo / RunInfoFrom：向 ctx 附加/读取 RunInfo。
+
 package agent
 
 import (
 	"context"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // RunInfo identifies WHICH run a tool call belongs to. Tool assembly only receives

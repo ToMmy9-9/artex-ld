@@ -1,3 +1,9 @@
+// auth.go：JWT 登录认证与密码管理（密钥加载、签发、校验、鉴权中间件与认证接口）。
+// 主要函数/类型：
+//   - loadOrCreateJWTKey：加载或生成 JWT 签名密钥。
+//   - signJWT / verifyJWT / extractToken：签发 / 校验 / 从请求提取 JWT。
+//   - requireAuth：鉴权中间件，拦截未认证请求。
+//   - authInit / authLogin / authChangePassword / authStatus：初始化 / 登录 / 改密 / 认证状态接口。
 package server
 
 import (
@@ -151,7 +157,7 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, errDataSourceUnavailable)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"initialized": hash != ""})
+	writeJSON(w, 200, map[string]any{"initialized": hash != "", "setup_required": hash == ""})
 }
 
 // POST /api/auth/init — sets the password for the first time; rejected if already set.

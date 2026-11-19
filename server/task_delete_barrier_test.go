@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
+	"artex/agent"
 )
 
 func TestEngineDeleteBarrierRejectsNewTaskOperations(t *testing.T) {
@@ -195,7 +195,7 @@ func TestStopTaskCancelsRuntimeAndClearsLifecycleState(t *testing.T) {
 	e.deleteMu.RUnlock()
 
 	done := make(chan struct{})
-	runTaskRoutine(rt, func(ctx context.Context) {
+	runTaskRoutine(rt, "test", func(ctx context.Context) {
 		<-ctx.Done()
 		close(done)
 	})

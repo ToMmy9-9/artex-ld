@@ -1,3 +1,10 @@
+// platform_tools.go：平台级内置工具（资产清理、技能、自定义工具与 MCP 管理）。
+// 主要函数/类型：
+//   - platformTools：声明平台类内置工具集。
+//   - toolDeleteAssetsByHost：按主机删除资产及其关联数据。
+//   - toolCreateSkill / toolUpdateSkillFile：创建技能与更新技能文件。
+//   - toolCreateCustomTool / toolUpdateCustomTool：自定义工具的创建与更新（customToolToolInput/toDBTool 做入参转换）。
+//   - toolCreateMCP / toolUpdateMCP：MCP server 的创建与更新（mcpToolInput/toDB 做入参转换）。
 package server
 
 import (
@@ -8,8 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/db"
+	actool "norma/tool"
 )
 
 // 平台操作工具(给内置 Auto agent 用):建/改 skill、自定义工具、MCP。都是 host 工具,

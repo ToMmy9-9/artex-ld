@@ -1,10 +1,15 @@
+// task_intercept.go：任务级资产拦截/允许规则的 CRUD HTTP 端点。
+// 主要函数/类型：
+//   - validateTaskInterceptRuleReq / buildTaskInterceptRules：规则请求归一校验并转为 db 输入形态。
+//   - taskInterceptListRules / taskInterceptCreateRule / taskInterceptUpdateRule：规则的查/建/改。
+//   - taskInterceptDeleteRule / taskInterceptToggleRule：规则的删除与启停切换。
 package server
 
 import (
 	"fmt"
 	"net/http"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // 任务级资产拦截/允许规则的 CRUD。规则按 task_id 归属，仅对该任务生效：

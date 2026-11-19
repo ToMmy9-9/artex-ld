@@ -1,3 +1,7 @@
+/**
+ * button.tsx：shadcn/ui 的 Button 按钮组件封装（含 buttonVariants 变体样式）。
+ * 主要组件：Button、buttonVariants。
+ */
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"

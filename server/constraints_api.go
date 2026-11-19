@@ -1,3 +1,8 @@
+// constraints_api.go：任务约束（Constraint）的增删改查 HTTP API 与 DTO 转换。
+// 主要函数/类型：
+//   - listConstraints / addConstraint / editConstraint / deleteConstraint：约束列表/新增/编辑/删除。
+//   - constraintInjectPlanner / constraintInjectWorker：约束是否注入 planner / worker prompt 的开关。
+//   - normalizeConstraintKind / constraintDTOs：约束类型归一 / DTO 转换。
 package server
 
 import (
@@ -6,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // 总览「约束管理」的人工 CRUD 接口 + 注入范围开关的解析。操作约束(allow/deny)与 agent 侧的
@@ -18,6 +23,8 @@ import (
 const (
 	settingConstraintsInjectPlanner = "constraints_inject_planner"
 	settingConstraintsInjectWorker  = "constraints_inject_worker"
+	// settingLogLevel 【P-LOG·M0】日志级别热切换键：debug/info/warn/error。
+	settingLogLevel = "log_level"
 )
 
 // constraintInjectPlanner / constraintInjectWorker 报告是否把操作约束注入对应 agent 的

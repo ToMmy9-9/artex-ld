@@ -1,6 +1,10 @@
+/**
+ * markdown.tsx：ReactMarkdown 封装，提供 Tailwind 样式的 GFM 元素渲染覆盖。
+ * 主要函数/类型：
+ *   - Markdown：Markdown 渲染组件
+ */
 "use client";
 
-import * as React from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 

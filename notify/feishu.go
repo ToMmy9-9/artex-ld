@@ -1,3 +1,9 @@
+// feishu.go：飞书群机器人渠道——加签 interactive 卡片消息的发送与卡片 JSON 构造。
+// 主要函数/类型：
+//   - feishuChannel：渠道实现，Send 发送 interactive 卡片并按需附加签参数。
+//   - feishuSign / feishuSeverityTemplate：加签计算与级别对应的卡片配色模板。
+//   - feishuCard：构造卡片 JSON（有 24000 字节上限保护）。
+//   - feishuItemLines / feishuBatchLine / feishuMarkdownDiv / feishuButton：卡片内条目与控件渲染。
 package notify
 
 import (

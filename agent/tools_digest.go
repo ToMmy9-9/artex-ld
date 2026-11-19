@@ -1,3 +1,9 @@
+// tools_digest.go：冷区折叠与恢复工具——graph_overview 的冷区摘要生成与 expand_digest 一级还原。
+// 主要函数/类型：
+//   - coldDigestsRecent：构造冷区折叠摘要列表（最新成员在前、有上限）。
+//   - hiddenMembersFor：判断节点是否被冷区摘要遮蔽。
+//   - expandDigest：expand_digest 工具实现，展开某摘要的成员紧凑列表。
+
 package agent
 
 // cold-digest §6: graph_overview folding + the restore tools.
@@ -12,8 +18,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/Autumn-27/artex/db"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/db"
+	actool "norma/tool"
 )
 
 // digestMemberEntry builds the compact per-member view expand_digest returns —

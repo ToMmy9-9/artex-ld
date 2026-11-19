@@ -2,6 +2,18 @@
 // current backend contract in lib/api.ts + lib/types.ts. All data is static and
 // self-consistent (one company "Acme", a few tasks, findings, exploration graph,
 // sessions/activity, traffic, agents, etc.) so every page looks populated.
+/**
+ * 主要函数/类型（按数据分组）：
+ *   - tasks/taskCategories/taskTemplates/stats：任务、分类、模板与统计
+ *   - companies/assets/assetCounts/findings：企业、资产与漏洞发现
+ *   - explorationGraph/intents/frontier/activity：探索图谱、意图、活动与会话
+ *   - tokenWorkers/tokenSessions/tokenTotal/dailyTokens/convTokens：token 计量数据
+ *   - traffic/audit：流量与审计观测数据
+ *   - llmProfiles/llmConfig/agents/agentDetail/mcpServers/mcpToolsById：LLM 与 agent 配置数据
+ *   - skills/skillCalls/missingSkills/tools/settings/llmPool：技能、工具与设置数据
+ *   - interceptRules/interceptPending/interceptHistory/interceptDetails：拦截审批演示数据
+ *   - conversations/conversationMessages：会话聊天数据
+ */
 
 import type {
   Activity,
@@ -192,8 +204,6 @@ export const taskTemplates: TaskTemplate[] = [
     updated_at: T("2026-07-24T08:00:00Z"),
   },
 ];
-
-export const getTask = (id: string) => tasks.find((t) => t.id === id);
 
 const grandTotal: TokenTotal = tasks.reduce(
   (a, t) => ({
@@ -2752,10 +2762,6 @@ export const activity: Activity[] = [
   },
 ];
 
-export function activityForTask(): Activity[] {
-  return activity;
-}
-
 // ── Token stats ──────────────────────────────────────────────────────────────
 export const tokenWorkers: TokenUsage[] = [
   {
@@ -3152,15 +3158,15 @@ const promptVars: PromptVar[] = [
 ];
 
 const promptVersions: PromptVersion[] = [
-  { version: 3, ts: T("2026-07-25T10:00:00Z"), note: "加强越权探测引导", template_text: "你是 ARTEX 的规划者……" },
-  { version: 2, ts: T("2026-07-20T10:00:00Z"), note: "初版微调", template_text: "你是 ARTEX 的规划者(v2)……" },
+  { version: 3, ts: T("2026-07-25T10:00:00Z"), note: "加强越权探测引导", template_text: "你是 artex 的规划者……" },
+  { version: 2, ts: T("2026-07-20T10:00:00Z"), note: "初版微调", template_text: "你是 artex 的规划者(v2)……" },
 ];
 
 export function agentDetail(key: string): AgentDetail {
   const a = agents.find((x) => x.key === key) ?? agents[1];
   return {
     agent: a,
-    prompt: `你是 ARTEX 的「${a.name}」。\n目标：{{.Goal}}\n资产概览：{{.AssetSummary}}\n路线提示：{{.RouteHint}}\n请基于以上信息推进探索，并通过工具把结果写回图。`,
+    prompt: `你是 artex 的「${a.name}」。\n目标：{{.Goal}}\n资产概览：{{.AssetSummary}}\n路线提示：{{.RouteHint}}\n请基于以上信息推进探索，并通过工具把结果写回图。`,
     variables: promptVars,
     versions: promptVersions,
     visibility: { mcp: [1, 2], skill: ["api-recon", "playwright-cli"] },

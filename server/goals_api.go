@@ -1,3 +1,6 @@
+// goals_api.go：任务目标（Goal）的增删改查 HTTP API。
+// 主要函数/类型：
+//   - listGoals / addGoal / editGoal / deleteGoal：目标列表/新增/编辑/删除。
 package server
 
 import (
@@ -6,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // 总览「目标管理」的人工 CRUD 接口。与 agent 侧的 set_goals 工具写同一批 goal 节点,

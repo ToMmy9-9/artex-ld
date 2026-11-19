@@ -1,3 +1,10 @@
+// task_assets_context.go：基于 CTE 查询任务的上下文、覆盖度与资产来源。
+// 主要函数/类型：
+//   - ListTaskScopeWithSources：带来源信息列出任务测试范围。
+//   - TaskCoverageWithSources：带来源统计任务覆盖度。
+//   - ListUntestedAssetsWithSources：分页查询未测试资产（含来源）。
+//   - HostsByTaskWithSources：查询任务关联主机（含来源）。
+
 package db
 
 import (

@@ -1,3 +1,11 @@
+/**
+ * page.tsx：资产拦截规则管理页——规则列表与编辑抽屉。
+ * 主要函数/类型：
+ *   - AssetInterceptPage：默认导出页组件，加载并增删改规则
+ *   - KindBadge：匹配类型徽章（全等 / 模糊 / 网段配色）
+ *   - KIND_OPTIONS / KIND_LABEL / KIND_GROUPS：匹配类型元信息与分组
+ *   - frontValidate：前端轻校验（仅 exact_ip / cidr 做格式校验）
+ */
 "use client";
 
 import * as React from "react";
@@ -8,6 +16,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -53,16 +62,6 @@ function KindBadge({ kind }: { kind: AssetInterceptKind }) {
     >
       {KIND_LABEL[kind]}
     </Badge>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</Label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
   );
 }
 
@@ -278,7 +277,8 @@ export default function AssetInterceptPage() {
           </SheetHeader>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-            <Field label="匹配类型">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">匹配类型</FieldLabel>
               <Select value={form.kind} onValueChange={(v) => set({ kind: v as AssetInterceptKind })}>
                 <SelectTrigger>
                   <SelectValue />
@@ -300,24 +300,24 @@ export default function AssetInterceptPage() {
               </Select>
             </Field>
 
-            <Field
-              label="匹配内容"
-              hint={
-                form.kind === "cidr"
-                  ? "CIDR 网段，形如 192.168.0.0/16"
-                  : form.kind.startsWith("fuzzy_")
-                    ? "模糊匹配：目标包含此内容即命中"
-                    : "全等匹配：目标需与此内容完全一致"
-              }
-            >
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">匹配内容</FieldLabel>
               <Input
                 placeholder={placeholder}
                 value={form.pattern}
                 onChange={(e) => set({ pattern: e.target.value })}
               />
+              <p className="text-[11px] text-muted-foreground">
+                {form.kind === "cidr"
+                  ? "CIDR 网段，形如 192.168.0.0/16"
+                  : form.kind.startsWith("fuzzy_")
+                    ? "模糊匹配：目标包含此内容即命中"
+                    : "全等匹配：目标需与此内容完全一致"}
+              </p>
             </Field>
 
-            <Field label="备注（可选）">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">备注（可选）</FieldLabel>
               <Textarea
                 placeholder="说明这条规则的用途"
                 value={form.note}

@@ -1,9 +1,8 @@
-module github.com/Autumn-27/artex
+module artex
 
 go 1.26.3
 
 require (
-	github.com/Autumn-27/norma v0.4.3
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
@@ -15,6 +14,7 @@ require (
 	golang.org/x/net v0.58.0
 	golang.org/x/text v0.41.0
 	modernc.org/sqlite v1.52.0
+	norma v0.4.3
 )
 
 require (
@@ -60,3 +60,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace norma => ./third_party/norma

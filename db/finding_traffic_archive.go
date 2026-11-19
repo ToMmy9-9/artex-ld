@@ -1,3 +1,8 @@
+// finding_traffic_archive.go：任务归档快照中流量证据（traffic_evidence_snapshots）的归档物化与恢复。
+// 主要函数/类型：
+//   - ArchiveEvidenceSnapshots：从任务归档快照物化流量证据快照列表。
+//   - restoreFindingTrafficTx：在事务内恢复流量证据行及其发现绑定。
+//   - normalizeArchivedFindingVersions：归一化归档快照中的发现版本字段。
 package db
 
 import (
@@ -64,7 +69,11 @@ func restoreFindingTrafficTx(tx *sql.Tx, snapshot *TaskArchiveSnapshot) error {
 		if _, err = tx.Exec(`INSERT INTO finding_traffic_bindings SELECT * FROM json_populate_recordset(NULL::finding_traffic_bindings,$1::json)`, string(raw)); err != nil {
 			return err
 		}
-		_, err = tx.Exec(`UPDATE traffic_evidence_snapshots s SET unreferenced_at=NULL WHERE EXISTS(SELECT 1 FROM finding_traffic_bindings b WHERE b.snapshot_id=s.id)`)
+		_, err = tx.Exec(`UPDATE traffic_evidence_snapshots s SET unreferenced_at=NULL
+WHERE EXISTS (
+ SELECT 1 FROM finding_traffic_bindings b JOIN findings f ON f.id=b.finding_id
+ WHERE b.snapshot_id=s.id AND f.task_id=$1
+)`, snapshot.TaskID)
 	}
 	return err
 }

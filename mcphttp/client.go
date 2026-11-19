@@ -1,3 +1,10 @@
+// client.go：远程 MCP 客户端，把 Streamable HTTP 与旧版 SSE 的 MCP 服务器适配为统一工具形状。
+// 主要函数/类型：
+//   - Client / New / NewSSE：MCP 连接及两种传输（Streamable HTTP / 旧版 SSE）的构造。
+//   - Tools / Call：列出远端工具并以 mcp__server__tool 形态调用。
+//   - ToolName：生成统一的远端工具命名。
+//   - Close：关闭连接与遗留 SSE 流。
+
 // Package mcphttp contains remote Streamable HTTP and legacy SSE MCP clients.
 //
 // The core mcp package only speaks stdio; this adapts an HTTP/JSON-RPC MCP server
@@ -23,9 +30,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
+	"norma/llm"
+	"norma/permission"
+	actool "norma/tool"
 )
 
 const protocolVersion = "2025-06-18"
@@ -131,6 +138,12 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 		hc.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	}
 	streamCtx, cancel := context.WithCancel(context.Background())
+	// SSE 本身需要长驻，但握手必须受调用方取消和默认 30 秒上限约束。
+	// 握手成功后解除这个映射，避免 setup ctx 取消时误杀已建立的流。
+	handshakeCtx, cancelHandshake := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelHandshake()
+	stopHandshake := context.AfterFunc(handshakeCtx, cancel)
+	defer stopHandshake()
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, sseURL, nil)
 	if err != nil {
 		cancel()
@@ -153,9 +166,20 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 	reader := bufio.NewReader(resp.Body)
 	endpoint, err := readSSEEndpoint(reader, sseURL)
 	if err != nil {
+		if handshakeCtx.Err() != nil {
+			err = fmt.Errorf("mcp sse handshake: %w", handshakeCtx.Err())
+		}
 		resp.Body.Close()
 		cancel()
 		return nil, err
+	}
+	if !stopHandshake() || handshakeCtx.Err() != nil {
+		resp.Body.Close()
+		cancel()
+		if handshakeCtx.Err() != nil {
+			return nil, fmt.Errorf("mcp sse handshake: %w", handshakeCtx.Err())
+		}
+		return nil, fmt.Errorf("mcp sse handshake canceled")
 	}
 	c := &Client{
 		server:       server,
@@ -279,6 +303,29 @@ type remoteTool struct {
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
+// mcpCallResult 是 tools/call 响应的解码结构（wrap/CoreTool 与 Call 两处共用）。
+type mcpCallResult struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+	IsError bool `json:"isError"`
+}
+
+// decodeMCPCallResult 解码 tools/call 响应并拼接 content 文本。
+// 两种错误通道（CoreTool 的 actool.Errorf vs Call 的返回 error）各留各的，不合并——helper 只负责解码。
+func decodeMCPCallResult(raw json.RawMessage) (mcpCallResult, string, error) {
+	var res mcpCallResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return mcpCallResult{}, "", err
+	}
+	var text string
+	for _, blk := range res.Content {
+		text += blk.Text
+	}
+	return res, text, nil
+}
+
 func (c *Client) wrap(rt remoteTool) actool.CoreTool {
 	schema := rt.InputSchema
 	if schema == nil {
@@ -301,19 +348,9 @@ func (c *Client) wrap(rt remoteTool) actool.CoreTool {
 			if err != nil {
 				return actool.Errorf("Error: " + err.Error()), nil
 			}
-			var res struct {
-				Content []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content"`
-				IsError bool `json:"isError"`
-			}
-			if err := json.Unmarshal(raw, &res); err != nil {
+			res, text, err := decodeMCPCallResult(raw)
+			if err != nil {
 				return actool.Errorf("Error: bad MCP response: " + err.Error()), nil
-			}
-			var text string
-			for _, blk := range res.Content {
-				text += blk.Text
 			}
 			// 与内置/自定义工具一致：超长输出走 Capture——按会话 MaxOutputChars（默认
 			// 30000）截断，配了 ToolOutputDir 时全量溢写到磁盘只留 head + 指针，避免大
@@ -332,24 +369,14 @@ func (c *Client) Call(ctx context.Context, tool string, args any) (string, error
 	if err != nil {
 		return "", err
 	}
-	var res struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(raw, &res); err != nil {
+	res, text, err := decodeMCPCallResult(raw)
+	if err != nil {
 		return "", fmt.Errorf("bad MCP response: %w", err)
 	}
-	var text strings.Builder
-	for _, blk := range res.Content {
-		text.WriteString(blk.Text)
-	}
 	if res.IsError {
-		return text.String(), fmt.Errorf("mcp tool %q error: %s", tool, text.String())
+		return text, fmt.Errorf("mcp tool %q error: %s", tool, text)
 	}
-	return text.String(), nil
+	return text, nil
 }
 
 // Close terminates the MCP session best-effort (DELETE with the session id, per the
@@ -525,6 +552,14 @@ func (c *Client) legacyRoundTrip(ctx context.Context, body rpcRequest, expectRes
 		return response, nil
 	case err := <-c.streamErr:
 		return nil, fmt.Errorf("mcp sse stream: %w", err)
+	case <-c.streamDone:
+		// streamErr 在 streamDone 关闭前写入；优先保留底层解析或网络错误。
+		select {
+		case err := <-c.streamErr:
+			return nil, fmt.Errorf("mcp sse stream: %w", err)
+		default:
+		}
+		return nil, fmt.Errorf("mcp sse stream closed")
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

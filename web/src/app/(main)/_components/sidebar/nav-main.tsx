@@ -1,13 +1,20 @@
+/**
+ * nav-main.tsx：侧栏主导航，按分组渲染导航项并处理路由高亮与子菜单展开。
+ * 主要函数/类型：
+ *   - NavMain：按分组渲染导航列表，并根据当前路径计算高亮/展开态。
+ *   - NavItem / NavLinkItem / NavDropdownItem / NavCollapsibleItem：各类导航项渲染组件。
+ *   - NavLinkIcon / CollapsedIconFallback / NavItemBadge / InterceptPendingBadge：图标回退与徽标渲染。
+ *   - hasSubItems：判断导航项是否为含子项的父项。
+ */
 "use client";
 
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ChevronRight, MailIcon, PlusCircleIcon } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 
-import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,

@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS exploration_nodes (
     CONSTRAINT ck_node_kind CHECK (kind IN ('begin','goal','intent','fact','finding','hint','digest')),
     CONSTRAINT ck_node_state CHECK (
         (kind='begin'   AND state IN ('open')) OR
-        (kind='intent'  AND state IN ('open','running','paused','done','blocked','exhausted','stopped','deleted')) OR
+        (kind='intent'  AND state IN ('open','running','paused','done','blocked','exhausted','stopped','deleted','proposed')) OR
         (kind='goal'    AND state IN ('open','met','abandoned')) OR
         (kind='fact'    AND state IN ('confirmed','dismissed','origin')) OR
         (kind='finding' AND state IN ('confirmed','dismissed')) OR
@@ -215,7 +215,8 @@ BEGIN
     END IF;
 END $$;
 -- ck_node_state: recreate when it lacks the 'paused' (older), 'superseded' (digest rev),
--- or 'deleted' (intent soft-delete rev) branches.
+-- 'deleted' (intent soft-delete rev), or 'proposed' (P-INTENT 人审闸门 rev).
+-- 【二开·P-INTENT·D1】起 —— proposed 状态准入：NOT LIKE '%proposed%' 并入触发条件，重建清单加 'proposed'
 DO $$
 BEGIN
     IF EXISTS (
@@ -224,12 +225,13 @@ BEGIN
           AND conname='ck_node_state'
           AND (pg_get_constraintdef(oid) NOT LIKE '%paused%'
                OR pg_get_constraintdef(oid) NOT LIKE '%superseded%'
-               OR pg_get_constraintdef(oid) NOT LIKE '%deleted%')
+               OR pg_get_constraintdef(oid) NOT LIKE '%deleted%'
+               OR pg_get_constraintdef(oid) NOT LIKE '%proposed%')
     ) THEN
         ALTER TABLE exploration_nodes DROP CONSTRAINT ck_node_state;
         ALTER TABLE exploration_nodes ADD CONSTRAINT ck_node_state CHECK (
             (kind='begin'   AND state IN ('open')) OR
-            (kind='intent'  AND state IN ('open','running','paused','done','blocked','exhausted','stopped','deleted')) OR
+            (kind='intent'  AND state IN ('open','running','paused','done','blocked','exhausted','stopped','deleted','proposed')) OR
             (kind='goal'    AND state IN ('open','met','abandoned')) OR
             (kind='fact'    AND state IN ('confirmed','dismissed','origin')) OR
             (kind='finding' AND state IN ('confirmed','dismissed')) OR
@@ -238,6 +240,7 @@ BEGIN
         );
     END IF;
 END $$;
+-- 【二开·P-INTENT·D1】止
 CREATE INDEX IF NOT EXISTS idx_expnodes_part     ON exploration_nodes(exploration_id, kind);
 CREATE INDEX IF NOT EXISTS idx_expnodes_frontier ON exploration_nodes(exploration_id, priority DESC)
     WHERE kind='intent' AND state='open';
@@ -546,6 +549,30 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS queued BOOLEAN NOT NULL DEFAULT false
 -- 给 agent 开放 add_task_scope/list_untested_assets;false=全部关闭(见 task_scope.go)。
 -- 存量任务默认 true 保持原行为;company 关联(task_scope kind=company)不受此开关影响。
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS coverage_enabled BOOLEAN NOT NULL DEFAULT true;
+-- 【二开·P-TPL·D2】起 —— tasks 两新列：planner 提示词任务级快照 + 任务级 worker 池大小（0=跟随全局，1~16 专属）
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS planner_prompt_override TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS worker_prompt_override TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS worker_count INT NOT NULL DEFAULT 0;
+-- 【二开·P-TPL·D2】止
+-- 【二开·P-REVIEW·D2b】起 —— 任务级自动审核开关：true=ReviewRunner 预审轮自动处置待审意图（明显安全放行/明显越界驳回/拿不准留人），false=人工面板处置（默认，零行为变化）
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS review_auto BOOLEAN NOT NULL DEFAULT false;
+-- 【二开·P-REVIEW·D2c】任务级意图审核总开关（m03934）：false(默认)=该任务不启用 review——
+-- ReviewRunner 跳过、审核面板 tab 隐藏、审核五端点 409；true=review agent 用任务 LLM 配置预审/会话。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS review_enabled BOOLEAN NOT NULL DEFAULT false;
+-- 【二开·P-REVIEW·D12】分类预设包（m04039）：分类只给建任务默认值（快照语义），改分类不影响在建任务。
+ALTER TABLE task_categories ADD COLUMN IF NOT EXISTS default_review_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE task_categories ADD COLUMN IF NOT EXISTS default_planner_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE task_categories ADD COLUMN IF NOT EXISTS default_worker_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE task_categories ADD COLUMN IF NOT EXISTS asset_mode TEXT NOT NULL DEFAULT 'pentest';
+-- 【二开】分类预设包·默认描述：建任务且描述为空（占位「未命名任务」）时快照带出
+ALTER TABLE task_categories ADD COLUMN IF NOT EXISTS default_description TEXT NOT NULL DEFAULT '';
+-- 【二开·P-SCENARIO·MERGE】场景合并进分类（m03167）：种子意图预设两列——分类即「场景管理」。
+ALTER TABLE task_categories ADD COLUMN IF NOT EXISTS seed_first_intent BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE task_categories ADD COLUMN IF NOT EXISTS seed_executor TEXT NOT NULL DEFAULT '';
+-- tasks.asset_mode 占位：资产图模式标签（pentest/vuln_research/code_audit；自由文本不卡扩展），
+-- 展示层/提示词层后续按它差异化；建任务从分类带出（空→'pentest'）。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS asset_mode TEXT NOT NULL DEFAULT 'pentest';
+-- 【二开·P-REVIEW·D2b】止
 -- queued_at makes admission FIFO reflect the actual enqueue order rather than the
 -- task creation order. queue_mode distinguishes first bootstrap from resuming an
 -- exploration that already owns goals/history.
@@ -631,6 +658,48 @@ DROP TRIGGER IF EXISTS trg_task_templates_upd ON task_templates;
 CREATE TRIGGER trg_task_templates_upd BEFORE UPDATE ON task_templates
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ═══ ARTEX 二开 · [P-TPL·D11 planner_templates 表] ═══
+-- 功能介绍：planner 提示词模板库——多套预设正文 + 全库唯一默认；建任务选中即把正文快照进 tasks.planner_prompt_override（本表只服务"以后的新任务"）
+-- 二开日期：2026-10-21
+-- 【二开·P-TPL·D11】起
+-- Reusable planner system-prompt presets (段 [A] 全文替换体)。nkey 是归一化大小写
+-- 不敏感身份，用于拒绝视觉等价重名；builtin 行只读禁删；is_default 全库至多一行
+-- （部分唯一索引保证），新任务未选择模板时由它打底快照。
+CREATE TABLE IF NOT EXISTS planner_templates (
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT NOT NULL,
+    nkey       TEXT NOT NULL UNIQUE,
+    body       TEXT NOT NULL,                       -- Go template 正文；代码占有的尾部规约在渲染后追加，不在此列
+    builtin    BOOLEAN NOT NULL DEFAULT false,      -- 内置行：名称/正文只读、禁删（保住 seed 幂等身份）
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- 默认模板全库至多一行：部分唯一索引（不带 WHERE 的普通唯一约束会要求所有 false 也唯一，必须用部分索引）。
+CREATE UNIQUE INDEX IF NOT EXISTS uq_planner_templates_default ON planner_templates(is_default) WHERE is_default;
+CREATE INDEX IF NOT EXISTS idx_planner_templates_updated ON planner_templates(updated_at DESC, id DESC);
+DROP TRIGGER IF EXISTS trg_planner_templates_upd ON planner_templates;
+CREATE TRIGGER trg_planner_templates_upd BEFORE UPDATE ON planner_templates
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- 【二开·P-TPL·D11】止
+
+-- Worker 提示词模板与 Planner 一样在任务创建时渲染并保存快照。
+CREATE TABLE IF NOT EXISTS worker_templates (
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT NOT NULL,
+    nkey       TEXT NOT NULL UNIQUE,
+    body       TEXT NOT NULL,
+    builtin    BOOLEAN NOT NULL DEFAULT false,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_worker_templates_default ON worker_templates(is_default) WHERE is_default;
+CREATE INDEX IF NOT EXISTS idx_worker_templates_updated ON worker_templates(updated_at DESC, id DESC);
+DROP TRIGGER IF EXISTS trg_worker_templates_upd ON worker_templates;
+CREATE TRIGGER trg_worker_templates_upd BEFORE UPDATE ON worker_templates
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 -- Direct, read-only task context inheritance. Relations are intentionally not
 -- recursive: a task sees only the source tasks explicitly chosen at creation.
 CREATE TABLE IF NOT EXISTS task_relations (
@@ -641,6 +710,16 @@ CREATE TABLE IF NOT EXISTS task_relations (
     CONSTRAINT ck_task_relation_not_self CHECK (task_id <> source_task_id)
 );
 CREATE INDEX IF NOT EXISTS idx_task_relations_source ON task_relations(source_task_id);
+
+-- Canonical host targeted by an internal-pentest dispatch. One row per host is
+-- the hard cross-parent dedupe guard; source inheritance assets are not targets.
+CREATE TABLE IF NOT EXISTS task_dispatch_targets (
+    asset_key   TEXT PRIMARY KEY,
+    task_id     BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    finding_id  BIGINT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_task_dispatch_targets_task ON task_dispatch_targets(task_id);
 
 -- Task/asset provenance supplements the legacy assets.task_ids association. The
 -- array remains the compatibility source for existing query and cleanup paths;
@@ -797,6 +876,17 @@ ALTER TABLE agents ADD COLUMN IF NOT EXISTS llm_profile_id BIGINT REFERENCES llm
 -- run_seconds 单次 run 墙钟默认 600→1200:只改列默认(影响将来新插入的行),不动旧库存量行。
 ALTER TABLE agents ALTER COLUMN run_seconds SET DEFAULT 1200;
 CREATE INDEX IF NOT EXISTS idx_agents_llm_profile ON agents(llm_profile_id) WHERE llm_profile_id IS NOT NULL;
+-- ═══ ARTEX 二开 · [P-EXEC·D10 执行器标识列] ═══
+-- 功能介绍：agents 表加 executor_key——自定义 agent 声明「我是某种执行器」供意图 payload.executor 引用（K18 独立列，K23 opt-in）
+-- 二开日期：2026-10-21
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS executor_key TEXT;
+-- 格式约束：与 agents.key 同款小写蛇形（空 = 未声明执行器，K23）
+ALTER TABLE agents DROP CONSTRAINT IF EXISTS agents_executor_key_ck;
+ALTER TABLE agents ADD CONSTRAINT agents_executor_key_ck
+    CHECK (executor_key IS NULL OR executor_key ~ '^[a-z][a-z0-9_]*$');
+-- 部分唯一索引：同一 executor_key 只能被一个 agent 声明（内置 agent 禁止声明，S2 三层校验兜底）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_executor_key ON agents(executor_key)
+    WHERE executor_key IS NOT NULL;
 DROP TRIGGER IF EXISTS trg_agents_upd ON agents;
 CREATE TRIGGER trg_agents_upd BEFORE UPDATE ON agents
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -1173,6 +1263,26 @@ CREATE TABLE IF NOT EXISTS finding_traffic_bindings (
 CREATE INDEX IF NOT EXISTS idx_finding_traffic_order ON finding_traffic_bindings(finding_id, position, id);
 CREATE INDEX IF NOT EXISTS idx_finding_traffic_snapshot ON finding_traffic_bindings(snapshot_id);
 
+-- planner 显式派发的调用记录：同一 agent_key+finding_id 只记录一次，
+-- conversation_id 为 NULL 表示会话尚未创建，由兜底 sweeper 周期性补发。
+-- conversation_id 不设外键：会话被用户删除后保留原 ID 视为已经启动，
+-- 不能重新变回 NULL 而每 10 分钟重复派发；finding 删除时级联清理待补发记录。
+CREATE TABLE IF NOT EXISTS finding_agent_invocations (
+    agent_key       TEXT NOT NULL,
+    finding_id      BIGINT NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+    task_id         BIGINT NOT NULL,
+    reason          TEXT NOT NULL DEFAULT '',
+    conversation_id BIGINT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_retry_at   TIMESTAMPTZ,
+    PRIMARY KEY (agent_key, finding_id)
+);
+-- 只索引待补发行；COALESCE(last_retry_at, created_at) 让首次调用与每次补发
+-- 共用同一条 10 分钟节流时间线。
+CREATE INDEX IF NOT EXISTS idx_finding_agent_invocations_pending
+    ON finding_agent_invocations (COALESCE(last_retry_at, created_at))
+    WHERE conversation_id IS NULL;
+
 -- =====================================================================
 -- M. 后端日志持久化
 -- =====================================================================
@@ -1384,3 +1494,81 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_batch
     ON notification_deliveries(batch_id) WHERE batch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
     ON notification_deliveries(channel_id, id DESC);
+
+-- ═══ ARTEX 二开 · [审核流 PR2] 存量审核行迁移（幂等，启动时随 schema 一起执行）═══
+-- 老待审行（proposed + executor='review'）补 review_status 子状态：
+-- 已带 review_note 的视为「被驳回待修订」（rejected），其余为「待审」（pending）。
+-- 只触碰缺 review_status 键的行，重复执行无副作用。
+UPDATE exploration_nodes
+SET payload = jsonb_set(payload::jsonb, '{review_status}', '"rejected"', true)::json
+WHERE kind='intent' AND state='proposed' AND payload->>'executor'='review'
+  AND payload->>'review_status' IS NULL
+  AND COALESCE(payload->>'review_note','') <> '';
+UPDATE exploration_nodes
+SET payload = jsonb_set(payload::jsonb, '{review_status}', '"pending"', true)::json
+WHERE kind='intent' AND state='proposed' AND payload->>'executor'='review'
+  AND payload->>'review_status' IS NULL;
+
+-- 【二开·P-SCENARIO·MERGE】task_scenarios 平行实体已合并进 task_categories（种子两列），旧表清理：
+DROP TABLE IF EXISTS task_scenarios;
+-- 【二开·P-SCENARIO·D5】止
+
+-- 内网渗透拓扑：备注表。旧读时投影表 task_topology_overrides 已下线，
+-- 存量数据由 db/migrate_topology.go 一次性搬进编辑器三表后 DROP。
+CREATE TABLE IF NOT EXISTS task_topology_notes (
+    id         BIGSERIAL PRIMARY KEY,
+    task_id    BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    node_ip    TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_task_topology_notes_node ON task_topology_notes(task_id, node_ip, created_at DESC);
+
+-- 内网拓扑编辑器（阶段 A）：图 = 三张表忠实投影；无游离节点/无环等不变式由 db 层强制。
+-- 节点 = 显式存储坐标/内容/分组；边 = 增删改全人控；备注沿用 task_topology_notes。
+CREATE TABLE IF NOT EXISTS task_topology_groups (
+  id BIGSERIAL PRIMARY KEY,
+  task_id BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  name TEXT NOT NULL DEFAULT '',
+  x DOUBLE PRECISION NOT NULL DEFAULT 0,
+  y DOUBLE PRECISION NOT NULL DEFAULT 0,
+  width DOUBLE PRECISION NOT NULL DEFAULT 400,
+  height DOUBLE PRECISION NOT NULL DEFAULT 300,
+  color TEXT NOT NULL DEFAULT '#94a3b8',
+  updated_by TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_task_topology_groups_task ON task_topology_groups(task_id);
+
+CREATE TABLE IF NOT EXISTS task_topology_nodes (
+  task_id BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  ip TEXT NOT NULL,
+  hostname TEXT NOT NULL DEFAULT '',
+  display_label TEXT NOT NULL DEFAULT '',
+  group_id BIGINT REFERENCES task_topology_groups(id) ON DELETE SET NULL,
+  x DOUBLE PRECISION NOT NULL DEFAULT 0,
+  y DOUBLE PRECISION NOT NULL DEFAULT 0,
+  entry_status TEXT NOT NULL DEFAULT '' CHECK (entry_status IN ('', 'suspected', 'confirmed')),
+  color TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  updated_by TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (task_id, ip)
+);
+
+CREATE TABLE IF NOT EXISTS task_topology_edges (
+  id BIGSERIAL PRIMARY KEY,
+  task_id BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  src_ip TEXT NOT NULL,
+  dst_ip TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'reachable' CHECK (kind IN ('solid','reachable')),
+  evidence_ref TEXT NOT NULL DEFAULT '',
+  system_label TEXT NOT NULL DEFAULT '',
+  color TEXT NOT NULL DEFAULT '',
+  updated_by TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (task_id, src_ip, dst_ip, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_task_topology_edges_task ON task_topology_edges(task_id);

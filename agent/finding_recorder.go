@@ -1,9 +1,14 @@
+// finding_recorder.go：finding 上报侧接线——recorder 接口、注入方法与流量证据指引文案。
+// 主要函数/类型：
+//   - FindingRecorder：report_finding 落库时的上报/登记回调接口。
+//   - findingTrafficGuidance：report_finding 流量证据可选绑定的模型指引文案。
+//   - SetFindingRecorder（ToolSet / Worker / Planner / MainAgent）：向各 agent 注入 recorder。
 package agent
 
 import (
 	"context"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // FindingRecorder is injected by the host; agents never synthesize or copy

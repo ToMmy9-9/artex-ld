@@ -1,3 +1,9 @@
+// terminalreason.go：把 harness 的终止原因（步数/超时/中断等）翻译成人类可读的终止说明与提示。
+// 主要函数/类型：
+//   - runTrace：跟踪最近一次在途工具调用，供中断时指认未完成操作。
+//   - reasonHint / terminalReasonLabel / terminalReasonHint：终止原因的中英文标签与处置建议。
+//   - terminalText / progressSuffix：生成运行结束时的终止文本与进度后缀。
+
 package agent
 
 import (
@@ -6,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/norma/harness"
+	"norma/harness"
 )
 
 // runTrace retains the latest tool call so an interrupted run can identify the

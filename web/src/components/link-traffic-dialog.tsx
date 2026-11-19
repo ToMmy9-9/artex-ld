@@ -1,3 +1,8 @@
+/**
+ * link-traffic-dialog.tsx：搜索漏洞并把选中的流量记录绑定到该漏洞的对话框。
+ * 主要函数/类型：
+ *   - LinkTrafficDialog：漏洞搜索与绑定对话框组件
+ */
 "use client";
 
 import * as React from "react";

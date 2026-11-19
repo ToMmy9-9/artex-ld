@@ -1,3 +1,9 @@
+// markdown.go：钉钉/企业微信共用的 markdown 消息渲染——单条/汇总正文与条数打包。
+// 主要函数/类型：
+//   - markdownBody：渲染单条或整批正文，按字节上限截断并返回装下的条数。
+//   - markdownBatchIntro：汇总消息开头的时间窗、条数与级别分布。
+//   - markdownText / markdownEscape / markdownTitle：文本截断转义与消息标题。
+//   - writeItem：渲染单条漏洞条目（含状态变更行与详情回链）。
 package notify
 
 import (

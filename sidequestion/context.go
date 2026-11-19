@@ -1,3 +1,10 @@
+// context.go：旁路问答的上下文构建——摘要压缩、历史折叠、token 预算与请求组装。
+// 主要函数/类型：
+//   - Memory / ContextInfo / Replay / ContextOptions：旁路记忆、上下文信息与回放配置。
+//   - contextBuilder.prepare：按窗口与预算组装旁路问答请求，必要时触发压缩。
+//   - summarize / foldHistory / compactSnapshot：用 LLM 摘要压缩历史并折叠消息。
+//   - isContextOverflow：判断模型错误是否为上下文超限。
+//   - SideQuestionService.Respond：旁路问答主流程（加载历史→组装→回答→更新记忆）。
 package sidequestion
 
 import (
@@ -10,7 +17,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/norma/llm"
+	"norma/llm"
 )
 
 // Memory is independent of the main snapshot. Through is a persisted ordinal,

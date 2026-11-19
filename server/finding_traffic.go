@@ -1,3 +1,10 @@
+// finding_traffic.go：Finding 流量证据的存取、绑定、正文读取与 agent 证据工具。
+// 主要函数/类型：
+//   - registerFindingTraffic / getFindingTraffic / bindFindingTraffic / editFindingTraffic：证据路由注册与查询/绑定/编辑 API。
+//   - getFindingTrafficDetail / getFindingTrafficBody：读取绑定详情与请求/响应正文（支持分段偏移）。
+//   - seedFindingTrafficTools：升级内置工具的 traffic_refs / evidence_version schema。
+//   - toolGetFindingTraffic：agent 读取已绑定流量证据的工具。
+//   - findingTrafficAccess：校验当前任务对 Finding 证据的读写权限（继承漏洞只读）。
 package server
 
 import (
@@ -13,10 +20,10 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/evidence"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/agent"
+	"artex/db"
+	"artex/evidence"
+	actool "norma/tool"
 )
 
 func (s *Server) evidenceStore() *evidence.Store {

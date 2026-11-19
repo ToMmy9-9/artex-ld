@@ -1,3 +1,7 @@
+/**
+ * input.tsx：shadcn/ui 的 Input 单行输入框组件封装。
+ * 主要组件：Input。
+ */
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

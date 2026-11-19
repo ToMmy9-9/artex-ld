@@ -1,3 +1,8 @@
+/**
+ * finding-retest-panel.tsx：漏洞复测记录列表面板，展示状态与结论并轮询进行中复测。
+ * 主要函数/类型：
+ *   - FindingRetestPanel：复测列表面板组件（启动入口、状态/结论标签）
+ */
 "use client";
 
 import * as React from "react";

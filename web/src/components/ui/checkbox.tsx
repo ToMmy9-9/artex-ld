@@ -1,3 +1,7 @@
+/**
+ * checkbox.tsx：shadcn/ui 的 Checkbox 复选框组件封装。
+ * 主要组件：Checkbox。
+ */
 "use client"
 
 import * as React from "react"

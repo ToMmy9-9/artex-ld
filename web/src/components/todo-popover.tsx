@@ -1,3 +1,8 @@
+/**
+ * todo-popover.tsx：展示会话最近一次 TodoWrite 状态的弹层，打开时按需拉取详情并解析。
+ * 主要函数/类型：
+ *   - TodoPopover：Todo 状态弹层组件（seq + fetchDetail 注入）
+ */
 "use client";
 
 import * as React from "react";

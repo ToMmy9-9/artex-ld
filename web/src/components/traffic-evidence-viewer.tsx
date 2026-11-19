@@ -1,3 +1,9 @@
+/**
+ * traffic-evidence-viewer.tsx：流量证据查看对话框，展示绑定流量的请求/响应报文及原始内容。
+ * 主要函数/类型：
+ *   - TrafficEvidenceViewer：漏洞证据绑定查看对话框（按 bindingId 加载）
+ *   - CapturedTrafficViewer：按 id 查看单条已捕获流量的对话框
+ */
 "use client";
 
 import * as React from "react";

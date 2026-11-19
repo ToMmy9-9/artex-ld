@@ -1,11 +1,18 @@
+// finding_workflow.go：finding 工作流工具改写——按开关给 finding 相关工具拼接流量绑定/编号约定指引。
+// 主要函数/类型：
+//   - FindingTrafficBindingEnabled / findingTrafficBindingEnabled：服务端注入的流量绑定总开关。
+//   - findingWorkflowTools：按开关改写 finding 工具描述/schema，并生成系统提示层工作流指引。
+//   - stripTrafficParameters：关闭绑定时从工具 schema 剔除流量绑定参数。
+//   - HintTrafficSchema：hint 工具共享的 traffic_refs 参数 schema。
+//   - findingRefsFromHint：读取 hint 的结构化流量引用并与显式引用合并。
 package agent
 
 import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Autumn-27/artex/db"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/db"
+	actool "norma/tool"
 )
 
 const findingIDGuidance = "\n\n**漏洞编号约定**：finding_id 是独立漏洞记录 ID；finding_node_id 是探索节点 ID。list_findings / list_task_findings / node_detail / get_task_node_detail 的 id 保留为探索节点 ID，应从同一返回的 finding_id 读取独立编号。get_finding_traffic / bind_finding_traffic 用独立 finding_id。旧 update_finding_report 的 finding_id 参数仍传 finding_node_id。不要把 report_finding 第一行的数字用于证据工具，也不要遇到编号错误后猜测其他数字。"

@@ -1,3 +1,8 @@
+/**
+ * drawer.tsx：shadcn/ui 的 Drawer 抽屉组件封装（基于 vaul）。
+ * 主要组件：Drawer、DrawerTrigger、DrawerClose、DrawerContent、DrawerHeader、
+ *   DrawerFooter、DrawerTitle、DrawerDescription、DrawerOverlay、DrawerPortal。
+ */
 "use client"
 
 import * as React from "react"

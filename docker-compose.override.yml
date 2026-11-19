@@ -1,0 +1,17 @@
+# 本地部署覆盖项（不改动仓库原始 docker-compose.yml）
+#
+# 1) 端口：本机已部署旧版 ARTEX(8787/8788) 与 RuoJi6-ARTEX(8797/8798)，
+#    为能三套共存，本实例改用 8799(控制台) / 8800(流量代理)。
+#    注意用 !override 替换而不是追加，否则会和上游的 8787 双重映射。
+# 2) jwt.key：Dockerfile.source 已做软链 ln -sf /app/data/jwt.key /app/jwt.key，
+#    密钥落在持久化的 /app/data 内，这里无需额外处理。
+services:
+  artex:
+    ports: !override
+      - "8799:8787"
+      - "127.0.0.1:8800:8788"
+    # 上游 compose 未设 restart 策略，主机重启后不会自动恢复。
+    restart: unless-stopped
+
+  postgres:
+    restart: unless-stopped

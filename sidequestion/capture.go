@@ -1,3 +1,11 @@
+// capture.go：捕获主 Agent 的不可变检查点——克隆请求、包装模型调用并发布快照。
+// 主要函数/类型：
+//   - Parent / Model / Snapshot：快照归属、模型信息与不可变请求快照。
+//   - CloneRequest：深拷贝 CompletionRequest 使快照不被后续修改污染。
+//   - Publisher / WithPublisher：快照发布回调及其上下文注入。
+//   - Attach / save / Finish：包装模型调用捕获快照，任务结束时完成并发布。
+//   - Bind / boundProvider：把模型与快照绑定、记录用量的 Provider 包装。
+//
 // Package sidequestion captures immutable main-agent checkpoints. It never owns
 // an agent session or a tool executor.
 package sidequestion
@@ -11,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/norma/harness"
-	"github.com/Autumn-27/norma/llm"
+	"norma/harness"
+	"norma/llm"
 )
 
 type Parent struct {

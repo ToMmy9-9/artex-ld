@@ -1,3 +1,8 @@
+// skill_usage.go：技能调用的用量计量，把每次调用写入 DB 台账。
+// 主要函数/类型：
+//   - meterSkillTool / meteredSkill：包装技能工具，调用时先计量再转发；无 DB 时原样返回。
+//   - Call：计量后转交底层工具执行。
+//   - record：解析调用入参中的技能名（解析到目录名）并尽力写入 skill_usage，失败只记日志不影响调用。
 package server
 
 import (
@@ -7,11 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Autumn-27/norma/skill"
-	actool "github.com/Autumn-27/norma/tool"
+	"norma/skill"
+	actool "norma/tool"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"artex/agent"
+	"artex/db"
 )
 
 // maxLedgerSkillName caps the skill name stored for a MISS — that string comes

@@ -1,3 +1,11 @@
+// config.go：LLM 接入配置（profiles 表）与 agent 定义（agents 表）的持久化。
+// 主要函数/类型：
+//   - LLMProfile：LLM 接入配置行（含限流、重试、token 等参数）。
+//   - ListProfiles / ActiveProfile / ProfileByID / PoolProfiles：查询配置列表、默认项或池中配置。
+//   - SaveProfile / DeleteProfile / SetActiveProfile：保存（新增/更新）、删除及设为默认配置。
+//   - Agent：agent 定义结构；ListAgents / GetAgentByKey / GetAgentByExecutorKey：查询 agent。
+//   - CreateAgent / UpdateAgentMeta / DeleteAgent / SetAgentExecutorKey：agent 的增删改。
+
 package db
 
 import (
@@ -6,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp" // 【二开·P-EXEC·D10】executor_key 格式校验
 	"time"
 )
 
@@ -462,14 +471,18 @@ type Agent struct {
 	TriggerRunMode     string `json:"trigger_run_mode"`
 	TriggerMergeMode   string `json:"trigger_merge_mode"`
 	TriggerMaxParallel int    `json:"trigger_max_parallel"`
+	// 【二开·P-EXEC·D10】起 —— 执行器标识（空 = 本 agent 行为不变，K23；仅自定义 agent 可声明，内置禁止 K18）
+	ExecutorKey string `json:"executor_key,omitempty"`
+	// 【二开·P-EXEC·D10】止
 }
 
-const agentCols = `id,key,name,COALESCE(description,''),role,builtin,enabled,COALESCE(max_turns,0),COALESCE(run_seconds,600),COALESCE(web_search,false),COALESCE(interactive_shell,false),COALESCE(wrapup_prompt,''),COALESCE(wrapup_max_turns,0),COALESCE(task_timeout_wrapup_prompt,''),COALESCE(task_timeout_wrapup_max_turns,0),COALESCE(trigger_run_mode,'serial'),COALESCE(trigger_merge_mode,'all'),COALESCE(trigger_max_parallel,5),llm_profile_id`
+const agentCols = `id,key,name,COALESCE(description,''),role,builtin,enabled,COALESCE(max_turns,0),COALESCE(run_seconds,600),COALESCE(web_search,false),COALESCE(interactive_shell,false),COALESCE(wrapup_prompt,''),COALESCE(wrapup_max_turns,0),COALESCE(task_timeout_wrapup_prompt,''),COALESCE(task_timeout_wrapup_max_turns,0),COALESCE(trigger_run_mode,'serial'),COALESCE(trigger_merge_mode,'all'),COALESCE(trigger_max_parallel,5),llm_profile_id,COALESCE(executor_key,'')` // 【二开·P-EXEC·D10】尾部加 executor_key
 
 func scanAgent(sc interface{ Scan(...any) error }) (*Agent, error) {
 	var a Agent
 	var prof sql.NullInt64 // llm_profile_id 可空:未绑定时为 NULL
-	err := sc.Scan(&a.ID, &a.Key, &a.Name, &a.Description, &a.Role, &a.Builtin, &a.Enabled, &a.MaxTurns, &a.RunSecs, &a.WebSearch, &a.InteractiveShell, &a.WrapupPrompt, &a.WrapupMaxTurns, &a.TaskTimeoutWrapupPrompt, &a.TaskTimeoutWrapupMaxTurns, &a.TriggerRunMode, &a.TriggerMergeMode, &a.TriggerMaxParallel, &prof)
+	// 【二开·P-EXEC·D10】Scan 尾部加 executor_key（agentCols 已 COALESCE('') 兜底空串）
+	err := sc.Scan(&a.ID, &a.Key, &a.Name, &a.Description, &a.Role, &a.Builtin, &a.Enabled, &a.MaxTurns, &a.RunSecs, &a.WebSearch, &a.InteractiveShell, &a.WrapupPrompt, &a.WrapupMaxTurns, &a.TaskTimeoutWrapupPrompt, &a.TaskTimeoutWrapupMaxTurns, &a.TriggerRunMode, &a.TriggerMergeMode, &a.TriggerMaxParallel, &prof, &a.ExecutorKey)
 	if err == nil && prof.Valid {
 		v := prof.Int64
 		a.LLMProfileID = &v
@@ -504,6 +517,46 @@ func (d *DB) GetAgentByKey(key string) (*Agent, error) {
 	}
 	return a, nil
 }
+
+// ═══ ARTEX 二开 · [P-EXEC·D10 executor_key 查询] ═══
+// 功能介绍：GetAgentByExecutorKey——S2 resolveExecutor 的 DB 查询；executor_key 经 agentCols COALESCE('') 空串兼容
+// 二开日期：2026-10-21
+
+// GetAgentByExecutorKey 按 executor_key 找 agent（不存在/空返回 nil,nil）。
+func (d *DB) GetAgentByExecutorKey(key string) (*Agent, error) {
+	if key == "" {
+		return nil, nil
+	}
+	a, err := scanAgent(d.QueryRow(`SELECT `+agentCols+` FROM agents WHERE executor_key=$1`, key))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// SetAgentExecutorKey 更新/清除 agent 的执行器标识（server_mgmt pgSaveAgentConfig 透传）。
+// 校验格式（与 CHECK 约束同款正则，提前报错比 PG 约束错误友好）；
+// 内置 agent 禁止设置（K18：executor 只面向自定义 agent）。
+var executorKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+func (d *DB) SetAgentExecutorKey(agentKey, executorKey string) error {
+	if executorKey != "" && !executorKeyRe.MatchString(executorKey) {
+		return fmt.Errorf("executor_key 格式非法（小写蛇形，字母开头）: %q", executorKey)
+	}
+	res, err := d.Exec(`UPDATE agents SET executor_key=NULLIF($2,'') WHERE key=$1 AND builtin=false`, agentKey, executorKey)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("agent %q 不存在或是内置 agent（内置 agent 不可设置 executor_key）", agentKey)
+	}
+	return nil
+}
+
+// 【二开·P-EXEC·D10】止
 
 // AgentBindingCounts returns per-agent binding counts in a few grouped queries
 // (NO N+1): visible MCP servers and skills keyed by agent id, and bound tools
@@ -815,7 +868,7 @@ type MCPServer struct {
 	Env       json.RawMessage `json:"env"`
 	URL       string          `json:"url,omitempty"`
 	Enabled   bool            `json:"enabled"`
-	Insecure  bool            `json:"insecure"` // http: skip TLS cert verification (self-signed servers, issue #108)
+	Insecure  bool            `json:"insecure"`        // http: skip TLS cert verification (self-signed servers, issue #108)
 	Tools     []string        `json:"tools,omitempty"` // cached tool names (mcp_tools_cache)
 }
 
@@ -1085,3 +1138,184 @@ ON CONFLICT (agent_id,resource_kind,resource_id,mcp_tool_name) DO UPDATE SET ena
 	_, err := d.Exec(`DELETE FROM agent_visibility WHERE agent_id=$1 AND resource_kind=$2 AND resource_id=$3`, agentID, kind, resourceID)
 	return err
 }
+
+// ═══ ARTEX 二开 · [P-TPL·D11 planner_templates 数据层] ═══
+// 功能介绍：planner 提示词模板库 CRUD（List/Get/Create/Update/Delete/SetDefault/DefaultPlannerTemplateBody 七方法）
+//           + 内置/默认删除保护 + seed 首插入；仿制 db/task_templates.go 的 nkey 归一/原子合并/哨兵错风格
+// 二开日期：2026-10-21
+
+// 【二开·P-TPL·D11】起
+const (
+	MaxPlannerTemplateNameRunes = 120
+	MaxPlannerTemplateBodyBytes = 32 << 10 // 32KB 上限（按字节计，含中文）；S11 试渲染同口径
+	// PlannerTemplateBuiltinName/NKey 内置默认模板的固定身份——builtin 行名称只读，
+	// nkey 恒定，seed 才能用 ON CONFLICT (nkey) DO NOTHING 幂等（改名会换 nkey 导致重复 seed）。
+	PlannerTemplateBuiltinName = ExternalPentestTemplateName
+	PlannerTemplateBuiltinNKey = ExternalPentestTemplateName
+)
+
+var (
+	ErrPlannerTemplateInvalid          = errors.New("invalid planner template")
+	ErrPlannerTemplateNameConflict     = errors.New("planner template name already exists")
+	ErrPlannerTemplateNotFound         = errors.New("planner template not found")
+	ErrPlannerTemplateBuiltin          = errors.New("builtin planner template is read-only")
+	ErrPlannerTemplateDefaultProtected = errors.New("default planner template cannot be deleted")
+)
+
+// PlannerTemplate 是一套 planner 提示词预设（段 [A] 全文替换体）。
+type PlannerTemplate struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	NKey      string    `json:"-"`
+	Body      string    `json:"body"`
+	Builtin   bool      `json:"builtin"`
+	IsDefault bool      `json:"is_default"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PlannerTemplateInput 是 create/update 归一化后的载荷。
+type PlannerTemplateInput struct {
+	Name string
+	Body string
+}
+
+// PlannerTemplatePatch 只改指针非 nil 的字段（PATCH 语义）。
+type PlannerTemplatePatch struct {
+	Name *string
+	Body *string
+}
+
+// 归一化直接复用 task_templates.go 同包的 taskTemplateName/taskTemplateNKey/taskTemplateUniqueViolation，
+// 以及 template_crud.go 的 checkTemplateName/checkTemplateBody 共享规则（同包重名会编译冲突，不重复定义）。
+
+func scanPlannerTemplate(row interface{ Scan(...any) error }) (PlannerTemplate, error) {
+	t, err := scanTemplateRow(row)
+	return PlannerTemplate(t), err
+}
+
+func normalizePlannerTemplateInput(in PlannerTemplateInput) (PlannerTemplateInput, string, error) {
+	name, body, nkey, err := normalizeTemplateInputFields(in.Name, in.Body, MaxPlannerTemplateNameRunes, MaxPlannerTemplateBodyBytes, ErrPlannerTemplateInvalid)
+	if err != nil {
+		return in, "", err
+	}
+	in.Name, in.Body = name, body
+	return in, nkey, nil
+}
+
+func normalizePlannerTemplatePatch(patch PlannerTemplatePatch) (PlannerTemplatePatch, *string, error) {
+	name, nkey, body, err := normalizeTemplatePatchFields(patch.Name, patch.Body, MaxPlannerTemplateNameRunes, MaxPlannerTemplateBodyBytes, ErrPlannerTemplateInvalid)
+	if err != nil {
+		return patch, nil, err
+	}
+	patch.Name, patch.Body = name, body
+	return patch, nkey, nil
+}
+
+// 【方法 1/7】ListPlannerTemplates 最近维护在前（与 ListTaskTemplates 同序）。
+func (d *DB) ListPlannerTemplates() ([]*PlannerTemplate, error) {
+	rows, err := listTemplateRows(d, "planner_templates")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*PlannerTemplate, 0, len(rows))
+	for _, t := range rows {
+		converted := PlannerTemplate(*t)
+		out = append(out, &converted)
+	}
+	return out, nil
+}
+
+// 【方法 2/7】GetPlannerTemplate 不存在返回 (nil, nil)（S13 存在性校验靠它区分 404 与 500）。
+func (d *DB) GetPlannerTemplate(id int64) (*PlannerTemplate, error) {
+	t, err := getTemplateRow(d, "planner_templates", id)
+	if err != nil || t == nil {
+		return nil, err
+	}
+	converted := PlannerTemplate(*t)
+	return &converted, nil
+}
+
+// GetPlannerTemplateByNKey 按规范化名查模板（场景/种子按 nkey 解析模板 id 用）。
+func (d *DB) GetPlannerTemplateByNKey(nkey string) (*PlannerTemplate, error) {
+	t, err := getTemplateRowByNKey(d, "planner_templates", nkey)
+	if err != nil || t == nil {
+		return nil, err
+	}
+	converted := PlannerTemplate(*t)
+	return &converted, nil
+}
+
+// 【方法 3/7】CreatePlannerTemplate 插入一套预设；nkey 冲突（视觉等价重名）→ ErrPlannerTemplateNameConflict。
+func (d *DB) CreatePlannerTemplate(in PlannerTemplateInput) (*PlannerTemplate, error) {
+	in, nkey, err := normalizePlannerTemplateInput(in)
+	if err != nil {
+		return nil, err
+	}
+	t, err := createTemplateRow(d, "planner_templates", in.Name, nkey, in.Body, ErrPlannerTemplateNameConflict)
+	if err != nil {
+		return nil, err
+	}
+	converted := PlannerTemplate(*t)
+	return &converted, nil
+}
+
+// 【方法 4/7】UpdatePlannerTemplate 全量替换可编辑字段（PUT 语义，内部走原子 Patch）。
+func (d *DB) UpdatePlannerTemplate(id int64, in PlannerTemplateInput) (*PlannerTemplate, error) {
+	in, _, err := normalizePlannerTemplateInput(in)
+	if err != nil {
+		return nil, err
+	}
+	return d.PatchPlannerTemplate(id, PlannerTemplatePatch{Name: &in.Name, Body: &in.Body})
+}
+
+// PatchPlannerTemplate 单 UPDATE 原子合并所给字段（并发 disjoint PATCH 不丢改动）。
+// builtin 行允许编辑正文；名称/nkey 保持 seed 和场景引用身份，内置行仍禁止删除。
+// 共享实现在 template_crud.go patchTemplateRow；planner 侧 sentinel 经参数注入。
+func (d *DB) PatchPlannerTemplate(id int64, patch PlannerTemplatePatch) (*PlannerTemplate, error) {
+	patch, nkey, err := normalizePlannerTemplatePatch(patch)
+	if err != nil {
+		return nil, err
+	}
+	t, err := patchTemplateRow(d, "planner_templates", id, patch.Name, nkey, patch.Body,
+		ErrPlannerTemplateNotFound, ErrPlannerTemplateBuiltin, ErrPlannerTemplateNameConflict)
+	if err != nil {
+		return nil, err
+	}
+	converted := PlannerTemplate(*t)
+	return &converted, nil
+}
+
+// 【方法 5/7】DeletePlannerTemplate 删除一套预设；内置/默认禁删；返回是否存在并删除。
+// 已选用它的任务不受影响——创建时正文已快照进 tasks.planner_prompt_override（D11-b）。
+func (d *DB) DeletePlannerTemplate(id int64) (bool, error) {
+	return deleteTemplateRow(d, "planner_templates", id, ErrPlannerTemplateBuiltin, ErrPlannerTemplateDefaultProtected)
+}
+
+// 【方法 6/7】SetDefaultPlannerTemplate 事务内先清后设，全库唯一默认；部分唯一索引 uq_planner_templates_default 兜底并发。
+func (d *DB) SetDefaultPlannerTemplate(id int64) (*PlannerTemplate, error) {
+	t, err := setDefaultTemplateRow(d, "planner_templates", id, ErrPlannerTemplateNotFound)
+	if err != nil {
+		return nil, err
+	}
+	converted := PlannerTemplate(*t)
+	return &converted, nil
+}
+
+// 【方法 7/7】DefaultPlannerTemplateBody 读默认模板正文；无默认行（表空/直写库）→ ("", nil)，
+// 调用方落到 00 册 A4 第④级内置模板兜底。S13 快照链与 A4 第③级共用本方法。
+func (d *DB) DefaultPlannerTemplateBody() (string, error) {
+	return defaultTemplateBodyRow(d, "planner_templates")
+}
+
+// SeedPlannerTemplateIfEmpty 首插入 only：nkey 已存在即 no-op，用户后续操作（换默认/新建/删除自定义）
+// 重启不被重置。调用方见 server/assembly.go seedPrompts（D11-d）；正文单源=agent/planner.go
+// plannerDefaultTmpl 与 agent/planner_domain_templates.go 五领域模板（经 agent 包透出）——db 不 import agent，否则成环。
+// 【二开·P-LOG·S11】返回值改为 (inserted bool, err error)：供调用方只在首插时记 INFO（04 册 S11①）。
+// 【二开·P-TPL·DOMAIN】isDefault 参数化：五领域模板传 false，全库默认仍只有「内置默认」一行
+// （部分唯一索引 uq_planner_templates_default 保证；重复播种同名默认也不会违反）。
+func (d *DB) SeedPlannerTemplateIfEmpty(name, nkey, body string, isDefault bool) (bool, error) {
+	return seedTemplateIfEmptyRow(d, "planner_templates", name, nkey, body, isDefault)
+}
+
+// 【二开·P-TPL·D11】止

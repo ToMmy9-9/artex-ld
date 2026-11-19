@@ -1,3 +1,8 @@
+// commands.go：命令执行记录、工具调用与 LLM 请求记录的查询统计 API。
+// 主要函数/类型：
+//   - pgListCommands / pgToolStats：命令执行列表 / 工具调用统计。
+//   - pgListLLMRecords / pgGetLLMRecord / pgDeleteLLMRecords：LLM 请求记录列表/详情/删除。
+//   - pgTokenByModel / pgUsageStats / pgLLMTasks：按模型 token 统计 / 用量统计 / 记录关联任务。
 package server
 
 import (
@@ -5,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // pgListCommands returns tool executions (any tool) from the activity table.

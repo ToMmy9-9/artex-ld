@@ -1,3 +1,10 @@
+// logsink.go：进程日志的内存环形缓冲、DB 异步落库与订阅推送。
+// 主要函数/类型：
+//   - LogLine：一条解析后的日志行（时间、级别、内容）。
+//   - StartLogCapture / logSinkT：把标准 log 输出重定向到内存 sink（同时透传 stderr）。
+//   - SetDB：一次性接入 DB，回填最近日志并启动异步落库与定期清理。
+//   - Write / add / recent / subscribe：解析写入日志行、维护环形缓冲、按游标取近期日志、管理订阅通道。
+//   - parseLog / levelOf：从原始日志行解析时间与级别。
 package server
 
 import (
@@ -7,9 +14,10 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // LogLine is one captured backend log entry exposed by the /api/logs endpoints.
@@ -39,8 +47,9 @@ type logSinkT struct {
 	subs map[chan LogLine]struct{}
 	out  io.Writer // passthrough (stderr)
 
-	dbOnce sync.Once
-	dbCh   chan dbWriteReq // buffered async channel; nil until SetDB is called
+	dbOnce  sync.Once
+	dbCh    chan dbWriteReq // buffered async channel; nil until SetDB is called
+	dropped atomic.Int64    // 【P-LOG】落库队列满被丢弃的行数（每 100 条报一次 warn）
 }
 
 var logSink = &logSinkT{cap: 3000, subs: map[chan LogLine]struct{}{}, out: os.Stderr}
@@ -62,6 +71,22 @@ func (s *logSinkT) SetDB(ctx context.Context, pg *db.DB) {
 		s.mu.Lock()
 		s.dbCh = ch
 		s.mu.Unlock()
+
+		// 【P-LOG·M0】server_logs 无上限增长 → 每日清理 7 天前的行。
+		go func() {
+			for {
+				if n, err := pg.DeleteOldLogs(7); err != nil {
+					log.Printf("[WARN] [logsink] server_logs cleanup: %v", err)
+				} else if n > 0 {
+					log.Printf("[logsink] server_logs cleanup: deleted %d rows (>7d)", n)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(24 * time.Hour):
+				}
+			}
+		}()
 
 		// Restore last 100 rows from DB → prepend to ring as history context.
 		if logs, err := pg.RecentLogs(100); err == nil && len(logs) > 0 {
@@ -147,6 +172,11 @@ func (s *logSinkT) add(l LogLine) {
 		select {
 		case ch <- dbWriteReq{seq: l.Seq, ll: l}:
 		default:
+			// 【P-LOG】落库队列满静默丢 → 计数，每 100 条报一次（防刷屏，递归有界：
+			// 报告行本身也过 add，至多多计一条）。
+			if n := s.dropped.Add(1); n%100 == 1 {
+				log.Printf("[WARN] [logsink] db writer behind: dropped %d log lines", n)
+			}
 		}
 	}
 
@@ -194,12 +224,23 @@ func (s *logSinkT) subscribe() (<-chan LogLine, func()) {
 }
 
 // parseLog pulls a level + [tag] out of a standard-logger line; the timestamp is
-// the capture time (RFC3339).
+// the capture time (RFC3339). 【P-LOG】xlog 四级日志的显式前缀（[DEBUG]/[INFO]/
+// [WARN]/[ERROR]）优先定级并剥除；无前缀的存量日志走 levelOf 关键词兜底。
 func parseLog(line string) LogLine {
 	msg := line
 	// strip the "2006/01/02 15:04:05" LstdFlags prefix if present
 	if len(msg) >= 20 && msg[4] == '/' && msg[7] == '/' && msg[10] == ' ' {
 		msg = strings.TrimSpace(msg[19:])
+	}
+	level := ""
+	for _, p := range []struct{ prefix, lvl string }{
+		{"[ERROR]", "error"}, {"[WARN]", "warn"}, {"[INFO]", "info"}, {"[DEBUG]", "debug"},
+	} {
+		if strings.HasPrefix(msg, p.prefix) {
+			level = p.lvl
+			msg = strings.TrimSpace(strings.TrimPrefix(msg, p.prefix))
+			break
+		}
 	}
 	tag := ""
 	if strings.HasPrefix(msg, "[") {
@@ -207,7 +248,10 @@ func parseLog(line string) LogLine {
 			tag = msg[1:i]
 		}
 	}
-	return LogLine{TS: time.Now().Format(time.RFC3339), Level: levelOf(msg), Tag: tag, Text: msg}
+	if level == "" {
+		level = levelOf(msg)
+	}
+	return LogLine{TS: time.Now().Format(time.RFC3339), Level: level, Tag: tag, Text: msg}
 }
 
 func levelOf(msg string) string {

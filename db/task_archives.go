@@ -1,3 +1,12 @@
+// task_archives.go：任务归档表（task_archives）的持久化与归档作业队列管理。
+// 主要函数/类型：
+//   - TaskArchive / TaskArchiveSnapshot：归档记录行与归档快照（各表 JSON 数据 + 元信息）。
+//   - QueueTaskArchive / QueueTaskArchiveRestore / QueueTaskArchiveDelete：排队归档/恢复/删除作业。
+//   - ClaimTaskArchiveJob：worker 认领待处理的归档作业并推进状态。
+//   - SnapshotTaskArchive / SnapshotTaskArchiveWithLLMRecords：抓取任务全量数据生成归档快照。
+//   - ListTaskArchives / GetTaskArchive / GetTaskArchiveByTask：归档列表与单条/按任务查询。
+//   - UpdateTaskArchiveProgress / FailTaskArchiveJob：更新归档进度或标记作业失败。
+
 package db
 
 import (
@@ -401,7 +410,8 @@ func (d *DB) UpdateTaskArchiveProgress(id int64, phase string, progress int) err
 	if progress > 100 {
 		progress = 100
 	}
-	_, err := d.Exec(`UPDATE task_archives SET phase=$2,progress=$3 WHERE id=$1`, id, phase, progress)
+	_, err := d.Exec(`UPDATE task_archives SET phase=$2,progress=$3
+WHERE id=$1 AND state IN ('archiving','restoring','deleting')`, id, phase, progress)
 	return err
 }
 
@@ -432,7 +442,8 @@ func (d *DB) FailTaskArchiveJob(id int64, activeState string, cause error) error
 	if cause != nil {
 		message = cause.Error()
 	}
-	_, err := d.Exec(`UPDATE task_archives SET state=$2,phase='failed',error=$3 WHERE id=$1`, id, failed, message)
+	_, err := d.Exec(`UPDATE task_archives SET state=$2,phase='failed',error=$3
+WHERE id=$1 AND state=$4`, id, failed, message, activeState)
 	return err
 }
 
@@ -738,7 +749,7 @@ SELECT COALESCE(profile_name,'') profile_name,to_char(ts AT TIME ZONE 'UTC','YYY
        COALESCE(sum(cache_read),0) cache_read_tokens
 FROM llm_usage WHERE COALESCE(task_id,'')=$1 OR exploration_id=$2
 GROUP BY profile_name,date ORDER BY date) x`, []any{strconv.FormatInt(taskID, 10), expID}},
-		{"skills", `SELECT COALESCE(jsonb_object_agg(name,n),'{}'::jsonb) FROM (SELECT skill name,count(*) n FROM skill_usage WHERE (task_id=$1 OR exploration_id=$2) AND found GROUP BY skill) x`, []any{taskID, expID}},
+		{"skills", `SELECT COALESCE(jsonb_object_agg(name,n),'{}'::jsonb) FROM (SELECT skill AS name,count(*) n FROM skill_usage WHERE (task_id=$1 OR exploration_id=$2) AND found GROUP BY skill) x`, []any{taskID, expID}},
 		{"skill_stats", `SELECT COALESCE(jsonb_agg(to_jsonb(x)),'[]'::jsonb) FROM (
 SELECT skill,count(*) calls,1 tasks,
        COALESCE(array_agg(DISTINCT agent_key) FILTER (WHERE agent_key IS NOT NULL),ARRAY[]::text[]) agents,
@@ -749,8 +760,8 @@ SELECT skill,count(*) calls,0 tasks,
        COALESCE(array_agg(DISTINCT agent_key) FILTER (WHERE agent_key IS NOT NULL),ARRAY[]::text[]) agents,
        max(ts) last_used
 FROM skill_usage WHERE (task_id=$1 OR exploration_id=$2) AND NOT found GROUP BY skill) x`, []any{taskID, expID}},
-		{"tools", `SELECT COALESCE(jsonb_object_agg(name,n),'{}'::jsonb) FROM (SELECT tool_key name,count(*) n FROM tool_usage WHERE task_id=$1 OR exploration_id=$2 GROUP BY tool_key) x`, []any{taskID, expID}},
-		{"findings", `SELECT COALESCE(jsonb_object_agg(name,n),'{}'::jsonb) FROM (SELECT COALESCE(NULLIF(severity,''),'unknown') name,count(*) n FROM findings WHERE task_id=$1 GROUP BY severity) x`, []any{taskID}},
+		{"tools", `SELECT COALESCE(jsonb_object_agg(name,n),'{}'::jsonb) FROM (SELECT tool_key AS name,count(*) n FROM tool_usage WHERE task_id=$1 OR exploration_id=$2 GROUP BY tool_key) x`, []any{taskID, expID}},
+		{"findings", `SELECT COALESCE(jsonb_object_agg(name,n),'{}'::jsonb) FROM (SELECT COALESCE(NULLIF(severity,''),'unknown') AS name,count(*) n FROM findings WHERE task_id=$1 GROUP BY severity) x`, []any{taskID}},
 		{"finding_stats", `SELECT jsonb_build_object(
  'total',count(*),'pending',count(*) FILTER (WHERE status='pending'),
  'critical',count(*) FILTER (WHERE severity='critical'),'high',count(*) FILTER (WHERE severity='high'),

@@ -1,3 +1,7 @@
+// tool_usage.go：工具调用计量——在目录工具真正执行前落一条使用记录。
+// 主要函数/类型：
+//   - toolUsageRecorder / meteredTool：使用记录落库接口与计量装饰器。
+//   - meterTool / Call：包装工具并在调用前插入 ToolUsage 行，行为与结果完全透传。
 package server
 
 import (
@@ -5,10 +9,10 @@ import (
 	"encoding/json"
 	"log"
 
-	actool "github.com/Autumn-27/norma/tool"
+	actool "norma/tool"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"artex/agent"
+	"artex/db"
 )
 
 type toolUsageRecorder interface {

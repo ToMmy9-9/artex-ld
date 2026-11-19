@@ -1,3 +1,9 @@
+// findings_groups.go：全局 Finding 的资产树、分组分页列表与深挖跟进 API。
+// 主要函数/类型：
+//   - findingAssetTree：按过滤条件构建 Finding 资产树。
+//   - findingGroups：分组分页查询全局 Finding，并附任务实时运行状态。
+//   - deepenFinding：在原任务下创建高优先级人工深挖意图并唤醒/排队任务。
+//   - findingFilterFromQuery / findingPaginationParam：从查询串解析过滤条件与分页参数。
 package server
 
 import (
@@ -6,10 +12,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 const maxFindingFollowUpRunes = 4000
@@ -28,6 +35,12 @@ func findingPaginationParam(raw string, fallback, upperBound int) int {
 // findingFilterFromQuery builds the shared findings filter from a request's
 // query string. 列表 / 分组 / 资产树 / 导出走同一份解析,新增筛选项只改这里。
 func findingFilterFromQuery(q url.Values) db.FindingFilter {
+	var assetIDs []int64
+	for _, raw := range strings.Split(q.Get("asset_ids"), ",") {
+		if id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); err == nil && id > 0 && len(assetIDs) < 1000 {
+			assetIDs = append(assetIDs, id)
+		}
+	}
 	return db.FindingFilter{
 		Severity:  normFilter(q.Get("severity")),
 		Status:    normFilter(q.Get("status")),
@@ -37,6 +50,7 @@ func findingFilterFromQuery(q url.Values) db.FindingFilter {
 		Query:      q.Get("q"),
 		Sort:       q.Get("sort"),
 		AssetScope: strings.TrimSpace(q.Get("asset_scope")),
+		AssetIDs:   assetIDs,
 	}
 }
 

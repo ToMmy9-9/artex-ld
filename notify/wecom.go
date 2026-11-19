@@ -1,3 +1,7 @@
+// wecom.go：企业微信群机器人渠道——markdown 消息按 4096 字节硬上限截断后投递。
+// 主要函数/类型：
+//   - weComChannel：渠道实现，Send 用 markdownBody 渲染并截断到 weComMarkdownLimit 再发送。
+//   - weComMarkdownLimit：企微 markdown 正文的 4096 字节硬上限常量。
 package notify
 
 import (

@@ -1,3 +1,9 @@
+// conversations.go：会话消息的增删改查、收发驱动，以及触发器触发运行的排队调度。
+// 主要函数/类型：
+//   - pgListConversations / pgCreateConversation / pgUpdateConversation / pgDeleteConversationsBatch：会话增删改查（含批量删除）。
+//   - pgSendConversationMessage / runConversationTurn：发送消息并驱动一轮会话执行。
+//   - StartTriggeredRun / pumpLocked / nextTriggerRun：触发入队与按并发、合并策略调度执行。
+//   - mergeTriggeredRuns / mergeAllRuns：同任务 / 全队列多条触发合并为一次运行。
 package server
 
 import (
@@ -13,10 +19,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/sidequestion"
+	"artex/agent"
+	"artex/db"
+	"artex/intercept"
+	"artex/sidequestion"
 )
 
 const (
@@ -469,16 +475,18 @@ func (s *Server) runConversation(c *db.Conversation, msg, busyKey string, userMe
 	if len(userMessage) == 1 {
 		ctx = intercept.WithReviewContext(ctx, "", intercept.ReviewBackground{Source: intercept.BackgroundUserMessage, Text: userMessage[0]})
 	}
-	go s.runConversationTurn(ctx, cancel, c, msg, busyKey)
+	go s.runConversationTurn(ctx, cancel, c, msg, busyKey, 0)
 }
 
 // runConversationSync runs ONE agent turn on a conversation and BLOCKS until the
 // run ends (clearing busyKey). runConversation wraps it in a goroutine for the
 // fire-and-forget chat path; the P3 trigger queue calls it directly so it can wait
 // for completion before starting the next queued fire for the same agent.
-func (s *Server) runConversationSync(c *db.Conversation, msg, busyKey string) {
+// taskID>0 marks a trigger run: the turn's tools then resolve against that task's
+// exploration graph (record_fact & friends become usable for custom agents).
+func (s *Server) runConversationSync(c *db.Conversation, msg, busyKey string, taskID int64) {
 	ctx, cancel := s.conversationRunContext(c.ID, busyKey)
-	s.runConversationTurn(ctx, cancel, c, msg, busyKey)
+	s.runConversationTurn(ctx, cancel, c, msg, busyKey, taskID)
 }
 
 // Register cancellation before returning 202, so an immediate stop/delete cannot
@@ -493,7 +501,7 @@ func (s *Server) conversationRunContext(id int64, busyKey string) (context.Conte
 	return ctx, cancel
 }
 
-func (s *Server) runConversationTurn(ctx context.Context, cancel context.CancelCauseFunc, c *db.Conversation, msg, busyKey string) {
+func (s *Server) runConversationTurn(ctx context.Context, cancel context.CancelCauseFunc, c *db.Conversation, msg, busyKey string, taskID int64) {
 	defer func() {
 		cancel(agent.AbortChatTurnFinished)
 		s.chatMu.Lock()
@@ -501,6 +509,11 @@ func (s *Server) runConversationTurn(ctx context.Context, cancel context.CancelC
 		delete(s.chatCancel, busyKey)
 		s.chatMu.Unlock()
 	}()
+	// Trigger runs (taskID>0) carry the task id into tool assembly so injected
+	// domain tools bind to the task's exploration store instead of refusing.
+	if taskID > 0 {
+		ctx = agent.WithRunInfo(ctx, agent.RunInfo{TaskID: taskID})
+	}
 	// Only the first turn executes a historical retest. Follow-up conversation
 	// turns may explain the sealed result; the result tool refuses to overwrite it.
 	finishStatus, finishReason := "failed", "复测未能启动"
@@ -607,16 +620,24 @@ func (s *Server) readTriggerBehavior(agentKey string) triggerBehavior {
 // agent's策略 decides concurrency + merge: serial → run one at a time (optionally
 // merging by task / all / none); parallel → run each fire in its own concurrent
 // conversation up to trigger_max_parallel. Distinct agents always run concurrently.
-func (s *Server) StartTriggeredRun(agentKey, title, message string, taskID int64, mergeable bool, taskDesc, taskGoal string) {
+// The return value reports queue admission, not Conversation creation or Agent completion.
+func (s *Server) StartTriggeredRun(agentKey, title, message string, taskID int64, mergeable bool, taskDesc, taskGoal string) bool {
+	return s.startTriggeredRun(agentKey, title, message, taskID, mergeable, taskDesc, taskGoal, nil)
+}
+
+func (s *Server) startTriggeredRun(agentKey, title, message string, taskID int64, mergeable bool, taskDesc, taskGoal string, invocations []findingInvocationRef) bool {
 	if s.m.pg == nil || s.chatAgentRef() == nil {
-		return
+		return false
 	}
 	cfg := s.readTriggerBehavior(agentKey) // DB read BEFORE the lock (never under queueMu)
 	s.queueMu.Lock()
 	s.triggerCfg[agentKey] = cfg
-	s.triggerQ[agentKey] = append(s.triggerQ[agentKey], triggeredRun{agentKey: agentKey, title: title, message: message, taskID: taskID, taskDesc: taskDesc, taskGoal: taskGoal, mergeable: mergeable})
+	s.triggerQ[agentKey] = append(s.triggerQ[agentKey], triggeredRun{agentKey: agentKey, title: title, message: message, taskID: taskID, taskDesc: taskDesc, taskGoal: taskGoal, mergeable: mergeable, invocations: invocations})
+	// 【二开·P-LOG·O3】INFO 记触发入队（排障：触发器收到没有、排队还是立即跑）。
+	log.Printf("[trigger] 触发入队：agent %s task#%d（%s，队列 %d 条）", agentKey, taskID, firstLine(title, 40), len(s.triggerQ[agentKey]))
 	s.pumpLocked(agentKey)
 	s.queueMu.Unlock()
+	return true
 }
 
 // pumpLocked launches queued fires for one agent up to its concurrency limit, then
@@ -737,15 +758,18 @@ func mergeTriggeredRuns(items []triggeredRun) triggeredRun {
 	if h := taskContextHeader(first.taskID, first.taskDesc, first.taskGoal); h != "" {
 		fmt.Fprintf(&b, "%s\n", h) // same task → task context appears once
 	}
+	var invocations []findingInvocationRef
 	for i, it := range items {
 		fmt.Fprintf(&b, "\n── 触发 %d ──\n%s\n", i+1, it.message)
+		invocations = append(invocations, it.invocations...)
 	}
 	return triggeredRun{
-		agentKey:  first.agentKey,
-		title:     fmt.Sprintf("合并触发 · task#%d · %d 条", first.taskID, len(items)),
-		message:   b.String(),
-		taskID:    first.taskID,
-		mergeable: true,
+		agentKey:    first.agentKey,
+		title:       fmt.Sprintf("合并触发 · task#%d · %d 条", first.taskID, len(items)),
+		message:     b.String(),
+		taskID:      first.taskID,
+		mergeable:   true,
+		invocations: invocations,
 		// taskDesc/taskGoal left empty: header already embedded above.
 	}
 }
@@ -763,11 +787,13 @@ func mergeAllRuns(items []triggeredRun) triggeredRun {
 	first := items[0]
 	order := []int64{}
 	groups := map[int64][]triggeredRun{}
+	var invocations []findingInvocationRef
 	for _, it := range items {
 		if _, seen := groups[it.taskID]; !seen {
 			order = append(order, it.taskID)
 		}
 		groups[it.taskID] = append(groups[it.taskID], it)
+		invocations = append(invocations, it.invocations...)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "【本会话合并了队列中的 %d 条触发事件（共 %d 个任务），请一并处理】\n", len(items), len(order))
@@ -783,11 +809,12 @@ func mergeAllRuns(items []triggeredRun) triggeredRun {
 		}
 	}
 	return triggeredRun{
-		agentKey:  first.agentKey,
-		title:     fmt.Sprintf("合并触发 · 全部 · %d 条", len(items)),
-		message:   b.String(),
-		taskID:    first.taskID,
-		mergeable: true,
+		agentKey:    first.agentKey,
+		title:       fmt.Sprintf("合并触发 · 全部 · %d 条", len(items)),
+		message:     b.String(),
+		taskID:      first.taskID,
+		mergeable:   true,
+		invocations: invocations,
 		// taskDesc/taskGoal left empty: per-task headers already embedded above.
 	}
 }
@@ -801,11 +828,18 @@ func (s *Server) runTriggeredRun(item triggeredRun) {
 			log.Printf("[trigger] run for %s panicked: %v", item.agentKey, r)
 		}
 	}()
+	// 【二开·P-LOG·O3】INFO 记会话启动（排障：触发器起来了没有）。
+	log.Printf("[trigger] 触发自定义 agent 启动：%s task#%d（%s）", item.agentKey, item.taskID, firstLine(item.title, 40))
 	pg := s.m.pg
 	c, err := pg.CreateConversation(item.agentKey, firstLine(item.title, 60), nil)
 	if err != nil {
 		log.Printf("[trigger] create conversation for %s failed: %v", item.agentKey, err)
 		return
+	}
+	for _, in := range item.invocations {
+		if err := pg.SetFindingInvocationConversation(in.agentKey, in.findingID, c.ID); err != nil {
+			log.Printf("[finding-dispatch] backfill conversation failed: agent=%s finding=%d conversation=%d err=%v", in.agentKey, in.findingID, c.ID, err)
+		}
 	}
 	msg := finalTriggerMessage(item) // prepend the task-context header for single (non-merged) fires
 	if _, err := pg.AppendConvActivity(c.ID, db.Activity{Worker: item.agentKey, Kind: "user", Summary: firstLine(msg, 200), Detail: msg}); err != nil {
@@ -815,7 +849,7 @@ func (s *Server) runTriggeredRun(item triggeredRun) {
 	s.chatMu.Lock()
 	s.chatBusy[busyKey] = true
 	s.chatMu.Unlock()
-	s.runConversationSync(c, msg, busyKey)
+	s.runConversationSync(c, msg, busyKey, item.taskID)
 }
 
 // firstLine returns a single-line, length-capped preview (shared with summaries).

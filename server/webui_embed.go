@@ -1,5 +1,9 @@
 //go:build embedui
 
+// webui_embed.go：embedui 构建下把内嵌前端产物（webui/dist）作为 SPA 静态服务。
+// 主要函数/类型：
+//   - webuiDist：内嵌的前端静态产物 embed.FS。
+//   - webuiHandler / serveFileIfExists：SPA 路由服务（按路由出 index.html，未知路径回退首页）。
 package server
 
 import (

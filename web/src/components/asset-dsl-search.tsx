@@ -1,3 +1,9 @@
+/**
+ * asset-dsl-search.tsx：资产搜索框，内置 DSL 字段/操作符自动补全，全局资产视图与任务资产搜索共用。
+ * 主要函数/类型：
+ *   - AssetDslSearch：带下拉补全的搜索输入组件
+ *   - getDslSuggestions / applyDslSuggestion：按光标位置给出补全项并应用到文本
+ */
 "use client";
 
 import * as React from "react";

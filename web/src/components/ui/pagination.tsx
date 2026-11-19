@@ -1,3 +1,8 @@
+/**
+ * pagination.tsx：shadcn/ui 的 Pagination 分页组件封装。
+ * 主要组件：Pagination、PaginationContent、PaginationEllipsis、PaginationItem、
+ *   PaginationLink、PaginationNext、PaginationPrevious。
+ */
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

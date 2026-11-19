@@ -1,3 +1,9 @@
+// scheduler.go：agent 触发器的调度循环，按事件与间隔触发 agent 运行。
+// 主要函数/类型：
+//   - Scheduler / newScheduler / Run / init：调度器本体、启动循环与各事件水位线的初始化。
+//   - step：每轮扫描启用触发器并分派六类触发。
+//   - fireIntervals / fireFindings / fireGoals / fireTaskTimeouts / fireTaskCreates / fireToolCalls：按间隔、新发现、目标达成、任务超时、任务创建、工具调用触发 agent。
+//   - firedGoalSet / saveFiredGoalSet / mustState：已触发目标集合与调度状态的持久化读写。
 package server
 
 import (
@@ -9,7 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/agent"
+	"artex/db"
+	"artex/xlog" // 【P-LOG·M1】step 吞错修复
 )
 
 // Scheduler drives P3 triggers: on each tick it fires due interval triggers and
@@ -20,9 +28,10 @@ import (
 // + finding watermark + fired-goal set) so a restart resumes without double-firing.
 // Triggers only attach to CUSTOM agents.
 type Scheduler struct {
-	s    *Server
-	pg   *db.DB
-	tick time.Duration
+	s                          *Server
+	pg                         *db.DB
+	tick                       time.Duration
+	lastFindingInvocationSweep time.Time
 }
 
 const (
@@ -31,6 +40,9 @@ const (
 	schedKeyLastTimeout    = "last_timeout_id"    // watermark: max task id fired for task timeout
 	schedKeyLastToolCall   = "last_toolcall_id"   // watermark: max activity id fired for tool call
 	schedKeyLastTaskCreate = "last_taskcreate_id" // watermark: max task id fired for task create
+
+	findingInvocationRetryAfter = 10 * time.Minute
+	findingInvocationSweepLimit = 50
 )
 
 func newScheduler(s *Server) *Scheduler {
@@ -115,8 +127,12 @@ func (sc *Scheduler) init() {
 }
 
 func (sc *Scheduler) step() {
+	sc.retryFindingInvocations(time.Now())
 	triggers, err := sc.pg.ListEnabledTriggers()
 	if err != nil {
+		// 【P-LOG·M1】此前直接 return → 触发器整体失效时完全无痕。去重限流防刷屏。
+		xlog.Oncef("scheduler-step", 5*time.Minute, xlog.LevelError,
+			"[trigger] scheduler step: ListEnabledTriggers: %v", err)
 		return
 	}
 	if len(triggers) == 0 {
@@ -128,6 +144,38 @@ func (sc *Scheduler) step() {
 	sc.fireTaskTimeouts(triggers)
 	sc.fireToolCalls(triggers)
 	sc.fireTaskCreates(triggers)
+}
+
+// retryFindingInvocations re-enqueues only durable dispatches whose downstream
+// conversation has not been created. It does not track downstream completion.
+func (sc *Scheduler) retryFindingInvocations(now time.Time) {
+	if !sc.lastFindingInvocationSweep.IsZero() && now.Sub(sc.lastFindingInvocationSweep) < findingInvocationRetryAfter {
+		return
+	}
+	sc.lastFindingInvocationSweep = now
+	pending, err := sc.pg.PendingFindingInvocations(findingInvocationRetryAfter, findingInvocationSweepLimit)
+	if err != nil {
+		log.Printf("[finding-dispatch] list pending retries failed: %v", err)
+		return
+	}
+	for _, inv := range pending {
+		claimed, err := sc.pg.ClaimFindingInvocationRetry(inv.AgentKey, inv.FindingID, findingInvocationRetryAfter)
+		if err != nil {
+			log.Printf("[finding-dispatch] claim retry failed: agent=%s finding=%d err=%v", inv.AgentKey, inv.FindingID, err)
+			continue
+		}
+		if !claimed {
+			continue
+		}
+		accepted, err := sc.s.enqueueFindingInvocation(inv)
+		if err != nil {
+			log.Printf("[finding-dispatch] retry failed: agent=%s finding=%d err=%v", inv.AgentKey, inv.FindingID, err)
+			continue
+		}
+		if !accepted {
+			log.Printf("[finding-dispatch] retry queue unavailable: agent=%s finding=%d", inv.AgentKey, inv.FindingID)
+		}
+	}
 }
 
 // fireIntervals fires triggers whose interval has elapsed since last_fire.
@@ -145,6 +193,16 @@ func (sc *Scheduler) fireIntervals(triggers []*db.AgentTrigger) {
 		ctx := "\n\n【本次为定时触发】" + now.Format(" 2006-01-02 15:04:05 MST")
 		sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("定时触发 · %s", now.Format("15:04")), tr.IntervalMessage+ctx, 0, false, "", "")
 	}
+}
+
+func findingTriggerContext(e db.TaskEvent) string {
+	mode := agent.ExecutionModeFromGoal(e.TaskGoal + "\n" + e.TaskDesc)
+	ctx := fmt.Sprintf("\n\n【本次由任务发现 finding 触发】\n执行模式: %s\n发现: [%s/%s] %s",
+		mode, e.VulnClass, e.Severity, e.Summary)
+	if e.FindingID > 0 {
+		ctx += fmt.Sprintf("\nfinding_id: %d", e.FindingID)
+	}
+	return ctx
 }
 
 // fireFindings fires on_finding triggers for findings above the persisted
@@ -172,9 +230,10 @@ func (sc *Scheduler) fireFindings(triggers []*db.AgentTrigger) {
 		if len(want) == 0 {
 			continue
 		}
-		msgCtx := fmt.Sprintf("\n\n【本次由任务发现 finding 触发】\n发现: [%s/%s] %s",
-			e.VulnClass, e.Severity, e.Summary)
+		msgCtx := findingTriggerContext(e)
 		for _, tr := range want {
+			// 【二开·P-LOG·O2】INFO 记命中（排障：finding 触发了哪个 agent）。
+			log.Printf("[scheduler] finding 触发命中：agent %s ← task#%d node#%d [%s/%s]", tr.AgentKey, e.TaskID, e.NodeID, e.VulnClass, e.Severity)
 			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("finding 触发 · task#%d", e.TaskID), tr.FindingMessage+msgCtx, e.TaskID, true, e.TaskDesc, e.TaskGoal)
 		}
 	}

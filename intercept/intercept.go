@@ -1,3 +1,13 @@
+// intercept.go：工具调用拦截器，从数据库加载规则并按优先级匹配 allow/deny/ask 裁决。
+// 主要函数/类型：
+//   - Interceptor / New：拦截器及其构造，缓存编译后的规则。
+//   - Match：按优先级对工具调用匹配规则，返回首个命中的裁决。
+//   - Judge：规则未命中时调用 LLM 裁判，并处理超时与失败策略。
+//   - HandleAsk / Decide：创建待审批记录等待用户裁决，以及用户对审批的放行/拒绝落账。
+//   - IsToolEnabled / GetEnabledTools / SetEnabledTools：工具启用名单的查询与更新。
+//   - GetJudgeConfig / SetJudgeConfig：LLM 裁判配置的读写。
+//   - WithConvID / ConvIDFromContext：在上下文中传递会话 ID 以关联待审批记录。
+
 // Package intercept implements the user-configurable tool-call interception layer.
 // Rules are loaded from the database, cached in memory, and evaluated in priority
 // order (highest first) on every PreToolUse event. Three actions are supported:
@@ -16,13 +26,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log" // 【二开·P-LOG·D9】ask 来源标注 INFO
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
+	"artex/xlog" // 【P-LOG·M1】静默修复点日志
 )
 
 // ctxKey is the unexported context key type to avoid collisions.
@@ -50,6 +62,37 @@ const (
 	taskInfoCtxKey taskCtxKey = 1
 	taskEmitCtxKey taskCtxKey = 2
 )
+
+// reviewGateRulePrefix 是 seedReviewIntercept 种下的三条 K15 审核写工具 ask 规则的名称前缀
+// （server/review.go）。来源校验（§2.8）与日志识别共用。
+const reviewGateRulePrefix = "[内置] 审核写动作确认："
+
+// ReviewWriteTools 是 K15 审核写工具名单：这五件工具的 ask 闸门只对 review 会话生效。
+// server/review.go 种子规则与 guard 来源校验过滤共用此名单（§2.8：planner 送审等
+// 非 review 来源调同名工具不得弹人工确认卡）。
+// 【二开·审核流 PR4】加入 update_intent/cancel_intent：review 对话可修订/取消意图，但需人点确认。
+var ReviewWriteTools = []string{"set_intent_status", "add_review_intent", "send_planner_hint", "update_intent", "cancel_intent"}
+
+// IsReviewWriteTool 报告工具名是否在 K15 审核写名单内。
+func IsReviewWriteTool(name string) bool {
+	for _, n := range ReviewWriteTools {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// SkipReviewGateFor 来源校验（§2.8）：工具在审核写名单内、但调用方不是 review 会话
+// （agentName 经 WithTaskContext 绑定；review 会话固定绑 "review"）→ 整个绕过拦截评估，
+// 不进规则匹配也不进 LLM 兜底判官——与种子规则加入启用集之前的旧行为一致。
+func SkipReviewGateFor(ctx context.Context, toolName string) bool {
+	if !IsReviewWriteTool(toolName) {
+		return false
+	}
+	_, agentName := taskInfoFromCtx(ctx)
+	return agentName != "review"
+}
 
 type taskCtxInfo struct{ taskID, agentName string }
 
@@ -512,6 +555,15 @@ func (i *Interceptor) Match(toolName string, input []byte) (Decision, bool) {
 	}
 	for _, r := range rules {
 		if ruleMatches(r, toolName, input) {
+			// 【二开·P-LOG·D9】INFO 记 ask 来源（排障：这条拦截弹窗是谁触发的）。
+			// 规则名前缀 [内置] 审核写动作确认：= seedReviewIntercept 种的 K15 闸门（server/review.go）。
+			if r.Action == "ask" {
+				if strings.HasPrefix(r.Name, reviewGateRulePrefix) {
+					log.Printf("[intercept] intercept ask：review 写工具闸门（K15）规则 %q 命中工具 %s", r.Name, toolName)
+				} else {
+					log.Printf("[intercept] intercept ask：规则 %q 命中工具 %s", r.Name, toolName)
+				}
+			}
 			msg := r.Message
 			if msg == "" {
 				msg = defaultMessage(r.Action, r.Name)
@@ -568,9 +620,13 @@ func (i *Interceptor) Log(ctx context.Context, convID int64, dec Decision, toolN
 	taskID, agentName := taskInfoFromCtx(ctx)
 	audit := auditFor(ctx, dec, input, status)
 	id, err := i.db.CreateDecidedIntercept(dec.RuleID, convID, taskID, agentName, toolName, input, status, dec.Message, audit)
-	if err == nil {
-		i.bindResult(ctx, id, audit)
+	if err != nil {
+		// 【P-LOG·M1】审计落库失败此前静默 → 丢审计且伪装成无拦截；行为不变（不影
+		// 响工具调用结果），但必须留痕。
+		xlog.Warnf("[review] intercept audit persist failed task=%s tool=%s status=%s: %v", taskID, toolName, status, err)
+		return
 	}
+	i.bindResult(ctx, id, audit)
 }
 
 // HandleAsk creates a pending approval record and blocks until the user decides
@@ -589,6 +645,9 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 	audit := auditFor(ctx, dec, input, "pending")
 	pendingID, err := i.db.CreateInterceptPending(ruleID, convID, taskID, agentName, toolName, input, dec.Message, audit)
 	if err != nil {
+		// 【P-LOG·M1】此前静默 return false → DB 故障被伪装成「用户拒绝」，模型收到
+		// 审批未通过，排查方向完全错误。
+		xlog.Errorf("[review] create pending FAILED (treated as reject) task=%s agent=%s tool=%s: %v", taskID, agentName, toolName, err)
 		return false
 	}
 

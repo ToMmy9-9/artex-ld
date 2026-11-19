@@ -1,3 +1,9 @@
+// notification_delivery.go：通知投递（notification_deliveries）状态机的领取、重排与终态更新。
+// 主要函数/类型：
+//   - NotificationDelivery / NotificationDeliveryFilter：投递任务（联查事件快照+渠道配置）与历史筛选结构。
+//   - ClaimRealtimeDeliveries / ClaimDigestBatch / DigestBatchDue：租约式领取实时投递与汇总批次。
+//   - MarkDeliveriesSent / RescheduleDeliveries / FailDeliveries / DeferDeliveries：送达、重试退避、最终失败与跳过更新。
+//   - RetryNotificationDelivery：投递历史里的人工重发（失败/跳过可重置为待发）。
 package db
 
 import (

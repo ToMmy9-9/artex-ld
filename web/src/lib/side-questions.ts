@@ -1,3 +1,10 @@
+/**
+ * side-questions.ts：侧问（/btw 旁路提问）数据模型与 API 封装。
+ * 主要函数/类型：
+ *   - SideModel / SideExchange / SideHistory：侧问消息与历史分页结构
+ *   - sideAPI：history/ask/clear/cancel 接口封装（history 会做数据归一化）
+ *   - isBtwCommand：识别 /btw 命令前缀
+ */
 import { http } from "@/lib/api";
 
 export interface SideModel {

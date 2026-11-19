@@ -1,3 +1,9 @@
+// task_categories.go：任务分类的增删改查与批量改分类 HTTP 端点。
+// 主要函数/类型：
+//   - taskCategoryRequest / decodeTaskCategoryRequest：分类请求体（名称+预设包字段）的解码与校验。
+//   - pgListTaskCategories / pgCreateTaskCategory / pgRenameTaskCategory / pgDeleteTaskCategory：分类的查/建/改名/删。
+//   - updateTaskCategory：PATCH 更新单个任务的分类归属。
+//   - updateTasksCategoryBatch：批量调整多个任务的分类。
 package server
 
 import (
@@ -9,13 +15,22 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 const maxTaskCategoryRequestBytes = 16 << 10
 
 type taskCategoryRequest struct {
 	Name *string `json:"name"`
+	// 【二开·P-REVIEW·D12】分类预设包（m04039）：三预设字段，nil=不动
+	DefaultReviewEnabled     *bool   `json:"default_review_enabled"`
+	DefaultPlannerTemplateID *int64  `json:"default_planner_template_id"`
+	DefaultWorkerTemplateID  *int64  `json:"default_worker_template_id"`
+	AssetMode                *string `json:"asset_mode"`
+	DefaultDescription       *string `json:"default_description"`
+	// 【二开·P-SCENARIO·MERGE】种子意图预设（m03167 场景并入分类）
+	SeedFirstIntent *bool   `json:"seed_first_intent"`
+	SeedExecutor    *string `json:"seed_executor"`
 }
 
 func decodeTaskCategoryRequest(w http.ResponseWriter, r *http.Request) (*taskCategoryRequest, bool) {
@@ -30,13 +45,40 @@ func decodeTaskCategoryRequest(w http.ResponseWriter, r *http.Request) (*taskCat
 		}
 		return nil, false
 	}
-	if request.Name == nil || strings.TrimSpace(*request.Name) == "" {
-		writeErr(w, http.StatusBadRequest, "分类名称不能为空")
+	hasPreset := request.DefaultReviewEnabled != nil || request.DefaultPlannerTemplateID != nil || request.DefaultWorkerTemplateID != nil || request.AssetMode != nil || request.DefaultDescription != nil || request.SeedFirstIntent != nil || request.SeedExecutor != nil
+	if request.Name == nil && !hasPreset {
+		writeErr(w, http.StatusBadRequest, "至少需要提供 name 或预设字段")
 		return nil, false
 	}
-	if utf8.RuneCountInString(strings.TrimSpace(*request.Name)) > db.MaxTaskCategoryNameRunes {
-		writeErr(w, http.StatusBadRequest, "分类名称最多 80 个字符")
+	if request.Name != nil {
+		if strings.TrimSpace(*request.Name) == "" {
+			writeErr(w, http.StatusBadRequest, "分类名称不能为空")
+			return nil, false
+		}
+		if utf8.RuneCountInString(strings.TrimSpace(*request.Name)) > db.MaxTaskCategoryNameRunes {
+			writeErr(w, http.StatusBadRequest, "分类名称最多 80 个字符")
+			return nil, false
+		}
+	}
+	if request.AssetMode != nil {
+		normalized := strings.ToLower(strings.TrimSpace(*request.AssetMode))
+		if len(normalized) > 64 {
+			writeErr(w, http.StatusBadRequest, "asset_mode 最多 64 字符")
+			return nil, false
+		}
+		request.AssetMode = &normalized
+	}
+	if request.DefaultDescription != nil && utf8.RuneCountInString(*request.DefaultDescription) > 500 {
+		writeErr(w, http.StatusBadRequest, "默认描述最多 500 个字符")
 		return nil, false
+	}
+	if request.SeedExecutor != nil {
+		trimmed := strings.TrimSpace(*request.SeedExecutor)
+		if len(trimmed) > 64 {
+			writeErr(w, http.StatusBadRequest, "种子执行器最多 64 字符")
+			return nil, false
+		}
+		request.SeedExecutor = &trimmed
 	}
 	return &request, true
 }
@@ -94,9 +136,30 @@ func (s *Server) pgRenameTaskCategory(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	category, err := s.m.RenameTaskCategory(id, *request.Name)
-	if err != nil {
-		writeTaskCategoryError(w, err)
+	// 【二开·P-REVIEW·D12】name 与预设包可同时/单独更新（m04039）
+	if request.Name != nil {
+		if _, err := s.m.RenameTaskCategory(id, *request.Name); err != nil {
+			writeTaskCategoryError(w, err)
+			return
+		}
+	}
+	if request.DefaultReviewEnabled != nil || request.DefaultPlannerTemplateID != nil || request.DefaultWorkerTemplateID != nil || request.AssetMode != nil || request.DefaultDescription != nil || request.SeedFirstIntent != nil || request.SeedExecutor != nil {
+		// 【二开·P-SCENARIO·MERGE】种子执行器引用校验：非空须为已启用、非内置、已声明 executor_key 的自定义 agent
+		if request.SeedExecutor != nil && *request.SeedExecutor != "" {
+			ea, eaErr := s.m.PG().GetAgentByExecutorKey(*request.SeedExecutor)
+			if eaErr != nil || ea == nil || !ea.Enabled || ea.Builtin {
+				writeErr(w, http.StatusBadRequest, fmt.Sprintf("种子执行器 %q 不可用（须为已启用自定义 agent 的 executor_key）", *request.SeedExecutor))
+				return
+			}
+		}
+		if _, err := s.m.PG().UpdateTaskCategoryPresets(id, request.DefaultReviewEnabled, request.DefaultPlannerTemplateID, request.DefaultWorkerTemplateID, request.AssetMode, request.DefaultDescription, request.SeedFirstIntent, request.SeedExecutor); err != nil {
+			writeTaskCategoryError(w, err)
+			return
+		}
+	}
+	category, err := s.m.PG().GetTaskCategory(id)
+	if err != nil || category == nil {
+		writeTaskCategoryError(w, db.ErrTaskCategoryNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, category)

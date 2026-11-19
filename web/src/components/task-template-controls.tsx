@@ -1,3 +1,10 @@
+/**
+ * task-template-controls.tsx：任务模板库管理（Sheet 面板）与任务创建表单的模板选择控件，支持「另存为模板」。
+ * 主要函数/类型：
+ *   - TaskTemplateControls：模板选择控件（Combobox 选择 + 就地管理面板）
+ *   - TaskTemplateManager：内部模板管理 Sheet（新建/编辑/删除）
+ *   - TemplateDraft / TemplateSeed：模板表单草稿与「另存为」种子类型
+ */
 "use client";
 
 import * as React from "react";

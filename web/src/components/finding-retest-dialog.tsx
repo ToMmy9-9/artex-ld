@@ -1,3 +1,8 @@
+/**
+ * finding-retest-dialog.tsx：启动漏洞复测的对话框，填写说明并提交，带提交锁。
+ * 主要函数/类型：
+ *   - FindingRetestDialog：复测启动对话框组件
+ */
 "use client";
 
 import * as React from "react";

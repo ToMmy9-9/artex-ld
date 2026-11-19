@@ -1,3 +1,7 @@
+/**
+ * native-select.tsx：shadcn/ui 的 NativeSelect 原生下拉选择组件封装。
+ * 主要组件：NativeSelect、NativeSelectOptGroup、NativeSelectOption。
+ */
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

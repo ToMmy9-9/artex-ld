@@ -24,8 +24,6 @@ web/next-env.d.ts
 *.swp
 *.swo
 
-# docs
-/docs/
 
 # os
 .DS_Store
@@ -48,6 +46,12 @@ Thumbs.db
 # JWT 签名密钥（运行时生成，存项目根，绝不提交）
 /jwt.key
 
+# 本地预编译二进制（release 产物走 dist/ 与 GitHub Release，不入库）
+/artex-linux-amd64
+
+# Obsidian 编辑器工作区状态（含本机绝对路径，不入库）
+/.obsidian/
+
 # Docker 部署生成的本地环境（含密码/密钥，不提交）
 .env
 
@@ -58,3 +62,18 @@ Thumbs.db
 /bench/
 /Dockerfile.bench
 /Dockerfile.bench.v2
+
+# 构建/评审产物与恢复暂存
+/_release/
+/.validation-logs/
+/.recovered/
+/.next/
+
+# 开发过程文档（本地保留，不同步）
+/dev/
+
+# 运行时备份（含密钥/业务数据，本地保留，不提交）
+/backup/
+
+# 配置导出快照（export-config 产物，含密钥明文；配置种子已在源码内置，无需入库）
+/config-export/

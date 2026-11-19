@@ -1,5 +1,8 @@
 // Centralised status → color/label semantics, reused across the whole app.
 // Spec §8.3: 意图 / 覆盖 / 任务 / 严重度 each have a consistent color set.
+// 主要函数/类型：
+//   - Tone / toneClasses / toneDot：语义色枚举与样式映射
+//   - StatusDomain / statusMeta：按域（intent/coverage/task/severity 等）查询状态元信息
 
 export type Tone = "neutral" | "blue" | "green" | "amber" | "red" | "rose" | "violet" | "slate";
 

@@ -1,3 +1,8 @@
+/**
+ * retests-tab.tsx：复测面板，分页列出任务的发现复测记录并可展开复测详情。
+ * 主要函数/类型：
+ *   - RetestsTab：复测列表主组件（分页、选中详情面板）。
+ */
 "use client";
 
 import * as React from "react";

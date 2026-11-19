@@ -1,3 +1,7 @@
+/**
+ * toggle-group.tsx：shadcn/ui 的 ToggleGroup 切换按钮组组件封装。
+ * 主要组件：ToggleGroup、ToggleGroupItem。
+ */
 "use client"
 
 import * as React from "react"

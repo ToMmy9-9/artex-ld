@@ -1,3 +1,11 @@
+// finding_retests.go：漏洞复测（finding_retests 表）记录的生命周期管理与会话联动。
+// 主要函数/类型：
+//   - FindingRetest：复测记录结构（状态、结论、证据等）。
+//   - CreateFindingRetest：发起复测并创建关联会话。
+//   - ListFindingRetests / FindingRetestForConversation / ListActiveFindingRetests：复测记录查询。
+//   - StartFindingRetest / RecordFindingRetestResult / FinishFindingRetest：推进复测状态并记录结果。
+//   - RecoverFindingRetests：服务重启后恢复中断的复测。
+
 package db
 
 import (

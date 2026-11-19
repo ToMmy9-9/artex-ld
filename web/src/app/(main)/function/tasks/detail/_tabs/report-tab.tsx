@@ -1,3 +1,8 @@
+/**
+ * report-tab.tsx：任务报告面板，拉取并渲染任务报告 Markdown，支持一键复制。
+ * 主要函数/类型：
+ *   - ReportTab：加载报告、渲染 Markdown 与复制按钮的主组件。
+ */
 "use client";
 
 import * as React from "react";

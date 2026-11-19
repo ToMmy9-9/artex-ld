@@ -1,3 +1,8 @@
+/**
+ * field.tsx：shadcn/ui 的 Field 表单字段组件封装。
+ * 主要组件：Field、FieldLabel、FieldDescription、FieldError、FieldGroup、FieldLegend、
+ *   FieldSeparator、FieldSet、FieldContent、FieldTitle。
+ */
 "use client"
 
 import { useMemo } from "react"

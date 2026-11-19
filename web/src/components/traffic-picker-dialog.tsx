@@ -1,3 +1,8 @@
+/**
+ * traffic-picker-dialog.tsx：从已捕获流量中搜索并多选绑定到漏洞的对话框，含预览。
+ * 主要函数/类型：
+ *   - TrafficPickerDialog：流量选择对话框组件（host/method/关键字筛选、分页、预览）
+ */
 "use client";
 
 import * as React from "react";

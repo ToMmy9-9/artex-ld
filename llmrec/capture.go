@@ -1,3 +1,10 @@
+// capture.go：单次逻辑 LLM 调用的线上原文捕获，收集请求体与每次 HTTP 尝试的响应。
+// 主要函数/类型：
+//   - Capture / NewCapture / CaptureFrom：捕获对象、上下文挂载与取出（未开启时为 nil）。
+//   - SetRequest / TeeResponse：保存请求体（仅首次）并镜像响应流到新尝试。
+//   - RawRequest / RawResponse / Attempts：导出原始请求、拼接的原始响应与尝试列表。
+//   - Attempt：一次 HTTP 尝试的状态码与响应体。
+
 package llmrec
 
 import (

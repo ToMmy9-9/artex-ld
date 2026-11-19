@@ -1,3 +1,12 @@
+// health.go：LLM 配置的熔断器注册表，按连续失败次数与回退阶梯冷却不可用配置。
+// 主要函数/类型：
+//   - State / Registry：单个配置的熔断状态与进程级注册表（可选 DB 持久化回调）。
+//   - NewRegistry / Restore：构造注册表并从持久化状态恢复。
+//   - Get / IsOpen：查询配置的当前熔断状态。
+//   - Trip / Pass / Reset：失败跳闸（区分瞬时与确定性故障）、成功复位、手动重置。
+//   - SetPolicy：覆盖软跳闸阈值与固定冷却窗口。
+//   - Snapshot：导出全部配置状态的副本。
+
 // Package llmpool implements LLM failover ("轮询"): a Provider decorator that
 // walks an ordered chain of LLM profiles and moves to the next one when the
 // current one can't serve the request — out of credit, revoked key, rate-limited

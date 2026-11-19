@@ -1,3 +1,10 @@
+/**
+ * page.tsx：技能管理页——技能目录树浏览、查看/新建/上传/删除技能文件，及技能调用与 MCP 概览。
+ * 主要函数/类型：
+ *   - SkillsPage（默认导出）：页面主体，含目录树、编辑器与概览标签页
+ *   - SkillsOverview：技能调用统计与 MCP 服务器/缺失技能概览
+ *   - buildTree / sortNodes / fmtTime：技能目录树构建排序与时间格式化
+ */
 "use client";
 
 import * as React from "react";
@@ -68,7 +75,7 @@ function buildTree(entries: string[]): TreeNode[] {
   const root: TreeNode[] = [];
   const dirMap = new Map<string, TreeNode>();
 
-  function ensureDir(dirPath: string, parentNodes: TreeNode[]): TreeNode[] {
+  function ensureDir(dirPath: string): TreeNode[] {
     if (dirMap.has(dirPath)) return dirMap.get(dirPath)!.children;
     const parts = dirPath.split("/");
     let nodes = root;
@@ -88,7 +95,7 @@ function buildTree(entries: string[]): TreeNode[] {
   for (const entry of [...entries].sort()) {
     if (entry.endsWith("/")) {
       // Explicit directory entry — ensure the node exists (may already be created)
-      ensureDir(entry.slice(0, -1), root);
+      ensureDir(entry.slice(0, -1));
     } else {
       // File — ensure parent dirs exist, then push file node
       const parts = entry.split("/");

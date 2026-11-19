@@ -1,3 +1,11 @@
+// pool.go：LLM Provider 故障转移池，沿有序配置链在当前成员不可用时切换到下一个。
+// 主要函数/类型：
+//   - Pool / New：故障转移池及其构造，空链返回 nil。
+//   - Member / RankActive：链成员（含排序键）与链头专用的最高秩。
+//   - Stream / Complete：带故障转移的流式与非流式补全，仅在发出首个事件前可切换成员。
+//   - Head / Members：取链头与整条链（只读）。
+//   - ErrExhausted：链上全部配置均失败时返回的错误。
+
 package llmpool
 
 import (
@@ -11,7 +19,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/Autumn-27/norma/llm"
+	"norma/llm"
 )
 
 // Member is one LLM profile in the chain, already built into a provider (wrapped
@@ -79,6 +87,14 @@ func (p *Pool) Head() *Member { return p.members[0] }
 // harness's resume logic. Fortunately the failures this exists for (402 no
 // credit, 401 bad key, 429, 5xx) all surface during request establishment,
 // before the body is read, so they always land in the safe window.
+// tripAndLog 健康熔断并在首跳时记日志（Stream/Complete 同款的熔断日志块收敛于此）。
+func (p *Pool) tripAndLog(m *Member, failed error) {
+	hard := isHardFailure(failed)
+	if p.health.Trip(m.ID, trimErr(failed), hard) {
+		log.Printf("[llmpool] 配置 %q(%s) 已熔断：%s", m.Name, m.Model, trimErr(failed))
+	}
+}
+
 func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[llm.StreamEvent, error] {
 	order := p.order(req)
 	return func(yield func(llm.StreamEvent, error) bool) {
@@ -104,10 +120,7 @@ func (p *Pool) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[
 				return
 			}
 			lastErr = failed
-			hard := isHardFailure(failed)
-			if p.health.Trip(m.ID, trimErr(failed), hard) {
-				log.Printf("[llmpool] 配置 %q(%s) 已熔断：%s", m.Name, m.Model, trimErr(failed))
-			}
+			p.tripAndLog(m, failed)
 			if i+1 < len(order) {
 				n := order[i+1]
 				log.Printf("[llmpool] LLM 故障转移：%q(%s) → %q(%s)，原因：%s",
@@ -143,10 +156,7 @@ func (p *Pool) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Mes
 			return llm.Message{}, "", llm.Usage{}, err
 		}
 		lastErr = err
-		hard := isHardFailure(err)
-		if p.health.Trip(m.ID, trimErr(err), hard) {
-			log.Printf("[llmpool] 配置 %q(%s) 已熔断：%s", m.Name, m.Model, trimErr(err))
-		}
+		p.tripAndLog(m, err)
 		if i+1 < len(order) {
 			n := order[i+1]
 			log.Printf("[llmpool] LLM 故障转移：%q(%s) → %q(%s)，原因：%s",

@@ -1,16 +1,22 @@
+// mainagent.go：主 agent——人类操作员接口，负责观察态势、操舵（提示/意图/目标/约束）与回复。
+// 主要函数/类型：
+//   - MainAgent / NewMainAgent：主 agent 状态与构造。
+//   - Chat：处理一条人类消息并返回回复，执行步骤以活动流发射。
+//   - mainAgentSystem / mainAgentDefaultTmpl：主 agent 系统提示词模板（观察/操舵/用人话回复）。
+//   - SetSteerWork / SetNoaEnabled / SetNonStreaming / SetMaxTokens：注入各类运行时回调开关。
 package agent
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/norma/agentcore"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/db"
+	"artex/intercept"
+	"norma/agentcore"
+	"norma/llm"
+	"norma/permission"
+	actool "norma/tool"
+	"norma/transcript"
 )
 
 // MainAgent is the thin human-interface orchestrator (docs §4.2 / §7). The human
@@ -155,6 +161,7 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 		WebSearchProxy:        m.webSearch.Proxy,
 		BashEnv:               proxyEnv(m.proxyAddr, m.proxyCACert), // Bash 子命令默认走代理+信任 CA
 		WorkingDir:            mainDir,                              // 本任务工作目录 <workDir>/tasks/<taskID>
+		Root:                  m.workDir,                            // 文件工具硬边界（同 worker）
 		ToolOutputDir:         cmdOutDir(mainDir),
 		MaxTurns:              m.maxTurns,                             // 0 = unlimited (configurable in agent management)
 		Compaction:            compactionConfig(m.compactionWindow()), // long chats stay within the window

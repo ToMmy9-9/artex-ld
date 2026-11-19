@@ -1,3 +1,10 @@
+// notification.go：通知渠道（notification_channels）与事件（notification_events）的持久化与扇出。
+// 主要函数/类型：
+//   - NotificationChannel / NotificationEvent：渠道配置与事件事实（含快照）结构。
+//   - ListNotificationChannels / NotificationChannelByID / SaveNotificationChannel / DeleteNotificationChannel：渠道查存删。
+//   - RecordNotificationEventTx / AddNotificationEvent：在事务中记录事件快照（幂等去重）。
+//   - FanOutPendingEvents：把未投递事件按启用渠道扇出为投递任务。
+//   - NotificationAssetNames / assetDisplayName：批量取资产显示名，避免无名字段混进推送文案。
 package db
 
 import (
@@ -10,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/notify"
+	"artex/notify"
 )
 
 // 本文件是 IM 推送的渠道配置与事件层。投递任务的领取与状态流转见

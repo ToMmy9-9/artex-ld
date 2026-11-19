@@ -1,3 +1,11 @@
+// tasks.go：任务注册表（tasks 表）的 CRUD 与队列状态管理。
+// 主要函数/类型：
+//   - Task / TaskCreateOptions / TaskPatch：任务行与创建选项、补丁输入。
+//   - CreateTask / CreateTaskWithOptions：创建任务并写入公司、来源、LLM 配置。
+//   - ListTasks / GetTask / UpdateTask：任务列表、单查与更新。
+//   - SetPaused / Enqueue / Dequeue / SetQueued：暂停与队列状态切换。
+//   - ChildTasksByParentRef：按父引用查询子任务。
+
 package db
 
 import (
@@ -15,6 +23,7 @@ type Task struct {
 	Name          string     `json:"name"` // 可选任务名称;空=未命名
 	CategoryID    *int64     `json:"category_id,omitempty"`
 	CategoryName  string     `json:"category_name,omitempty"`
+	CategoryNKey  string     `json:"category_nkey,omitempty"`
 	Pinned        bool       `json:"pinned"`
 	PinnedAt      *time.Time `json:"pinned_at,omitempty"`
 	Description   string     `json:"description"`
@@ -50,6 +59,22 @@ type Task struct {
 	// list_untested_assets、态势里不注入 coverage 块(scope 字段仍保留)。company 关联
 	// (task_scope kind=company)与此开关无关，永不受影响。见 db/task_scope.go。
 	CoverageEnabled bool `json:"coverage_enabled"`
+	// 【二开·P-TPL·D2】起 —— tasks 两新列（planner 提示词快照 + 任务级 worker 池大小）
+	// PlannerPromptOverride 是 planner 提示词的任务级快照（建任务时由模板/手填灌入，之后与模板库脱钩；空=走全局/默认链）。
+	PlannerPromptOverride string `json:"planner_prompt_override,omitempty"`
+	// WorkerPromptOverride 是 Worker 提示词任务级快照；空值走全局 Agent/默认模板链。
+	WorkerPromptOverride string `json:"worker_prompt_override,omitempty"`
+	// WorkerCount 任务级 worker 池大小：0=跟随全局并发，1~16=本任务专属 worker 数。
+	WorkerCount int `json:"worker_count"`
+	// ReviewAuto 任务级自动审核开关（01 册 S5 自动处置分支）：true=预审轮自动放行/驳回/留人；false=人工面板处置。
+	ReviewAuto bool `json:"review_auto"`
+	// ReviewEnabled 任务级意图审核总开关（m03934/D2c）：false(默认)=runner 跳过/面板 tab 隐藏/审核端点 409。
+	ReviewEnabled bool `json:"review_enabled"`
+	// AssetMode 资产图模式标签（m04039/D12 占位）：pentest/vuln_research/code_audit；建任务从分类快照，展示层后做。
+	AssetMode string `json:"asset_mode"`
+	// 【二开·P-TPL·D2】止
+	// 【二开·P-INTENT·D7】PreAgent 不列表（不落 tasks 表）：仅经 TaskCreateOptions 建任务时透传给 seedFirstIntent（S10）写意图 payload。
+	PreAgent string `json:"pre_agent,omitempty"`
 }
 
 // TaskDeleteResult reports optional related-data cleanup performed in the same
@@ -156,6 +181,30 @@ type TaskCreateOptions struct {
 	CoverageEnabled *bool
 	// InterceptRules 是任务级资产拦截规则,创建时随任务在同一事务内写入 task_intercept_rules。
 	InterceptRules []TaskInterceptRuleInput
+	// 【二开·P-INTENT·D7】起 —— TaskCreateOptions 五新字段（00 册 D7；pre_agent 种子 executor + planner 快照/模板 + worker 池）
+	// PreAgent 种子意图 executor_key（01 册 S10：种子落 open 时写 payload.executor；空=默认 worker）。
+	PreAgent string
+	// PlannerPrompt 提示词全文快照（与 PlannerTemplateID 同传时本字段优先，K22）。
+	PlannerPrompt string
+	// PlannerTemplateID 仅选模板 id：建任务时取正文试渲染后【快照】进 PlannerPromptOverride（03 册 S13）。
+	PlannerTemplateID int64
+	// WorkerPrompt 是 Worker 提示词全文快照，优先于 WorkerTemplateID。
+	WorkerPrompt string
+	// WorkerTemplateID 仅选模板 id；服务端渲染后快照进 WorkerPrompt。
+	WorkerTemplateID int64
+	// WorkerCount 0=跟随全局；1~16=任务级 worker 池。
+	WorkerCount int
+	// ReviewEnabled 任务级意图审核总开关（m03934/D2c）；false=默认关。
+	ReviewEnabled bool
+	// AssetMode 资产图模式标签（m04039/D12）；空=建任务时从分类带出再兜底 pentest。
+	AssetMode string
+	// DispatchAssetKeys 是内网子任务实际目标的规范化主机键，不是继承资产。
+	// 与任务创建在同一事务写入，唯一键阻止跨父任务/并发的同资产重复派发。
+	DispatchAssetKeys []string
+	DispatchFindingID int64
+	// CopyFindingChain 仅复制 DispatchFindingID 的血缘祖先，不建立来源任务关系。
+	CopyFindingChain bool
+	// 【二开·P-INTENT·D7】止
 }
 
 // CreateTaskWithOptions creates an exploration, task, direct source relations,
@@ -198,12 +247,12 @@ VALUES ($1, 'fact', $2, 0, 'origin', 'system')`, expID, string(originPayload)); 
 	}
 	opts.PlanHeartbeatSeconds = normalizeHeartbeat(opts.PlanHeartbeatSeconds)
 	coverageEnabled := opts.CoverageEnabled == nil || *opts.CoverageEnabled
-	var categoryName string
+	var categoryName, categoryNKey string
 	if opts.CategoryID != nil {
 		if *opts.CategoryID <= 0 {
 			return nil, fmt.Errorf("%w: category id must be positive", ErrTaskCategoryInvalid)
 		}
-		if err := tx.QueryRow(`SELECT name FROM task_categories WHERE id=$1`, *opts.CategoryID).Scan(&categoryName); err != nil {
+		if err := tx.QueryRow(`SELECT name, nkey FROM task_categories WHERE id=$1`, *opts.CategoryID).Scan(&categoryName, &categoryNKey); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, ErrTaskCategoryNotFound
 			}
@@ -216,7 +265,7 @@ VALUES ($1, 'fact', $2, 0, 'origin', 'system')`, expID, string(originPayload)); 
 		active = &id
 	}
 	t := &Task{
-		Name: opts.Name, CategoryID: opts.CategoryID, CategoryName: categoryName,
+		Name: opts.Name, CategoryID: opts.CategoryID, CategoryName: categoryName, CategoryNKey: categoryNKey,
 		Description: description, Goal: goal, ExplorationID: expID,
 		LLMProfileID: active, ActiveLLMProfileID: active,
 		LLMProfileIDs:  append([]int64(nil), opts.LLMProfileIDs...),
@@ -224,12 +273,32 @@ VALUES ($1, 'fact', $2, 0, 'origin', 'system')`, expID, string(originPayload)); 
 		CompanyIDs:     append([]int64(nil), opts.CompanyIDs...),
 		TimeoutSeconds: opts.TimeoutSeconds, PlanHeartbeatSeconds: opts.PlanHeartbeatSeconds,
 		CoverageEnabled: coverageEnabled,
+		// 【二开·P-INTENT·D7】透传：prompt 快照优先于模板 id（K22）；WorkerCount 原样落列
+		PlannerPromptOverride: opts.PlannerPrompt,
+		WorkerPromptOverride:  opts.WorkerPrompt,
+		WorkerCount:           opts.WorkerCount,
+		ReviewEnabled:         opts.ReviewEnabled,
+		AssetMode:             opts.AssetMode,
 	}
 	if err := tx.QueryRow(`
-INSERT INTO tasks(name, category_id, description, goal, exploration_id, llm_profile_id, active_llm_profile_id, timeout_seconds, plan_heartbeat_seconds, coverage_enabled)
-VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9)
-RETURNING id, status, paused, created_at`, opts.Name, opts.CategoryID, description, goal, expID, active, opts.TimeoutSeconds, opts.PlanHeartbeatSeconds, coverageEnabled).Scan(&t.ID, &t.Status, &t.Paused, &t.CreatedAt); err != nil {
+INSERT INTO tasks(name, category_id, description, goal, exploration_id, llm_profile_id, active_llm_profile_id, timeout_seconds, plan_heartbeat_seconds, coverage_enabled, planner_prompt_override, worker_prompt_override, worker_count, review_enabled, asset_mode)
+VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+RETURNING id, status, paused, created_at`, opts.Name, opts.CategoryID, description, goal, expID, active, opts.TimeoutSeconds, opts.PlanHeartbeatSeconds, coverageEnabled, opts.PlannerPrompt, opts.WorkerPrompt, opts.WorkerCount, opts.ReviewEnabled, opts.AssetMode).Scan(&t.ID, &t.Status, &t.Paused, &t.CreatedAt); err != nil {
 		return nil, err
+	}
+	if len(opts.DispatchAssetKeys) > 0 && categoryNKey != "内网渗透" {
+		return nil, fmt.Errorf("dispatch asset targets require the internal-pentest category")
+	}
+	if err := insertTaskDispatchTargets(tx, t.ID, opts.DispatchFindingID, opts.DispatchAssetKeys); err != nil {
+		return nil, err
+	}
+	if opts.CopyFindingChain {
+		if opts.DispatchFindingID <= 0 {
+			return nil, fmt.Errorf("finding_id is required to copy finding chain")
+		}
+		if err := copyFindingChainTx(tx, expID, opts.DispatchFindingID); err != nil {
+			return nil, err
+		}
 	}
 	if err := insertTaskRelations(tx, t.ID, opts.SourceTaskIDs); err != nil {
 		return nil, err
@@ -344,11 +413,12 @@ func insertTaskLLMProfiles(tx *sql.Tx, taskID int64, profileIDs []int64) error {
 
 const taskCols = `id, COALESCE(name,''), category_id,
 COALESCE((SELECT category.name FROM task_categories category WHERE category.id=tasks.category_id),''),
-description, goal, exploration_id, status, paused, queued, queued_at, COALESCE(queue_mode,''), llm_profile_id, active_llm_profile_id, COALESCE(parent_ref,''), pinned_at, created_at, completed_at, COALESCE(timeout_seconds,0), COALESCE(plan_heartbeat_seconds,300), COALESCE(coverage_enabled,true), first_run_at, deadline_at`
+COALESCE((SELECT category.nkey FROM task_categories category WHERE category.id=tasks.category_id),''),
+description, goal, exploration_id, status, paused, queued, queued_at, COALESCE(queue_mode,''), llm_profile_id, active_llm_profile_id, COALESCE(parent_ref,''), pinned_at, created_at, completed_at, COALESCE(timeout_seconds,0), COALESCE(plan_heartbeat_seconds,300), COALESCE(coverage_enabled,true), first_run_at, deadline_at, COALESCE(planner_prompt_override,''), COALESCE(worker_prompt_override,''), COALESCE(worker_count,0), COALESCE(review_auto,false), COALESCE(review_enabled,false), COALESCE(asset_mode,'pentest')` // 【二开·P-TPL·D2】尾部追加两列【二开·P-REVIEW·D2b】再追加 review_auto【二开·P-REVIEW·D2c】再追加 review_enabled【二开·P-REVIEW·D12】再追加 asset_mode
 
 func scanTask(sc interface{ Scan(...any) error }) (*Task, error) {
 	var t Task
-	if err := sc.Scan(&t.ID, &t.Name, &t.CategoryID, &t.CategoryName, &t.Description, &t.Goal, &t.ExplorationID, &t.Status, &t.Paused, &t.Queued, &t.QueuedAt, &t.QueueMode, &t.LLMProfileID, &t.ActiveLLMProfileID, &t.ParentRef, &t.PinnedAt, &t.CreatedAt, &t.CompletedAt, &t.TimeoutSeconds, &t.PlanHeartbeatSeconds, &t.CoverageEnabled, &t.FirstRunAt, &t.DeadlineAt); err != nil {
+	if err := sc.Scan(&t.ID, &t.Name, &t.CategoryID, &t.CategoryName, &t.CategoryNKey, &t.Description, &t.Goal, &t.ExplorationID, &t.Status, &t.Paused, &t.Queued, &t.QueuedAt, &t.QueueMode, &t.LLMProfileID, &t.ActiveLLMProfileID, &t.ParentRef, &t.PinnedAt, &t.CreatedAt, &t.CompletedAt, &t.TimeoutSeconds, &t.PlanHeartbeatSeconds, &t.CoverageEnabled, &t.FirstRunAt, &t.DeadlineAt, &t.PlannerPromptOverride, &t.WorkerPromptOverride, &t.WorkerCount, &t.ReviewAuto, &t.ReviewEnabled, &t.AssetMode); err != nil { // 【二开·P-TPL·D2】尾部追加两个 Scan 目标【二开·P-REVIEW·D2b】再追加 ReviewAuto【二开·P-REVIEW·D2c】再追加 ReviewEnabled【二开·P-REVIEW·D12】再追加 AssetMode
 		return nil, err
 	}
 	t.Pinned = t.PinnedAt != nil
@@ -359,6 +429,34 @@ func scanTask(sc interface{ Scan(...any) error }) (*Task, error) {
 func (d *DB) SetParentRef(id int64, parentRef string) error {
 	_, err := d.Exec(`UPDATE tasks SET parent_ref=NULLIF($2,'') WHERE id=$1`, id, parentRef)
 	return err
+}
+
+// ChildTaskInfo is the lightweight view of a spawned child task (派发去重可见性).
+type ChildTaskInfo struct {
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Goal   string `json:"goal"`
+}
+
+// ChildTasksByParentRef lists tasks spawned from the given parent
+// (spawn_task 记 parent_ref=父 id 字符串)。供 get_task_graph 附带 child_tasks，
+// 让 dispatcher 的同资产去重有数据可查（原来探索图不含子任务，提示词纪律落空）。
+func (d *DB) ChildTasksByParentRef(parentID int64) ([]ChildTaskInfo, error) {
+	rows, err := d.Query(`SELECT id, COALESCE(name,''), status, goal FROM tasks WHERE parent_ref=$1 ORDER BY id`, strconv.FormatInt(parentID, 10))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChildTaskInfo{}
+	for rows.Next() {
+		var c ChildTaskInfo
+		if err := rows.Scan(&c.ID, &c.Name, &c.Status, &c.Goal); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // ListTasks returns alive tasks with pinned tasks first, then newest ids.
@@ -392,6 +490,10 @@ ORDER BY (pinned_at IS NOT NULL) DESC, pinned_at DESC NULLS LAST, id DESC`)
 type TaskPatch struct {
 	Name   *string
 	Pinned *bool
+	// 【二开·P-REVIEW·D2b】ReviewAuto 自动审核开关（审核聊天窗 Switch 经 PATCH /api/tasks/{id} 翻它）。
+	ReviewAuto *bool
+	// 【二开·P-REVIEW·D2c】ReviewEnabled 任务级审核总开关（m03934；建任务抽屉勾选，PATCH 可改）。
+	ReviewEnabled *bool
 }
 
 // UpdateTask applies a partial task name/pin mutation and returns the updated row.
@@ -403,9 +505,11 @@ func (d *DB) UpdateTask(id int64, patch TaskPatch) (*Task, error) {
 		WHEN $4::boolean IS NULL THEN pinned_at
 		WHEN $4::boolean THEN COALESCE(pinned_at, now())
 		ELSE NULL
-	END
+	END,
+	review_auto = CASE WHEN $5::boolean THEN $6 ELSE review_auto END,
+	review_enabled = CASE WHEN $7::boolean THEN $8 ELSE review_enabled END
 WHERE id=$1 AND deleted_at IS NULL
-RETURNING `+taskCols, id, patch.Name != nil, patch.Name, patch.Pinned))
+RETURNING `+taskCols, id, patch.Name != nil, patch.Name, patch.Pinned, patch.ReviewAuto != nil, patch.ReviewAuto, patch.ReviewEnabled != nil, patch.ReviewEnabled))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -652,3 +756,35 @@ DELETE FROM assets a USING deletable d WHERE a.id=d.id`, id, expID)
 	}
 	return result, tx.Commit()
 }
+
+// ═══ ARTEX 二开 · [P-INTENT·D3] ═══
+// 功能介绍：TasksWithProposed——任务列表"有待审意图"徽标数据源（01 册 D3 第七法；
+//           双条件过滤与 exploration.go 的 proposedReviewFilter 一致）。
+// 二开日期：2026-10-21
+
+// TasksWithProposed 返回存在待审意图的任务 id 集合，供任务列表打"待审"标记/未读计数。
+// 【二开·审核流 PR2】过滤片段复用 ProposedPendingFilter（pending 单一闸门，§3.6）。
+func (d *DB) TasksWithProposed() (map[int64]int, error) {
+	rows, err := d.Query(`SELECT t.id, COUNT(n.id) FROM tasks t
+JOIN exploration_nodes n ON n.exploration_id=t.exploration_id
+WHERE t.deleted_at IS NULL
+  AND t.review_enabled
+  AND ` + proposedPendingCols("n") + `
+GROUP BY t.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var cnt int
+		if err := rows.Scan(&id, &cnt); err != nil {
+			return nil, err
+		}
+		out[id] = cnt
+	}
+	return out, rows.Err()
+}
+
+// 【二开·P-INTENT·D3】止

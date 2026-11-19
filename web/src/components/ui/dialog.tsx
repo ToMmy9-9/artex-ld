@@ -1,3 +1,8 @@
+/**
+ * dialog.tsx：shadcn/ui 的 Dialog 对话框组件封装。
+ * 主要组件：Dialog、DialogTrigger、DialogClose、DialogContent、DialogHeader、
+ *   DialogFooter、DialogTitle、DialogDescription、DialogOverlay、DialogPortal。
+ */
 "use client"
 
 import * as React from "react"

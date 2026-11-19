@@ -1,3 +1,12 @@
+/**
+ * page.tsx：拦截配置页——工具调用拦截规则、工具作用范围与审批 Judge 配置。
+ * 主要函数/类型：
+ *   - InterceptPage：默认导出页组件，规则列表 + 编辑抽屉 + 工具范围弹窗
+ *   - JudgeCard：审批 Judge 开关、审批模型选择与近 30 天用量统计
+ *   - groupTools / sdkTool / SDK_EXEC / SDK_WRITE / SDK_KEYS：工具分组（内置 SDK 工具硬编码）
+ *   - fmtTokens / JudgeStat / JudgeSparkbars：用量数字的紧凑写法与每日迷你柱图
+ *   - ActionBadge：拦截动作徽章（允许 / 禁止 / 申请）
+ */
 "use client";
 
 import * as React from "react";
@@ -20,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -178,17 +188,6 @@ function ActionBadge({ action }: { action: InterceptAction }) {
   if (action === "allow") return <Badge variant="secondary">允许</Badge>;
   if (action === "deny")  return <Badge variant="destructive">禁止</Badge>;
   return <Badge variant="outline" className="border-amber-400 text-amber-600">申请</Badge>;
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        {label}
-      </Label>
-      {children}
-    </div>
-  );
 }
 
 // ---- LLM fallback judge card ----
@@ -362,7 +361,8 @@ function JudgeCard() {
             <CardContent className="space-y-5 p-4">
               <div className="space-y-4">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">判定模型与策略</p>
-                <Field label="审批模型">
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">审批模型</FieldLabel>
                   <Select value={String(cfg.profile_id || 0)} onValueChange={(v) => patch({ profile_id: Number(v) })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -375,7 +375,8 @@ function JudgeCard() {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="模型判定超时（秒）">
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">模型判定超时（秒）</FieldLabel>
                   <Input
                     type="number"
                     min={1}
@@ -386,7 +387,8 @@ function JudgeCard() {
                     }}
                   />
                 </Field>
-                <Field label="模型失败时（出错 / 超时 / 无法解析）">
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">模型失败时（出错 / 超时 / 无法解析）</FieldLabel>
                   <Select value={cfg.fail_action} onValueChange={(v) => patch({ fail_action: v as JudgeConfig["fail_action"] })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -402,7 +404,8 @@ function JudgeCard() {
 
               <div className="space-y-4">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">人工审批（模型判为「转人工」时）</p>
-                <Field label="审批等待超时（秒）">
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">审批等待超时（秒）</FieldLabel>
                   <Input
                     type="number"
                     min={5}
@@ -413,7 +416,8 @@ function JudgeCard() {
                     }}
                   />
                 </Field>
-                <Field label="超时后默认动作">
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">超时后默认动作</FieldLabel>
                   <Select value={cfg.ask_timeout_action} onValueChange={(v) => patch({ ask_timeout_action: v as JudgeConfig["ask_timeout_action"] })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -770,7 +774,8 @@ export default function InterceptPage() {
           </SheetHeader>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-            <Field label="名称">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">名称</FieldLabel>
               <Input
                 placeholder="给规则起个名字"
                 value={form.name}
@@ -778,7 +783,8 @@ export default function InterceptPage() {
               />
             </Field>
 
-            <Field label="优先级（数字越大越先匹配）">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">优先级（数字越大越先匹配）</FieldLabel>
               <Input
                 type="number"
                 value={form.priority}
@@ -788,7 +794,8 @@ export default function InterceptPage() {
 
             <Separator />
 
-            <Field label="匹配目标">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">匹配目标</FieldLabel>
               <Select
                 value={form.match_target}
                 onValueChange={(v) => set({ match_target: v as RuleForm["match_target"] })}
@@ -801,7 +808,8 @@ export default function InterceptPage() {
               </Select>
             </Field>
 
-            <Field label="匹配类型">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">匹配类型</FieldLabel>
               <Select
                 value={form.match_type}
                 onValueChange={(v) => set({ match_type: v as RuleForm["match_type"] })}
@@ -814,7 +822,8 @@ export default function InterceptPage() {
               </Select>
             </Field>
 
-            <Field label="模式">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">模式</FieldLabel>
               <Input
                 placeholder={form.match_type === "regex" ? "^Bash$" : "rm -rf"}
                 value={form.pattern}
@@ -831,7 +840,8 @@ export default function InterceptPage() {
 
             <Separator />
 
-            <Field label="拦截策略">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">拦截策略</FieldLabel>
               <Select
                 value={form.action}
                 onValueChange={(v) => set({ action: v as InterceptAction })}
@@ -846,7 +856,10 @@ export default function InterceptPage() {
             </Field>
 
             {form.action !== "allow" && (
-              <Field label={form.action === "deny" ? "拒绝消息（返回给模型）" : "审批说明（可选）"}>
+              <Field className="gap-1.5">
+                <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {form.action === "deny" ? "拒绝消息（返回给模型）" : "审批说明（可选）"}
+                </FieldLabel>
                 <Textarea
                   placeholder={form.action === "deny" ? "操作被安全策略阻止" : ""}
                   value={form.message}
@@ -872,7 +885,8 @@ export default function InterceptPage() {
                 </div>
                 {form.timeout_enabled && (
                   <div className="flex items-end gap-3">
-                    <Field label="超时时间（秒）">
+                    <Field className="gap-1.5">
+                      <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">超时时间（秒）</FieldLabel>
                       <Input
                         type="number"
                         min={5}
@@ -884,7 +898,8 @@ export default function InterceptPage() {
                         }}
                       />
                     </Field>
-                    <Field label="超时动作">
+                    <Field className="gap-1.5">
+                      <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">超时动作</FieldLabel>
                       <Select
                         value={form.timeout_action}
                         onValueChange={(v) => set({ timeout_action: v as "deny" | "allow" })}

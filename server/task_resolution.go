@@ -1,10 +1,15 @@
+// task_resolution.go：解析任务各角色实际生效的 LLM 配置（只解析、不建 provider）。
+// 主要函数/类型：
+//   - taskLLMResolution：角色 LLM 解析结果（配置、来源、可用性与原因）。
+//   - resolveTaskRoleLLM：按 角色绑定→任务配置链→全局 顺序解析角色 LLM。
+//   - taskLLMResolutionHandler：对外输出任务角色 LLM 解析结果的接口。
 package server
 
 import (
 	"fmt"
 	"net/http"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 type taskLLMResolution struct {

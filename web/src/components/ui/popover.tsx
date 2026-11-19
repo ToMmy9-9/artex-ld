@@ -1,3 +1,8 @@
+/**
+ * popover.tsx：shadcn/ui 的 Popover 弹出层组件封装。
+ * 主要组件：Popover、PopoverTrigger、PopoverContent、PopoverAnchor、
+ *   PopoverHeader、PopoverTitle、PopoverDescription。
+ */
 "use client"
 
 import * as React from "react"

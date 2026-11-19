@@ -1,3 +1,7 @@
+/**
+ * label.tsx：shadcn/ui 的 Label 表单标签组件封装。
+ * 主要组件：Label。
+ */
 "use client"
 
 import * as React from "react"

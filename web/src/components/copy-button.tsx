@@ -1,3 +1,8 @@
+/**
+ * copy-button.tsx：统一的「复制到剪贴板」按钮，内置成功反馈与非安全上下文降级。
+ * 主要函数/类型：
+ *   - CopyButton：复制按钮组件（text 为空时禁用）
+ */
 "use client";
 
 import * as React from "react";

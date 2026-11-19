@@ -1,3 +1,9 @@
+/**
+ * task-llm-profile-chain.tsx：任务 LLM Profile 链编辑器，维护有序故障转移序列与当前游标。
+ * 主要函数/类型：
+ *   - TaskLLMProfileChain：profile 链编辑组件（chips 输入 + 角色徽标）
+ *   - ProfileRoleBadge：链路位置徽标（当前/已跳过/备用 n）
+ */
 "use client";
 
 import * as React from "react";

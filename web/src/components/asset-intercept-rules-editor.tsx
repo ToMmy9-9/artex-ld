@@ -1,6 +1,11 @@
+/**
+ * asset-intercept-rules-editor.tsx：资产拦截/允许规则的受控多行编辑区，不自带持久化。
+ * 主要函数/类型：
+ *   - AssetInterceptRulesEditor：规则编辑器组件（block/allow + 类型 + 匹配内容 + 备注）
+ *   - ASSET_INTERCEPT_KIND_OPTIONS：匹配类型选项（全等/模糊/CIDR 等）
+ */
 "use client";
 
-import * as React from "react";
 
 import { PlusIcon, Trash2Icon } from "lucide-react";
 

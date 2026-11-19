@@ -1,3 +1,7 @@
+/**
+ * radio-group.tsx：shadcn/ui 的 RadioGroup 单选组组件封装。
+ * 主要组件：RadioGroup、RadioGroupItem。
+ */
 "use client"
 
 import * as React from "react"

@@ -1,3 +1,10 @@
+// selfupdate.go：自更新核心类型与工具——路径解析、升级标记读写、版本比较与容器检测。
+// 主要函数/类型：
+//   - Paths / ResolvePaths：定位可执行文件、暂存件、备份与标记文件的路径。
+//   - marker / readMarker / writeMarker / cleanStaged：跨进程传递升级状态并清理暂存件。
+//   - CompareVersions / parseVersion：语义化版本比较（major.minor.patch）。
+//   - InDocker：检测当前是否运行在 Docker 容器中。
+//
 // Package selfupdate implements ARTEX 的页面一键更新：从 GitHub Release 拉取新版
 // 二进制、校验、暂存，并在下次启动时原子换装。
 //

@@ -1,3 +1,11 @@
+// task_assets.go：任务与资产绑定关系（task_assets 等表）的写入与查询。
+// 主要函数/类型：
+//   - AttachAssetsToTask / DetachAssetFromTask：绑定/解绑任务资产并维护来源与范围。
+//   - RegisterTaskAssetScopes：登记任务资产的测试范围（scope）。
+//   - SetTaskAssetSource：设置任务上资产的来源标注。
+//   - IntentAssets：查询意图关联的资产。
+//   - TaskAssetMutation / TaskAssetScopeMutation：批量变更的结果统计结构。
+
 package db
 
 import (

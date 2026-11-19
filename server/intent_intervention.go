@@ -1,3 +1,7 @@
+// intent_intervention.go：向已暂停的 Worker 意图注入人工后续消息的接口。
+// 主要函数/类型：
+//   - sendWorkerMessage：校验 request_id 与消息体，经 resume-from-transcript 路径把人工消息注入暂停的意图，并在独立 goroutine 中立即续跑。
+//   - validWorkerMessageRequestID：校验 request_id 的字符集与长度。
 package server
 
 import (
@@ -7,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 const maxWorkerMessageBytes = 64 << 10

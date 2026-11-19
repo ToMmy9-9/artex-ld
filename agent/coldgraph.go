@@ -1,3 +1,10 @@
+// coldgraph.go：冷节点压缩的纯图算法——热/冷判定、冷却记戳与并查集分块（无 DB/LLM 依赖）。
+// 主要函数/类型：
+//   - coldGraph / newColdGraph：节点/边邻接图与索引构建。
+//   - hotSet / structuralCold / eligibleCold：热节点上游传播、结构冷集、连续冷却 ≥R 轮资格判定。
+//   - computeStampOps：cold_since_round 记戳/清戳操作推导。
+//   - group / block：并查集分块（实边相连 + 同父单例救援），父节点只作锚不作成员。
+//   - blockSignature / unionFind：块内容签名与并查集实现。
 package agent
 
 // cold-digest §2/§3: pure graph algorithms for cold-node compression.
@@ -19,7 +26,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // cgNode is the minimal node view the cold-graph algorithms need.

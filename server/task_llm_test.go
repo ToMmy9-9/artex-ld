@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/norma/harness"
-	"github.com/Autumn-27/norma/llm"
+	"artex/agent"
+	"artex/db"
+	"norma/harness"
+	"norma/llm"
 )
 
 type scriptedLLMProvider struct {

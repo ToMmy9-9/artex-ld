@@ -1,3 +1,11 @@
+// task_scope.go：任务测试范围（task_scopes 表）与覆盖度统计的持久化。
+// 主要函数/类型：
+//   - TaskScope：一行任务测试范围（覆盖度分母与授权边界）。
+//   - AddAutoScope / AddAgentScope：以自动/Agent 上报方式新增范围。
+//   - ListTaskScope / DeleteTaskScope：范围查询与删除。
+//   - TaskCoverage / BuildCoverageGraph：按类型统计覆盖度并构建覆盖关系图。
+//   - ListUntestedAssets：分页列出未测试资产。
+
 package db
 
 import (

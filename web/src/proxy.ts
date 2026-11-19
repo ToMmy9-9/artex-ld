@@ -1,3 +1,9 @@
+/**
+ * proxy.ts：Next.js 请求代理，基于登录 token 做路由守卫。
+ * 主要函数/类型：
+ *   - proxy：未登录访问受保护页面时重定向到 /login，mock 模式直接放行
+ *   - config：matcher，排除内部路由、API 与静态资源
+ */
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 

@@ -1,3 +1,8 @@
+/**
+ * graph-tab.tsx：探索链路图面板，轮询任务节点/边并渲染 ExplorationGraph。
+ * 主要函数/类型：
+ *   - GraphTab：加载图数据并按签名跳过重复更新的主组件。
+ */
 "use client";
 
 import * as React from "react";

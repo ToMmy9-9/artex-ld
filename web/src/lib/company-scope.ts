@@ -1,3 +1,10 @@
+/**
+ * company-scope.ts：企业范围规则文本的校验、分类、解析与归一化。
+ * 主要函数/类型：
+ *   - isCompanyScopeKind / COMPANY_SCOPE_KINDS / MAX_COMPANY_SCOPE_VALUE_LENGTH：类型守卫、合法类型集合与取值长度上限
+ *   - companyScopeRuleError / classifyCompanyScopeLine / parseCompanyScopeText / normalizeCompanyScopeValue：单行校验、分类、整段解析与归一化
+ *   - CompanyScopeTextIssue / ParsedCompanyScopeText：解析结果类型
+ */
 import type { CompanyScopeKind, CompanyScopeRule } from "@/lib/types";
 
 export const MAX_COMPANY_SCOPE_VALUE_LENGTH = 1024;

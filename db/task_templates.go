@@ -1,3 +1,10 @@
+// task_templates.go：任务模板（task_templates 表）的 CRUD 与输入规范化。
+// 主要函数/类型：
+//   - TaskTemplate / TaskTemplateInput / TaskTemplatePatch：模板行与创建/补丁输入。
+//   - CreateTaskTemplate / UpdateTaskTemplate / PatchTaskTemplate：模板创建与全量/增量更新。
+//   - ListTaskTemplates / GetTaskTemplate：模板列表与单查。
+//   - DeleteTaskTemplate：删除模板。
+
 package db
 
 import (

@@ -1,3 +1,9 @@
+/**
+ * auth.ts：前端 token 存取与当前用户解析。
+ * 主要函数/类型：
+ *   - CurrentUser：当前用户展示用结构
+ *   - auth：getToken/setToken/clearToken/getCurrentUser 的命名空间对象
+ */
 const TOKEN_KEY = "artex_token";
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 天（秒）
 
@@ -38,7 +44,7 @@ export const auth = {
       // base64url → base64
       const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
       const username: string = payload.sub ?? "ARTEX";
-      return { id: "1", name: username, username, email: "", avatar: "", role: "operator" };
+      return { id: "1", name: "artex", username, email: "", avatar: "", role: "operator" };
     } catch {
       return null;
     }

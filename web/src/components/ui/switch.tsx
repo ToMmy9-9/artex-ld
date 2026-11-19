@@ -1,3 +1,7 @@
+/**
+ * switch.tsx：shadcn/ui 的 Switch 开关组件封装。
+ * 主要组件：Switch。
+ */
 "use client"
 
 import * as React from "react"

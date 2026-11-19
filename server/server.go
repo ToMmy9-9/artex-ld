@@ -1,3 +1,11 @@
+// server.go：HTTP Server 本体、LLM 配置加载生效与核心路由/接口。
+// 主要函数/类型：
+//   - Server / New：服务本体（管理器、聊天 agent 缓存、触发器队列、熔断注册表、归档 worker 等）与构造。
+//   - Handler：注册全部 HTTP 路由并返回处理器。
+//   - loadLLMConfig / saveLLMConfig / applyLLM / reapplyActiveProfile：全局 LLM 配置的加载、保存与生效。
+//   - providerForProfile / chatAgentForProfile / invalidateProfileAgents：按 profile 构建并缓存 provider 与聊天 agent。
+//   - restoreTaskRuntimes：重启后恢复任务运行时。
+//   - health / stats / listTasks / setActive / control / controlIntent：健康、统计与任务控制类 HTTP 接口。
 package server
 
 import (
@@ -19,16 +27,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/llmpool"
-	"github.com/Autumn-27/artex/llmrec"
-	"github.com/Autumn-27/artex/report"
-	"github.com/Autumn-27/artex/traffic"
-	"github.com/Autumn-27/norma/llm"
-	actool "github.com/Autumn-27/norma/tool"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/agent"
+	"artex/db"
+	"artex/intercept"
+	"artex/llmpool"
+	"artex/llmrec"
+	"artex/report"
+	"artex/traffic"
+	"artex/xlog" // 【二开·P-LOG】DEBUG 开关（04 册 H1）
+	"norma/llm"
+	actool "norma/tool"
+	"norma/transcript"
 )
 
 // BuildVersion is the backend application version, injected from cmd/artex at
@@ -68,6 +77,9 @@ type Server struct {
 	// concurrent messages don't corrupt the shared exp<id>-main transcript.
 	chatMu   sync.Mutex
 	chatBusy map[string]bool
+	// 【二开·审核流 PR1/§2.6】reviewRunner 句柄：add_review_intent / update_intent 送审后
+	// 即时唤醒审核轮（原 60s ticker 唯一唤醒源退化为兜底）。
+	reviewRunner *ReviewRunner
 	// chatCancel holds the cancel func for each in-flight conversation run (keyed by
 	// convBusyKey), so a manual stop can abort JUST that session's agent run. Set/
 	// cleared alongside chatBusy under chatMu. Aborting a run does NOT touch the P3
@@ -127,17 +139,23 @@ type provEntry struct {
 	cfg  agent.Config
 }
 
-// triggeredRun is one queued P3 trigger fire awaiting its turn for an agent.
-// taskID + mergeable let the drainer coalesce several event triggers (finding/goal)
-// from the SAME task into one conversation before it starts (interval fires don't merge).
-type triggeredRun struct {
+// findingInvocationRef links a queued run back to its durable dispatch record.
+type findingInvocationRef struct {
 	agentKey  string
-	title     string
-	message   string // 事件正文(触发语 + 工具/入参/返回等);不含任务描述/目标头
-	taskID    int64  // source task for finding/goal triggers; 0 for interval/none
-	taskDesc  string // 任务描述(任务级,同任务相同);合并时只渲染一次
-	taskGoal  string // 任务目标(任务级,同任务相同);合并时只渲染一次
-	mergeable bool   // true for finding/goal event triggers (merge by taskID)
+	findingID int64
+}
+
+// triggeredRun is one queued P3 trigger fire awaiting its turn for an agent.
+// taskID + mergeable let the drainer coalesce several event triggers from the same task.
+type triggeredRun struct {
+	agentKey    string
+	title       string
+	message     string // 事件正文(触发语 + 工具/入参/返回等);不含任务描述/目标头
+	taskID      int64  // source task for finding/goal triggers; 0 for interval/none
+	taskDesc    string // 任务描述(任务级,同任务相同);合并时只渲染一次
+	taskGoal    string // 任务目标(任务级,同任务相同);合并时只渲染一次
+	mergeable   bool   // true for finding/goal event triggers (merge by taskID)
+	invocations []findingInvocationRef
 }
 
 func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDir string) *Server {
@@ -151,6 +169,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		profChatAgents: map[int64]*agent.ChatAgent{},
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
+	// 【二开·P-EXEC·S1】engine.providerFn：执行器 agent 的 LLM 装配回调（走 providerForProfile 缓存链）
+	s.engine.providerFn = s.providerForProfile
 	s.initSideQuestions()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
@@ -186,6 +206,25 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			}
 			return t, true
 		}
+		// 【二开·P-TPL·A4】起 —— planner 提示词四级链第③级：planner_templates 默认模板正文
+		// （无默认行/读失败→""，落④内置兜底；P-LOG 由 plannerSystem 命中/回退行覆盖，此处仅读失败补一条 WARN）
+		agent.PlannerDefaultTemplateBodyFn = func() string {
+			body, err := m.pg.DefaultPlannerTemplateBody()
+			if err != nil {
+				log.Printf("[task] plannerSystem ③默认模板读取失败 ⚠ err=%v（落④内置兜底）", err)
+				return ""
+			}
+			return body
+		}
+		agent.WorkerDefaultTemplateBodyFn = func() string {
+			body, err := m.pg.DefaultWorkerTemplateBody()
+			if err != nil {
+				log.Printf("[task] workerSystem 默认模板读取失败: %v（使用内置兜底）", err)
+				return ""
+			}
+			return body
+		}
+		// 【二开·P-TPL·A4】止
 		// Wire DB-stored wrap-up (settlement) prompts. Empty column → built-in default.
 		agent.WrapupOverride = func(key string) (string, bool) {
 			a, err := m.pg.GetAgentByKey(key)
@@ -221,13 +260,22 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		domainReg := buildDomainReg(m.Assets())
 		wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
-		s.seedOrchestrationTools() // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
+		// 【二开·P-REVIEW·D9】起 —— 审核写工具 intercept ask 化（启用集+三条内置规则，幂等）
+		s.seedReviewIntercept()
+		// 【二开·P-REVIEW·D9】止
+		s.seedOrchestrationTools()      // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
+		s.backfillTaskDispatchTargets() // 旧内网任务按 description 中 finding #N / finding_id=N 回填资产去重目标
 		if err := s.seedFindingRetester(); err != nil {
 			log.Printf("[retester] seed: %v", err)
 		}
 		go s.evidenceStore().RunGC(s.ctx)
 		s.seedPythonInterpreter()     // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
 		go newScheduler(s).Run(s.ctx) // P3 触发器调度(定时/finding/目标事件),仅自定义 agent
+		// 【二开·P-REVIEW·S5】起 —— review 预审 runner（周期扫描待审意图，物理只读预审）
+		// 【二开·审核流 PR1/§2.6】server 持有句柄：送审/重送成功可经 wakeReviewRunner 即时唤醒
+		s.reviewRunner = newReviewRunner(s)
+		go s.reviewRunner.Run(s.ctx)
+		// 【二开·P-REVIEW·S5】止
 		// 漏洞 IM 推送投递引擎。与 Scheduler 并列但独立：推送的实时性要求(3s)
 		// 与触发器的业务节奏不同，且两者失败互不牵连——推送卡住不该影响 agent 触发。
 		go newNotifier(s).Run(s.ctx)
@@ -235,6 +283,10 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		// seeded browser MCP on first run). Async so it never blocks startup.
 		go s.discoverEmptyMCPsOnStartup()
 		logSink.SetDB(ctx, m.pg) // restore last 100 log rows and enable async persistence
+		// 【P-LOG·M0】日志级别热切换：DB 设置 > 环境变量（xlog 包默认值）。
+		if v, ok, _ := m.pg.GetSetting(settingLogLevel); ok {
+			xlog.SetLevel(v)
+		}
 	}
 	// precedence: persisted DB config > env.
 	if cfg, ok := s.loadLLMConfig(); ok {
@@ -319,12 +371,10 @@ func (s *Server) agentRunSeconds(key string) int {
 	return a.RunSecs
 }
 
-// loadLLMConfig reads the active LLM profile from PG (llm_profiles).
-func (s *Server) loadLLMConfig() (agent.Config, bool) {
-	p, err := s.m.pg.ActiveProfile()
-	if err != nil || p == nil {
-		return agent.Config{}, false
-	}
+// configFromProfile builds an agent.Config from one profile row（含 retry 覆写）；
+// API Key 空 → ok=false（cfg 仍返回，调用侧保留各自的报错/展示语义）。
+// loadLLMConfig 与 loadProfileConfig 两处 Profile→Config 转换单点。
+func (s *Server) configFromProfile(p *db.LLMProfile) (agent.Config, bool) {
 	cfg := agent.ConfigFrom(p.Format, p.Model, p.BaseURL, p.APIKey, p.Proxy)
 	cfg.RatePerSecond, cfg.RatePerMinute = p.RatePerSecond, p.RatePerMinute
 	cfg.ContextWindowK = p.ContextWindowK
@@ -335,6 +385,19 @@ func (s *Server) loadLLMConfig() (agent.Config, bool) {
 	cfg.SessionHeaderKey = p.SessionHeaderKey
 	s.applyProfileRetry(&cfg, p)
 	if cfg.APIKey == "" {
+		return cfg, false
+	}
+	return cfg, true
+}
+
+// loadLLMConfig reads the active LLM profile from PG (llm_profiles).
+func (s *Server) loadLLMConfig() (agent.Config, bool) {
+	p, err := s.m.pg.ActiveProfile()
+	if err != nil || p == nil {
+		return agent.Config{}, false
+	}
+	cfg, ok := s.configFromProfile(p)
+	if !ok {
 		return cfg, false
 	}
 	s.cfgMu.Lock()
@@ -423,6 +486,17 @@ func maxTokensResolver(cfg agent.Config) func() int {
 	return func() int { return maxTokens }
 }
 
+// configureChatAgent 应用 ChatAgent 运行时配置（applyLLM 全局与 chatAgentForProfile 逐行相同的六连设置单点）：
+// 记录代理、联网搜索、guard、非流式/输出上限解析器、noa 实验开关。
+func (s *Server) configureChatAgent(ca *agent.ChatAgent, cfg agent.Config) {
+	ca.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	ca.SetWebSearch(s.m.WebSearchOpts())
+	ca.SetGuard(s.chatGuard())
+	ca.SetNonStreaming(nonStreamingResolver(cfg))
+	ca.SetMaxTokens(maxTokensResolver(cfg))
+	ca.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(每 run 读)
+}
+
 // applyLLM (re)builds the planner/worker/main-agent from cfg and installs them on
 // the running engine as the GLOBAL active pair. Safe to call at runtime (UI configures LLM).
 func (s *Server) applyLLM(cfg agent.Config) error {
@@ -470,12 +544,7 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	// chat agent serves MANY custom agents by key → it holds the GLOBAL opts
 	// (backend/key) and gates Enabled per-conversation-agent at Chat time. 对话始终用激活配置。
 	s.chatAgent = agent.NewChatAgent(prov, cfg.Model, s.m.dir, tx, win) // chat page runner
-	s.chatAgent.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
-	s.chatAgent.SetWebSearch(s.m.WebSearchOpts())
-	s.chatAgent.SetGuard(s.chatGuard())
-	s.chatAgent.SetNonStreaming(nonStreamingResolver(cfg))
-	s.chatAgent.SetMaxTokens(maxTokensResolver(cfg))
-	s.chatAgent.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(每 run 读)
+	s.configureChatAgent(s.chatAgent, cfg)
 	s.llmProv = prov
 	s.llmCfg = cfg
 	s.llmOn = true
@@ -496,19 +565,7 @@ func (s *Server) loadProfileConfig(id int64) (agent.Config, bool) {
 	if err != nil || p == nil {
 		return agent.Config{}, false
 	}
-	cfg := agent.ConfigFrom(p.Format, p.Model, p.BaseURL, p.APIKey, p.Proxy)
-	cfg.RatePerSecond, cfg.RatePerMinute = p.RatePerSecond, p.RatePerMinute
-	cfg.ContextWindowK = p.ContextWindowK
-	cfg.ThinkingType = p.ThinkingType
-	cfg.ReasoningEffort = p.ReasoningEffort
-	cfg.Stream = p.Streaming
-	cfg.MaxTokens, cfg.MaxTokensField = p.MaxTokens, p.MaxTokensField
-	cfg.SessionHeaderKey = p.SessionHeaderKey
-	s.applyProfileRetry(&cfg, p)
-	if cfg.APIKey == "" {
-		return cfg, false
-	}
-	return cfg, true
+	return s.configFromProfile(p)
 }
 
 // effectiveProfileForAgent resolves the LLM profile id an agent should run on, by
@@ -611,12 +668,7 @@ func (s *Server) chatAgentForProfile(id int64) *agent.ChatAgent {
 	}
 	tx := transcript.NewStore(filepath.Join(s.m.dir, "transcripts"))
 	ca := agent.NewChatAgent(s.poolForBinding(id, prov, cfg), cfg.Model, s.m.dir, tx, cfg.CompactionWindow())
-	ca.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
-	ca.SetWebSearch(s.m.WebSearchOpts())
-	ca.SetGuard(s.chatGuard())
-	ca.SetNonStreaming(nonStreamingResolver(cfg))
-	ca.SetMaxTokens(maxTokensResolver(cfg))
-	ca.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(每 run 读)
+	s.configureChatAgent(ca, cfg)
 	s.profMu.Lock()
 	if ex := s.profChatAgents[id]; ex != nil { // lost the race → keep the winner
 		ca = ex
@@ -681,6 +733,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-templates", s.pgCreateTaskTemplate)
 	mux.HandleFunc("PATCH /api/task-templates/{id}", s.pgUpdateTaskTemplate)
 	mux.HandleFunc("DELETE /api/task-templates/{id}", s.pgDeleteTaskTemplate)
+	// 【二开·P-TPL·S11】起 —— 规划模板库五端点 + 试渲染干跑端点（实现见 server/planner_templates.go）
+	mux.HandleFunc("GET /api/planner-templates", s.pgListPlannerTemplates)
+	mux.HandleFunc("POST /api/planner-templates", s.pgCreatePlannerTemplate)
+	mux.HandleFunc("PATCH /api/planner-templates/{id}", s.pgUpdatePlannerTemplate)
+	mux.HandleFunc("DELETE /api/planner-templates/{id}", s.pgDeletePlannerTemplate)
+	mux.HandleFunc("POST /api/planner-templates/{id}/default", s.pgSetDefaultPlannerTemplate)
+	mux.HandleFunc("POST /api/planner-templates/validate", s.pgValidatePlannerTemplate)
+	// 【二开·P-TPL·S11】止
+	mux.HandleFunc("GET /api/worker-templates", s.pgListWorkerTemplates)
+	mux.HandleFunc("POST /api/worker-templates", s.pgCreateWorkerTemplate)
+	mux.HandleFunc("PATCH /api/worker-templates/{id}", s.pgUpdateWorkerTemplate)
+	mux.HandleFunc("DELETE /api/worker-templates/{id}", s.pgDeleteWorkerTemplate)
+	mux.HandleFunc("POST /api/worker-templates/{id}/default", s.pgSetDefaultWorkerTemplate)
+	mux.HandleFunc("POST /api/worker-templates/validate", s.pgValidateWorkerTemplate)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("PATCH /api/tasks/{id}", s.updateTaskMetadata)
 	mux.HandleFunc("PATCH /api/tasks/{id}/category", s.updateTaskCategory)
@@ -694,6 +760,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/task-archives", s.listTaskArchives)
 	mux.HandleFunc("GET /api/task-archives/{id}", s.getTaskArchive)
 	mux.HandleFunc("POST /api/tasks/{id}/archive", s.queueTaskArchive)
+	// 【二开·P-REVIEW·S6】起 —— 审核五端点（U3 ReviewPanel 数据源）
+	mux.HandleFunc("GET /api/tasks/{id}/review/proposed", s.reviewListProposed)
+	mux.HandleFunc("POST /api/tasks/{id}/review/{intentID}/approve", s.reviewApprove)
+	mux.HandleFunc("POST /api/tasks/{id}/review/{intentID}/reject", s.reviewReject)
+	mux.HandleFunc("POST /api/tasks/{id}/review/chat", s.reviewChat)
+	mux.HandleFunc("GET /api/tasks/{id}/review/messages", s.reviewMessages)
+	// 【二开·P-REVIEW·S6】止
 	mux.HandleFunc("POST /api/tasks/archive/batch", s.queueTaskArchivesBatch)
 	mux.HandleFunc("POST /api/task-archives/{id}/restore", s.queueTaskArchiveRestore)
 	mux.HandleFunc("POST /api/task-archives/restore/batch", s.restoreTaskArchivesBatch)
@@ -701,6 +774,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-archives/delete/batch", s.deleteTaskArchivesBatch)
 	mux.HandleFunc("GET /api/tasks/{id}/coverage", s.taskCoverage)
 	mux.HandleFunc("GET /api/tasks/{id}/coverage-graph", s.taskCoverageGraph)
+	// 内网拓扑编辑器（阶段 A）：三张表 CRUD + 不变式校验（无游离节点/无自环无环/节点必须在图中）
+	mux.HandleFunc("GET /api/tasks/{id}/topology", s.topologyEditorGet)
+	mux.HandleFunc("POST /api/tasks/{id}/topology/nodes", s.addTopologyEditorNode)
+	mux.HandleFunc("PATCH /api/tasks/{id}/topology/nodes/{ip}", s.patchTopologyEditorNode)
+	mux.HandleFunc("DELETE /api/tasks/{id}/topology/nodes/{ip}", s.deleteTopologyEditorNode)
+	mux.HandleFunc("POST /api/tasks/{id}/topology/edges", s.addTopologyEditorEdge)
+	mux.HandleFunc("PATCH /api/tasks/{id}/topology/edges/{eid}", s.patchTopologyEditorEdge)
+	mux.HandleFunc("DELETE /api/tasks/{id}/topology/edges/{eid}", s.deleteTopologyEditorEdge)
+	mux.HandleFunc("POST /api/tasks/{id}/topology/groups", s.upsertTopologyEditorGroup)
+	mux.HandleFunc("PATCH /api/tasks/{id}/topology/groups/{gid}", s.upsertTopologyEditorGroup)
+	mux.HandleFunc("DELETE /api/tasks/{id}/topology/groups/{gid}", s.deleteTopologyEditorGroup)
+	mux.HandleFunc("POST /api/tasks/{id}/topology/notes", s.addTopologyEditorNote)
+	mux.HandleFunc("POST /api/tasks/{id}/topology/seed", s.seedTopologyEditor)
 	mux.HandleFunc("GET /api/tasks/{id}/asset-refs", s.taskAssetRefs)
 	mux.HandleFunc("POST /api/tasks/{id}/assets", s.attachTaskAssets)
 	mux.HandleFunc("DELETE /api/tasks/{id}/assets/{assetID}", s.detachTaskAsset)
@@ -935,7 +1021,7 @@ func (s *Server) Handler() http.Handler {
 	// /api/* goes through CORS + JWT; everything else is served by the embedded
 	// frontend (public — auth is enforced client-side and on the API). With the
 	// no-embed build the webui handler just 404s (run `next dev` separately).
-	api := cors(s.requireAuth(mux))
+	api := accessLog(cors(s.requireAuth(mux)))
 	root := http.NewServeMux()
 	root.Handle("/api/", api)
 	root.Handle("/", s.webuiHandler())
@@ -1098,13 +1184,29 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	// 与删除/归档共用调度锁和 inflight 屏障，避免打开任务时复活正在 teardown 的运行态。
+	s.concMu.Lock()
+	defer s.concMu.Unlock()
+	t, ok := s.m.Task(req.ID)
+	if !ok {
+		writeErr(w, 404, "task not found")
+		return
+	}
+	// 排队任务只设为活跃以供查看，不绕过并发队列。
+	queued := t.lifecycleSnapshot().Queued
+	if !queued {
+		if !s.engine.beginTaskOperation(t.ID) {
+			writeErr(w, 409, "任务正在删除或归档")
+			return
+		}
+		defer s.engine.decInflight(t.ID)
+	}
+	// 所有可能失败的检查完成后再切换 active，避免 404/409 留下悬空任务指针。
 	if !s.m.SetActive(req.ID) {
 		writeErr(w, 404, "task not found")
 		return
 	}
-	// resume the engine for the opened task (idempotent — no-op if already running).
-	// 排队中的任务:仅设为活跃可查看,不启动引擎(维持并发上限,由 reconcile 补位)。
-	if t, ok := s.m.Task(req.ID); ok && !t.lifecycleSnapshot().Queued {
+	if !queued {
 		s.engine.Run(s.ctx, t)
 	}
 	writeJSON(w, 200, map[string]any{"active": req.ID})
@@ -1457,6 +1559,16 @@ type createTaskReq struct {
 	CoverageEnabled      *bool    `json:"coverage_enabled,omitempty"`  // 资产覆盖度功能;省略/null=默认开(true)。false=关闭覆盖度计算/展示/自动累积范围+隐藏 add_task_scope/list_untested_assets。company 关联不受影响。
 	// InterceptRules 任务级资产拦截/允许规则(创建时录入,存 task_intercept_rules,不进全局表)。
 	InterceptRules []taskInterceptRuleReq `json:"intercept_rules,omitempty"`
+	// 【二开·P-INTENT·S7】起 —— 建任务四新字段（00 册 S7）
+	PreAgent          string `json:"pre_agent,omitempty"`           // 种子意图预选执行器 executor_key（仅 seed_first_intent=true 时有意义）
+	PlannerPrompt     string `json:"planner_prompt,omitempty"`      // planner 提示词全文快照（≤32KB；与 planner_template_id 同传时本字段优先 K22）
+	PlannerTemplateID int64  `json:"planner_template_id,omitempty"` // 仅模板 id：建任务时取正文快照（03 册 S13）
+	WorkerPrompt      string `json:"worker_prompt,omitempty"`       // Worker 提示词全文快照；优先于 worker_template_id
+	WorkerTemplateID  int64  `json:"worker_template_id,omitempty"`  // Worker 模板 id：建任务时取正文快照
+	WorkerCount       int    `json:"worker_count,omitempty"`        // 任务级 worker 池：0=跟随全局，1~16 专属
+	ReviewEnabled     *bool  `json:"review_enabled,omitempty"`      // 任务级意图审核总开关（m03934/D2c；nil=未传→分类预设兜底→默认关）
+	AssetMode         string `json:"asset_mode,omitempty"`          // 资产图模式标签（m04039/D12；空=分类带出→pentest）
+	// 【二开·P-INTENT·S7】止
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
@@ -1478,24 +1590,13 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if req.TimeoutSeconds < 0 {
 		req.TimeoutSeconds = 0
 	}
-	if len(req.SourceTaskIDs) > db.MaxTaskSourceCount {
-		writeErr(w, 400, fmt.Sprintf("关联任务最多选择 %d 个", db.MaxTaskSourceCount))
+	sourceIDs, err := normalizeSourceTaskIDs(req.SourceTaskIDs, func(id int64) bool {
+		_, ok := s.m.Task(strconv.FormatInt(id, 10))
+		return ok
+	})
+	if err != nil {
+		writeErr(w, 400, err.Error())
 		return
-	}
-	sourceIDs := make([]int64, 0, len(req.SourceTaskIDs))
-	seenSources := map[int64]bool{}
-	for _, raw := range req.SourceTaskIDs {
-		id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-		if err != nil || id <= 0 || seenSources[id] {
-			writeErr(w, 400, "关联任务 id 无效或重复")
-			return
-		}
-		if _, ok := s.m.Task(strconv.FormatInt(id, 10)); !ok {
-			writeErr(w, 400, fmt.Sprintf("关联任务 #%d 不存在", id))
-			return
-		}
-		seenSources[id] = true
-		sourceIDs = append(sourceIDs, id)
 	}
 	companyIDs, err := db.NormalizeTaskCompanyIDs(req.CompanyIDs)
 	if err != nil {
@@ -1503,17 +1604,149 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.CompanyIDs = companyIDs
+	reviewEnabled := req.ReviewEnabled != nil && *req.ReviewEnabled
+	// 【二开·P-REVIEW·D12】分类预设快照（m04039）：分类只给默认值——落任务字段后再改分类不影响本任务
+	if req.CategoryID != nil {
+		if cat, catErr := s.m.PG().GetTaskCategory(*req.CategoryID); catErr == nil && cat != nil {
+			if req.PlannerTemplateID == 0 && cat.DefaultPlannerTemplateID > 0 {
+				req.PlannerTemplateID = cat.DefaultPlannerTemplateID
+			}
+			if req.WorkerTemplateID == 0 && cat.DefaultWorkerTemplateID > 0 {
+				req.WorkerTemplateID = cat.DefaultWorkerTemplateID
+			}
+			if strings.TrimSpace(req.AssetMode) == "" {
+				req.AssetMode = cat.AssetMode
+			}
+			if req.Description == "未命名任务" && strings.TrimSpace(cat.DefaultDescription) != "" {
+				req.Description = cat.DefaultDescription // 场景预设描述（人写了描述则不动）
+			}
+			if req.ReviewEnabled == nil && cat.DefaultReviewEnabled {
+				reviewEnabled = true // 场景预设"默认开审核"（人显式传了则以人为准）
+			}
+			// 【二开·P-SCENARIO·MERGE】种子意图预设快照（m03167 场景并入分类）：人显式传了则以人为准
+			if req.SeedFirstIntent == nil && cat.SeedFirstIntent {
+				seed := true
+				req.SeedFirstIntent = &seed
+			}
+			if strings.TrimSpace(req.PreAgent) == "" && cat.SeedExecutor != "" {
+				req.PreAgent = cat.SeedExecutor
+			}
+		}
+	}
+	assetMode := strings.ToLower(strings.TrimSpace(req.AssetMode))
+	if assetMode == "" {
+		assetMode = "pentest"
+	}
+	if len(assetMode) > 64 {
+		writeErr(w, 400, "asset_mode 最多 64 字符")
+		return
+	}
 	interceptRules, err := buildTaskInterceptRules(req.InterceptRules)
 	if err != nil {
 		writeErr(w, 400, "任务级拦截规则无效："+err.Error())
 		return
 	}
+	// 【二开·P-INTENT·S7】起 —— 四新字段校验（00 册 S7）
+	// 【二开·P-LOG·S13】DEBUG 记二开字段入参（排障：建任务 400 是哪儿拦的）。
+	xlog.Debugf("[task] createTask 二开字段：pre_agent=%q planner_prompt=%dB planner_template_id=%d worker_count=%d review_enabled=%v", req.PreAgent, len(strings.TrimSpace(req.PlannerPrompt)), req.PlannerTemplateID, req.WorkerCount, reviewEnabled)
+	if req.PreAgent != "" {
+		if err := validatePreAgent(s.m.PG(), req.PreAgent); err != nil {
+			// 【二开·P-LOG·S7】pre_agent 校验不予通过（WARN 级；排障：建任务 400 是哪儿拦的）
+			log.Printf("[task] createTask 不予通过 ⚠ pre_agent=%q 无效（须为已启用自定义 agent 声明的 executor_key）", req.PreAgent)
+			writeErr(w, 400, fmt.Sprintf("前置执行器 %q 不可用（须为已启用自定义 agent 的 executor_key）", req.PreAgent))
+			return
+		}
+	}
+	// 【二开·P-TPL·S13】起 —— planner 提示词三级快照链（K22：手改 prompt > template_id 模板 > 默认模板）。
+	// 解析结果快照进 options.PlannerPrompt → 落 tasks.planner_prompt_override（00 册 D2），
+	// 此后模板改/删/换默认都不影响本任务（D11-b 快照语义）；仍为空 → 运行期走 00 册 A4 链兜底。
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	plannerPrompt := strings.TrimSpace(req.PlannerPrompt)
+	if plannerPrompt != "" {
+		// 手改覆盖最优先（K22）；与模板正文同标准试渲染校验（含 32KB 上限、目录外变量带行号）。
+		if err := validatePlannerTemplateBody(plannerPrompt); err != nil {
+			writeErr(w, 400, "规划提示词覆盖无效："+err.Error())
+			return
+		}
+		// 【二开·P-LOG·S13】快照来源=手改（K22 最高优先）。
+		xlog.Debugf("[task] 提示词快照来源：手改 planner_prompt（%dB）", len(plannerPrompt))
+	} else if req.PlannerTemplateID > 0 {
+		tpl, err := pg.GetPlannerTemplate(req.PlannerTemplateID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if tpl == nil {
+			tpls, _ := pg.ListPlannerTemplates()
+			names := make([]string, 0, len(tpls))
+			for _, it := range tpls {
+				names = append(names, fmt.Sprintf("#%d %s", it.ID, it.Name))
+			}
+			writeErr(w, 400, fmt.Sprintf("规划模板 #%d 不存在；可用模板：%s", req.PlannerTemplateID, strings.Join(names, "、")))
+			return
+		}
+		plannerPrompt = tpl.Body // 快照：此后该模板改/删不影响本任务
+		// 【二开·P-LOG·S13】INFO 记模板快照（排障：这个任务的提示词是哪来的）。
+		log.Printf("[task] 提示词快照：模板 #%d %q（%dB；此后模板改/删不影响本任务）", tpl.ID, tpl.Name, len(tpl.Body))
+	} else {
+		body, err := defaultPlannerPrompt(pg)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		plannerPrompt = body // 默认模板（首任=内置默认）快照；表为空则 ''，落 A4 运行时链兜底
+		// 【二开·P-LOG·S13】快照来源=默认模板。
+		xlog.Debugf("[task] 提示词快照来源：默认模板（%dB）", len(body))
+	}
+	workerPrompt := strings.TrimSpace(req.WorkerPrompt)
+	if workerPrompt != "" {
+		if err := validateWorkerTemplateBody(workerPrompt); err != nil {
+			writeErr(w, 400, "Worker 提示词覆盖无效："+err.Error())
+			return
+		}
+		xlog.Debugf("[task] Worker 提示词快照来源：手改 worker_prompt（%dB）", len(workerPrompt))
+	} else if req.WorkerTemplateID > 0 {
+		tpl, err := pg.GetWorkerTemplate(req.WorkerTemplateID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if tpl == nil {
+			writeErr(w, 400, fmt.Sprintf("Worker 模板 #%d 不存在", req.WorkerTemplateID))
+			return
+		}
+		workerPrompt = tpl.Body
+		log.Printf("[task] Worker 提示词快照：模板 #%d %q（%dB；此后模板改/删不影响本任务）", tpl.ID, tpl.Name, len(tpl.Body))
+	} else {
+		body, err := defaultWorkerPrompt(pg)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		workerPrompt = body
+		xlog.Debugf("[task] Worker 提示词快照来源：默认模板（%dB）", len(body))
+	}
+	if err := validateWorkerCount(req.WorkerCount); err != nil {
+		writeErr(w, 400, "worker_count 取值 0~16（0=跟随全局）")
+		return
+	}
+	// 【二开·P-TPL·S13】止
+	// 【二开·P-INTENT·S7】止
 	t, err := s.m.CreateTaskWithOptions(req.Description, req.Goal, db.TaskCreateOptions{
 		Name: strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
 		SourceTaskIDs: sourceIDs, CompanyIDs: req.CompanyIDs, LLMProfileIDs: req.LLMProfileIDs,
 		TimeoutSeconds: req.TimeoutSeconds, PlanHeartbeatSeconds: req.PlanHeartbeatSeconds,
 		CoverageEnabled: req.CoverageEnabled,
 		InterceptRules:  interceptRules,
+		// 【二开·P-INTENT·S7】透传（K22：prompt 快照优先于模板 id）
+		// 【二开·P-TPL·S13】PlannerPrompt 改传快照链解析结果（手改/模板/默认模板正文）
+		PreAgent: req.PreAgent, PlannerPrompt: plannerPrompt,
+		PlannerTemplateID: req.PlannerTemplateID, WorkerCount: req.WorkerCount,
+		WorkerPrompt: workerPrompt, WorkerTemplateID: req.WorkerTemplateID,
+		ReviewEnabled: reviewEnabled, AssetMode: assetMode,
 	})
 	if err != nil {
 		if errors.Is(err, db.ErrTaskCategoryInvalid) || errors.Is(err, db.ErrTaskCategoryNotFound) {
@@ -1527,7 +1760,8 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	log.Printf("[task] 新建任务 #%s «%s» 目标: %s", t.ID, req.Description, req.Goal)
+	// 【二开·P-LOG·S13】INFO 记建任务全貌（在既有 [task] 行上补二开字段）。
+	log.Printf("[task] 新建任务 #%s «%s» 目标: %s（pre_agent=%q 	worker_count=%d planner_template_id=%d review_enabled=%v asset_mode=%s）", t.ID, req.Description, req.Goal, req.PreAgent, req.WorkerCount, req.PlannerTemplateID, reviewEnabled, assetMode)
 	// 共享的建后流程(seed + 种子意图 + 后台目标分解 + engine.Run),与 spawn_task 复用同一段。
 	// launchTask 内部异步,不阻塞 UI —— 目标分解在后台可见地进行。
 	s.launchTask(t, req.Description+" "+req.Goal, req.SeedFirstIntent != nil && *req.SeedFirstIntent)
@@ -1713,8 +1947,15 @@ func (s *Server) seed(t *Task, text string) {
 // origin fact (RelDerivedFrom) so it still traces back to a fact node. Best-effort —
 // a failure just falls back to the normal planner-driven flow.
 func (s *Server) seedFirstIntent(t *Task) {
+	// ═══ ARTEX 二开 · [P-INTENT·S10 种子意图改造] ═══
+	// 功能介绍：种子意图永远 open 落库（m00973：seed_review 废除，种子不送审）；pre_agent 非空时 payload.executor=executor_key 直发自定义 agent；不设 pre_agent 走现状 AddIntent 路径零变化（K23）
+	// 二开日期：2026-10-21
 	summary := fmt.Sprintf("完成任务目标：%s（任务：%s）", t.Goal, t.Description)
-	id, err := t.Store.AddIntent(map[string]any{"summary": summary}, 8, nil, "seed")
+	payload := map[string]any{"summary": summary}
+	if t.PreAgent != "" { // D7 字段（00 册）：预选执行器，池领取时 pickExecutor（S1）读取路由
+		payload["executor"] = t.PreAgent
+	}
+	id, err := t.Store.AddIntent(payload, 8, nil, "seed") // 永远 open（现状路径）
 	if err != nil {
 		log.Printf("[seed] task %s: 下发种子意图失败: %v", t.ID, err)
 		return
@@ -1722,7 +1963,11 @@ func (s *Server) seedFirstIntent(t *Task) {
 	if origin, _ := t.Store.OriginFactID(); origin > 0 {
 		_ = t.Store.Link(origin, db.RelDerivedFrom, id)
 	}
-	log.Printf("[seed] task %s: 已下发种子意图 #%d", t.ID, id)
+	if t.PreAgent != "" {
+		log.Printf("[seed] task %s: 已下发种子意图 #%d（预选执行器 %q，池领取后直接路由执行）", t.ID, id, t.PreAgent)
+	} else {
+		log.Printf("[seed] task %s: 已下发种子意图 #%d", t.ID, id)
+	}
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
@@ -3318,6 +3563,8 @@ func (s *Server) settingsPayload() map[string]any {
 		"notify_enabled":             s.m.pg.GetBool(settingNotifyEnabled, true),
 		"notify_public_base_url":     notifyPublicBaseURL(s.m.pg),
 		"notify_digest_interval_min": notifyDigestIntervalMin(s.m.pg),
+		// 【P-LOG·M0】日志级别（debug/info/warn/error）：热切换，立即生效。
+		"log_level": xlog.LevelString(),
 	}
 }
 
@@ -3390,10 +3637,25 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		NotifyEnabled    *bool   `json:"notify_enabled"`
 		NotifyBaseURL    *string `json:"notify_public_base_url"`
 		NotifyDigestMins *int    `json:"notify_digest_interval_min"`
+		// 【P-LOG·M0】日志级别热切换：debug/info/warn/error；立即生效，无需重启。
+		LogLevel *string `json:"log_level"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	if req.LogLevel != nil {
+		// 【P-LOG·M0】先校验再落库再热切换；非法值 400。
+		if _, ok := xlog.ParseLevel(*req.LogLevel); !ok {
+			writeErr(w, 400, "log_level 必须是 debug/info/warn/error 之一")
+			return
+		}
+		if err := s.m.pg.SetSetting(settingLogLevel, *req.LogLevel); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		xlog.SetLevel(*req.LogLevel)
+		xlog.Infof("[system] log level → %s（热切换，立即生效）", xlog.LevelString())
 	}
 	if req.ConstraintsInjectPlanner != nil {
 		if err := s.m.pg.SetBool(settingConstraintsInjectPlanner, *req.ConstraintsInjectPlanner); err != nil {
@@ -3472,7 +3734,14 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		go s.reconcileConcurrency()
 	}
 	if req.PythonInterp != nil {
-		if err := s.m.pg.SetSetting(settingPythonInterp, strings.TrimSpace(*req.PythonInterp)); err != nil {
+		p := strings.TrimSpace(*req.PythonInterp)
+		// 审计 🔴：解释器路径必须过校验（绝对路径+存在可执行+basename 像 python），
+		// 否则 PUT {"python_interpreter":"/bin/sh"} 即把脚本工具降级成 shell RCE。
+		if err := validatePythonInterp(p); err != nil {
+			writeErr(w, 400, "python_interpreter 不合法: "+err.Error())
+			return
+		}
+		if err := s.m.pg.SetSetting(settingPythonInterp, p); err != nil {
 			writeErr(w, 500, err.Error())
 			return
 		}
@@ -3897,6 +4166,11 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
+	// 【P-LOG·M0】5xx 出口记日志（16 个写错误点此前零记录）；req id/路径见同一请求的
+	// accessLog 中间件行（按时间戳对照），4xx 由中间件覆盖此处不重复。
+	if code >= 500 {
+		xlog.Errorf("[api] 5xx: %s", msg)
+	}
 	writeJSON(w, code, map[string]any{"error": msg})
 }
 

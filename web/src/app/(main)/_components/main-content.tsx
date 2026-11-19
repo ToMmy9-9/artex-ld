@@ -1,3 +1,9 @@
+/**
+ * main-content.tsx：主内容区外壳，渲染全局顶栏并在非任务详情页包裹 children。
+ * 主要函数/类型：
+ *   - MainContent：渲染顶栏（侧栏开关、账号菜单、搜索、主题/布局控制、版本徽标）与页面内容。
+ *   - isFullBleed：判断是否为任务详情页，详情页跳过全局头部直接渲染 children。
+ */
 "use client";
 
 import { type ReactNode, useEffect, useState } from "react";
@@ -71,7 +77,7 @@ export function MainContent({ children }: { children: ReactNode }) {
             <UpdateBadge />
             <LayoutControls />
             <ThemeSwitcher />
-            <AccountSwitcher users={[currentUser]} />
+            <AccountSwitcher user={currentUser} />
           </div>
         </div>
       </header>

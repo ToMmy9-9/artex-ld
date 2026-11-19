@@ -1,3 +1,10 @@
+// bootstrap.go：自举逻辑——下次启动时换装暂存的新二进制、冒烟验证与失败自动回滚。
+// 主要函数/类型：
+//   - Bootstrap：进程启动入口，判断并处理"存在暂存件"或"有待确认标记"的局面。
+//   - applyStaged / confirmOrRollback：校验+冒烟后原子换装，失败则丢弃或回滚。
+//   - Settle / settle：新版启动成功后延迟清除确认标记，没活到清除即触发回滚。
+//   - Rollback / HasBackup：手动把 artex.old 换回当前可执行文件。
+//   - swap / rollback / fileSHA256 / smokeTest：底层换装、回滚、SHA256 校验与冒烟测试。
 package selfupdate
 
 import (

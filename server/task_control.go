@@ -1,3 +1,9 @@
+// task_control.go：任务与意图的暂停/恢复/取消控制及批量控制端点。
+// 主要函数/类型：
+//   - applyTaskControl / applyTaskControlWithCause：执行任务 pause/resume，处理并发互斥与失败补偿。
+//   - applyIntentControl：意图的暂停、恢复与 soft/hard 删除（取消）。
+//   - controlTasksBatch：批量对 1-100 个任务执行暂停/继续。
+//   - resumeAdmissionMode / normalizeBatchTaskIDs：恢复入队判定与批量 id 归一。
 package server
 
 import (
@@ -8,8 +14,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"artex/agent"
+	"artex/db"
 )
 
 const maxBatchControlIDs = 100

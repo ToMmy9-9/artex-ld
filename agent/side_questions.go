@@ -1,3 +1,7 @@
+// side_questions.go：把「人类侧问」捕获机制挂到 agent 运行选项上，供 agent 反问人类并等待答复。
+// 主要函数/类型：
+//   - attachSideCapture：按 RunInfo 构造 sidequestion.Parent 并把捕获依赖注入 agentcore.Options。
+
 package agent
 
 import (
@@ -5,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/sidequestion"
-	"github.com/Autumn-27/norma/agentcore"
+	"artex/sidequestion"
+	"norma/agentcore"
 )
 
 func attachSideCapture(ctx context.Context, opts *agentcore.Options) context.Context {
@@ -14,6 +18,12 @@ func attachSideCapture(ctx context.Context, opts *agentcore.Options) context.Con
 	p := sidequestion.Parent{TaskID: ri.TaskID, ExplorationID: ri.ExplorationID, IntentID: ri.IntentID}
 	if strings.HasPrefix(ri.SessionID, "conv-") {
 		p.ConversationID, _ = strconv.ParseInt(strings.TrimPrefix(ri.SessionID, "conv-"), 10, 64)
+	}
+	if p.ConversationID > 0 {
+		// 会话型与任务型二选一（side_question_sessions CHECK）：触发运行同时带
+		// taskID（P-CLEAN 168e6d1 注入）与 conv- 会话 id，两列同非空会 23514。
+		// 会话型优先，与 server 端 sideParent(kind=conversation) 语义一致。
+		p.TaskID, p.ExplorationID, p.IntentID = 0, 0, 0
 	}
 	if p.ConversationID == 0 && (p.TaskID == 0 || p.ExplorationID == 0) {
 		return ctx

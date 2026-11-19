@@ -1,3 +1,9 @@
+/**
+ * channel-form.tsx：通知渠道表单控件——按字段定义渲染对应输入控件，并展示过滤规则摘要。
+ * 主要函数/类型：
+ *   - ConfigField：按 FieldDef 渲染单个渠道配置字段（掩码凭据只显示「已保存」）
+ *   - FilterSummary：把渠道过滤条件（级别/关键词/任务/资产）渲染成一行摘要
+ */
 "use client";
 
 import { CheckIcon } from "lucide-react";

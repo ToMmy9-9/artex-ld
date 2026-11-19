@@ -1,6 +1,7 @@
 "use client";
 
 // LLM 重试配置的共用件：五层重试各自的「次数 + 间隔」。
+// 职责：LLM 五层重试配置的共用表单组件（RetryRuleFields / ProfileRetryFields / RetryPolicyPanel）。
 //
 // 五层从内到外：建连(SDK) → 空响应(SDK) → 同 provider 安全窗口 → 轮询熔断 → 意图重跑。
 // 前三层跟着端点走，所以每个模型配置都能覆盖全局默认；后两层是进程级的，只有全局一份。
@@ -8,6 +9,14 @@
 // 所有输入都遵循同一套「留空 = 不配置」语义，与后端 db.RetryRule 一致：
 //   次数   空/0 = 用内置默认 | -1 = 关闭这层重试 | >0 = 用这个次数
 //   间隔   空/0 = 用这层原本的指数退避 | >0 = 改用这个固定毫秒间隔
+//
+// 主要函数/类型：
+//   - ZERO_RULE / ZERO_OVERRIDE / ZERO_POLICY：「留空 = 不配置」语义的零值常量
+//   - RETRY_LAYERS：五层重试的元信息（标题 / 触发条件 / 默认值）
+//   - RetryRuleFields：单层重试「次数 + 间隔」的表单控件
+//   - ProfileRetryFields：模型配置抽屉里的三层覆盖表单
+//   - RetryPolicyPanel：「重试与退避」tab，全局五层默认值面板
+//   - humanMs / NumField：毫秒回显与受控数字输入
 
 import * as React from "react";
 

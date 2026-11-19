@@ -1,3 +1,9 @@
+// skill_zip.go：技能 zip 包的读取与校验辅助。
+// 主要函数/类型：
+//   - newSkillZipReader：从字节缓冲打开 zip 读取器。
+//   - skillZipEntries / zipEntryName：枚举 zip 条目并生成导入用名称。
+//   - checkSkillZipMethods：校验 zip 条目的压缩方式是否在允许集合内。
+//   - zipMethodName：压缩方式数值到名称的映射。
 package server
 
 import (

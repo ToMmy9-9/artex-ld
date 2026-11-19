@@ -1,3 +1,7 @@
+/**
+ * toggle.tsx：shadcn/ui 的 Toggle 切换按钮组件封装（含 toggleVariants 变体样式）。
+ * 主要组件：Toggle、toggleVariants。
+ */
 "use client"
 
 import * as React from "react"

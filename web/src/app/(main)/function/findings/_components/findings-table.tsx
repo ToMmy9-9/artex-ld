@@ -1,3 +1,11 @@
+/**
+ * findings-table.tsx：发现列表表格主体，平铺与按任务分组视图共用，承载勾选、行内编辑、复测、深入、删除操作。
+ * 主要函数/类型：
+ *   - FindingsTable：表格主体组件
+ *   - FindingEdit / FindingReport：行内编辑缓冲 / 复测报告状态
+ *   - findingRowKey / isSameFinding / fmtTime：行标识、同发现判断、时间格式化
+ *   - SEVERITIES / FINDING_STATUSES / UNASSIGNED_TASK：严重度、状态选项与未分配任务哨兵值
+ */
 "use client";
 
 import * as React from "react";

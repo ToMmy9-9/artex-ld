@@ -1,3 +1,9 @@
+// task_assets.go：任务资产的挂接、摘除与意图资产查询 HTTP 端点。
+// 主要函数/类型：
+//   - attachTaskAssets：按资产 id 列表或 scope 范围把资产挂到任务。
+//   - detachTaskAsset：解除任务与指定资产的关联。
+//   - taskIntentAssets：查询任务下全部意图关联的资产。
+//   - writeTaskAssetError：把 db 资产错误映射为 4xx/5xx 响应。
 package server
 
 import (
@@ -5,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 const maxTaskAssetRequestBytes = 512 << 10

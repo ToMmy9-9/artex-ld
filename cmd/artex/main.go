@@ -1,3 +1,9 @@
+// main.go：ARTEX 后端入口，组装 SQLite 存储、探索引擎与 JSON HTTP API 并启动服务。
+// 主要函数/类型：
+//   - main / run：进程入口与主装配流程，run 返回退出码以配合自更新重启协议。
+//   - printBanner：打印启动横幅与版本/运行时信息。
+//   - shutdownContext：收到退出信号后构造带期限的关闭上下文。
+
 // Command artex runs the ARTEX backend: the dual SQLite graph stores,
 // the event-driven exploration engine, and the JSON HTTP API consumed by the
 // shadcn/ui frontend.
@@ -16,10 +22,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/config"
-	"github.com/Autumn-27/artex/selfupdate"
-	"github.com/Autumn-27/artex/server"
+	"artex/agent"
+	"artex/config"
+	"artex/selfupdate"
+	"artex/server"
 )
 
 // version is the build version, injected at release time via
@@ -120,7 +126,7 @@ func run() int {
 	}
 
 	go func() {
-		log.Printf("ARTEX %s backend listening on %s (data=%s, workers=%d)", version, *addr, *dataDir, mgr.Workers())
+		log.Printf("artex %s backend listening on %s (data=%s, workers=%d)", version, *addr, *dataDir, mgr.Workers())
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("serve: %v", err)
 		}

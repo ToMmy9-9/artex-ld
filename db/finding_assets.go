@@ -1,3 +1,11 @@
+// finding_assets.go：漏洞关联资产的树形聚合构建（公司/根域名/IP/服务层级）与覆盖统计。
+// 主要函数/类型：
+//   - FindingAssetNode / FindingAssetTree：漏洞资产树节点与树结构。
+//   - BuildFindingAssetTree：按筛选条件构建漏洞资产树并统计命中。
+//   - loadFindingAssetRows / loadAssetsByHost：加载资产行并补齐缺失的父主机。
+//   - applyAssetScope：按公司资产范围过滤构建条件。
+//   - truncateFindingAssetTree：超出节点上限时的树截断。
+
 package db
 
 import (
@@ -619,7 +627,7 @@ func truncateFindingAssetTree(tree *FindingAssetTree, maxNodes int) {
 // 一个节点等于选中它的整棵子树,所以要先把树建出来再收集子孙。
 func (d *DB) applyAssetScope(f FindingFilter) (FindingFilter, error) {
 	scope := strings.TrimSpace(f.AssetScope)
-	f.assetIDs, f.assetNone, f.assetMiss = nil, false, false
+	f.assetIDs, f.assetNone, f.assetMiss = f.AssetIDs, false, false
 	if scope == "" {
 		return f, nil
 	}

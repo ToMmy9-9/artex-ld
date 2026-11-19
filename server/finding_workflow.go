@@ -1,3 +1,8 @@
+// finding_workflow.go：Finding 工作流内置工具的 schema 升级、访问校验与流量绑定工具。
+// 主要函数/类型：
+//   - seedFindingWorkflowTools：升级 traffic_search 描述与 reporter 工具的 evidence_hint_id / traffic_refs schema。
+//   - agentFindingTrafficAccess：校验 agent 上下文对独立 Finding 记录的证据读写权限。
+//   - toolBindFindingTraffic：bind_finding_traffic 工具，为已登记漏洞补绑经核实的流量。
 package server
 
 import (
@@ -8,10 +13,10 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/agent"
+	"artex/db"
+	"artex/traffic"
+	actool "norma/tool"
 )
 
 func (s *Server) seedFindingWorkflowTools() {

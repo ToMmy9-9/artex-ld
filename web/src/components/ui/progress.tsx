@@ -1,3 +1,7 @@
+/**
+ * progress.tsx：shadcn/ui 的 Progress 进度条组件封装。
+ * 主要组件：Progress。
+ */
 "use client"
 
 import * as React from "react"

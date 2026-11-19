@@ -1,3 +1,11 @@
+// db.go：db 包入口，负责 PostgreSQL 连接打开、schema 应用与内置数据 seed。
+// 主要函数/类型：
+//   - Open / DSN / ensureDatabase：构造连接串、确保库存在并打开数据库。
+//   - DB：底层 *sql.DB 的封装类型。
+//   - applySchemaWithRetry / withSchemaMigrationLock：带死锁重试与 advisory 锁的 schema 迁移。
+//   - seedBuiltins：内置 agent 与 prompt 变量目录的 seed。
+//   - seedDefaultInterceptRules(V2/V3) / seedDefaultAssetInterceptRules：默认拦截规则的版本化 seed。
+
 // Package db is the PostgreSQL data source for ARTEX (取代旧 graph 单文件 SQLite)。
 // 它打开连接、应用 schema、并 seed 内置 agent 与变量目录。
 package db
@@ -12,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/config"
+	"artex/config"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx database/sql driver ("pgx")
 )
@@ -160,6 +168,12 @@ func Open(dsn string) (*DB, error) {
 		if err := applySchemaWithRetry(context.Background(), conn, time.Sleep); err != nil {
 			return fmt.Errorf("apply schema: %w", err)
 		}
+		if err := migrateTaskTopologyOverrides(context.Background(), conn); err != nil {
+			return fmt.Errorf("migrate topology: %w", err)
+		}
+		if err := migrateExternalPentestDefaultTemplates(context.Background(), conn); err != nil {
+			return err
+		}
 		if err := d.seedBuiltins(); err != nil {
 			return fmt.Errorf("seed builtins: %w", err)
 		}
@@ -211,6 +225,12 @@ var builtinAgents = []builtinAgent{
 	{"auto", "Auto", "assistant", "平台操作助手：用工具管理任务(建/看/暂停/给提示)与资产，并可创建/修改 skill、自定义工具、MCP。", nil, false, nil},
 	// 渗透测试:内置「独立渗透」agent。经对话页驱动,一人从侦察到收尾走完整条渗透链,自己规划自己执行自己验证。默认开启交互式 shell。
 	{"pentest", "渗透测试", "assistant", "独立渗透 agent：一人从侦察→找攻击面→深入利用→验证→收尾走完整条链，自己规划、自己执行、自己对抗式验证。", nil, true, intp(0)},
+	// ═══ ARTEX 二开 · [P-AGENT·D6 内置review agent种子] ═══
+	// 功能介绍：builtinAgents 追加 review 行——意图审核 agent（AI预审+人对话协作者），role=assistant 免 CHECK 迁移
+	// 二开日期：2026-10-21
+	{"review", "审核", "assistant", "意图审核 agent：AI 预审待审意图（proposed+executor=review 双条件，质量/重复/危险度/executor 适配）并与人对话整理优化点；写动作经按钮确认卡由人放行。", []promptVar{
+		{"Goal", "当前任务目标", "拿下 example.com 的管理员权限", "exploration"},
+	}, false, nil},
 }
 
 // seedBuiltins inserts the fixed built-in agents and their variable catalog (idempotent).

@@ -1,3 +1,8 @@
+/**
+ * local-storage.client.ts：浏览器端 localStorage 的安全读写封装。
+ * 主要函数/类型：
+ *   - setLocalStorageValue / getLocalStorageValue：带异常兜底的写入与读取
+ */
 "use client";
 
 export function setLocalStorageValue(key: string, value: string) {

@@ -1,3 +1,9 @@
+// update.go：页面一键自更新的 HTTP 面——检查/应用/回滚端点与进度广播。
+// 主要函数/类型：
+//   - RestartRequested / SetBootUpdateState：重启信号 channel 与启动时升级结论注入。
+//   - releaseCache / get：GitHub 最新版本查询结果缓存，防未认证 API 配额耗尽。
+//   - updateHub / updateProgress：更新进度广播中心（begin/finish/publish/subscribe/snapshot）。
+//   - updateCheck / updateApply / updateRollback / updateStream：检查、应用、回滚与 SSE 进度推送端点。
 package server
 
 import (
@@ -11,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/selfupdate"
+	"artex/selfupdate"
 )
 
 // 页面一键更新的 HTTP 面。真正的下载/校验/换装逻辑全在 selfupdate 包里，

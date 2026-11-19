@@ -1,3 +1,8 @@
+// settings.go：全局键值配置（settings 表）的读取与 upsert。
+// 主要函数/类型：
+//   - GetSetting / SetSetting：读取配置值（缺省返回 ok=false）/ upsert 写入。
+//   - InsertSettingIfAbsent：仅缺省时插入，不覆盖已有值。
+//   - GetBool / SetBool：布尔配置的读写包装（存为 "true"/"false"）。
 package db
 
 import "database/sql"

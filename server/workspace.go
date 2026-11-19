@@ -1,3 +1,9 @@
+// workspace.go：共享工作区文件管理端点——浏览/查看/编辑/上传/下载/删除。
+// 主要函数/类型：
+//   - wsResolve / wsRel：工作区相对路径与安全绝对路径互转（阻断目录穿越）。
+//   - wsList / wsRead / wsWrite / wsMkdir / wsDelete：目录浏览与文件的读/写/建目录/删。
+//   - wsDownload / wsUpload / saveUpload：文件下载与上传保存（单请求上限 512MiB）。
+//   - sanitizeFilename：清洗上传文件名。
 package server
 
 import (

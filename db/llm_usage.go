@@ -1,3 +1,10 @@
+// llm_usage.go：LLM 调用计量表（llm_usage）的写入与按模型/配置/天的聚合查询。
+// 主要函数/类型：
+//   - LLMUsage：一次 LLM 调用的计量行，只含维度（模型/token/配置），不含内容。
+//   - EnsureLLMUsageTable / InsertLLMUsage：建表与写入计量行（写失败不阻断调用）。
+//   - TokenByModel / UsageByProfile：按模型与按配置 profile 聚合 token 用量。
+//   - UsageDaily / JudgeUsageStats：按天的用量序列与 judge worker 用量统计。
+//   - ParseExpID：从会话 id 字符串解析 exploration id（失败返回 0）。
 package db
 
 import (

@@ -1,3 +1,8 @@
+/**
+ * scope-text-editor.tsx：企业资产范围文本编辑域，按行解析并展示各类型（域名/IP/CIDR/ICP/关键词）计数。
+ * 主要函数/类型：
+ *   - ScopeTextEditor：范围文本编辑器组件（value/onValueChange 受控）
+ */
 "use client";
 
 import * as React from "react";

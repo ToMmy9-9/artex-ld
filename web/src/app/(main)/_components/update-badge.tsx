@@ -1,3 +1,8 @@
+/**
+ * update-badge.tsx：顶栏的"有新版本"提示徽标。
+ * 主要函数/类型：
+ *   - UpdateBadge：挂载时查询最新版本，有更新时渲染可点击的更新提示。
+ */
 "use client";
 
 import * as React from "react";

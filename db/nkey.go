@@ -1,3 +1,9 @@
+// nkey.go：资产图实体（域名/IP/端口/服务/站点/端点/参数/技术）的归一化键与 URL 拆分。
+// 主要函数/类型：
+//   - DomainKey / IPKey / RootDomain：域名与 IP 的归一化及注册域提取（IP/空值视为 apex）。
+//   - PortKey / ServiceKey / SiteKey / EndpointKey / ParameterKey / TechKey：各层实体的复合键构造。
+//   - NormalizeParamName / TemplatePath：参数名归一化与 URL 路径模板化（/user/123→/user/{id}）。
+//   - SplitURL：把 URL 拆成站点与端点键所需的 scheme/host/port/模板/参数。
 package db
 
 import (

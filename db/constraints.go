@@ -1,3 +1,9 @@
+// constraints.go：探索约束（constraints 表）的查询与增删改。
+// 主要函数/类型：
+//   - Constraint：约束行结构。
+//   - ListConstraints / AddConstraint：查询全部约束与新增约束。
+//   - UpdateConstraint / DeleteConstraint：更新与删除指定约束。
+
 package db
 
 import (

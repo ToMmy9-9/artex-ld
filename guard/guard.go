@@ -1,3 +1,11 @@
+// guard.go：安全边界层——审计日志、拦截规则评估（PreToolUse 钩子）与失败归因。
+// 主要函数/类型：
+//   - AuditEntry / Guard：审计条目与安全守卫主体。
+//   - New / NewWithInterceptor / newGuard：构造 Guard。
+//   - Hooks / preToolUse / applyIntercept / postToolUse：钩子注册与工具调用前中后拦截。
+//   - Attributions / block / record / Audit：失败归因、阻断与审计查询。
+//   - interceptorAPI / systemBlockMessage：拦截器抽象与系统阻断文案。
+//
 // Package guard implements the safety boundary layer (docs §11): an audit log,
 // user-configured intercept-rule evaluation, and Observer/G5 failure attribution.
 // Every tool call passes through the PreToolUse hook before executing.
@@ -14,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/norma/hook"
+	"artex/intercept"
+	"norma/hook"
 )
 
 // AuditEntry records one gated tool call.
@@ -27,13 +35,22 @@ type AuditEntry struct {
 	Command string `json:"command,omitempty"`
 }
 
+// interceptorAPI 是 Guard 使用的审批能力；接口让审计逻辑可以独立做单元测试。
+type interceptorAPI interface {
+	IsToolEnabled(string) bool
+	Match(string, []byte) (intercept.Decision, bool)
+	Judge(context.Context, string, json.RawMessage) (intercept.Decision, bool)
+	Log(context.Context, int64, intercept.Decision, string, []byte, string)
+	HandleAsk(context.Context, int64, intercept.Decision, string, []byte) bool
+}
+
 // Guard enforces the side-effect policy via agent-core hooks.
 type Guard struct {
 	mu          sync.Mutex
 	audit       []AuditEntry
 	attrib      map[string]int // failure attribution counts (Observer / G5)
 	reg         *hook.Registry
-	interceptor *intercept.Interceptor // optional; nil disables user-configured rules
+	interceptor interceptorAPI // optional; nil disables user-configured rules
 }
 
 // New creates a Guard without user-configured intercept rules (used for pentest
@@ -41,9 +58,14 @@ type Guard struct {
 func New() *Guard { return newGuard(nil) }
 
 // NewWithInterceptor creates a Guard with user-configured intercept rules.
-func NewWithInterceptor(ic *intercept.Interceptor) *Guard { return newGuard(ic) }
+func NewWithInterceptor(ic *intercept.Interceptor) *Guard {
+	if ic == nil {
+		return newGuard(nil)
+	}
+	return newGuard(ic)
+}
 
-func newGuard(ic *intercept.Interceptor) *Guard {
+func newGuard(ic interceptorAPI) *Guard {
 	g := &Guard{attrib: map[string]int{}, interceptor: ic}
 	g.reg = hook.NewRegistry().
 		On(hook.PreToolUse, g.preToolUse).
@@ -74,14 +96,23 @@ func (g *Guard) preToolUse(ctx context.Context, ev hook.Event) hook.Result {
 		_ = json.Unmarshal(ev.Input, &in)
 		cmd = in.Text
 	}
-	g.record(ev.ToolName, "allow", "", cmd)
-	return g.applyIntercept(ctx, ev)
+	result := g.applyIntercept(ctx, ev)
+	if result.Decision != "block" {
+		g.record(ev.ToolName, "allow", "", cmd)
+	}
+	return result
 }
 
 // applyIntercept evaluates user-configured intercept rules against the tool call.
 // Both rules and the fallback judge receive the complete tool input.
 func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 	if g.interceptor == nil {
+		return hook.Result{}
+	}
+	// 【二开·审核流 PR1/§2.8】K15 审核写工具闸门来源校验：非 review 会话（如 planner
+	// 调 add_review_intent 送审）直接绕过，不进规则匹配/LLM 判官——否则 planner 每次
+	// 送审都会弹人工确认卡（种子规则把这三件工具加进了全局启用集）。
+	if intercept.SkipReviewGateFor(ctx, ev.ToolName) {
 		return hook.Result{}
 	}
 	if !g.interceptor.IsToolEnabled(ev.ToolName) {
@@ -136,7 +167,7 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 // Audit/history rows keep the raw reason (see Interceptor.Log); only the
 // model-facing tool_result carries this framing.
 func systemBlockMessage(reason string) string {
-	return "【ARTEX 平台管控·非目标防御】此调用被平台拦截。" +
+	return "【artex 平台管控·非目标防御】此调用被平台拦截。" +
 		"原因：" + reason + "。此操作被禁止。"
 }
 

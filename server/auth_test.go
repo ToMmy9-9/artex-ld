@@ -62,6 +62,35 @@ func TestAuthInitFailsClosedWhenDataSourceUnavailable(t *testing.T) {
 	}
 }
 
+// 首次初始化只需提交密码；密码设置成功后 init 入口关闭。
+// 用与既有测试同款方式起 Manager（postgres 不可用时 skip）。
+func TestAuthInitOnlyOnce(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	pg := m.pg
+	_, _ = pg.Exec(`DELETE FROM settings WHERE key = $1`, authPassKey)
+	defer func() { _, _ = pg.Exec(`DELETE FROM settings WHERE key = $1`, authPassKey) }()
+
+	s := &Server{m: m}
+	for _, tc := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"首次设置密码", `{"password":"correct horse battery"}`, 200},
+		{"已初始化后再试", `{"password":"another pass"}`, 403},
+	} {
+		w := httptest.NewRecorder()
+		s.authInit(w, httptest.NewRequest("POST", "/api/auth/init", strings.NewReader(tc.body)))
+		if w.Code != tc.want {
+			t.Fatalf("%s: status=%d want %d; body=%s", tc.name, w.Code, tc.want, w.Body.String())
+		}
+	}
+}
+
 func TestValidatePassword(t *testing.T) {
 	for _, tc := range []struct {
 		name, pw string

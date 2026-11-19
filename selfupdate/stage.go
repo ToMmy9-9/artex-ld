@@ -1,3 +1,10 @@
+// stage.go：下载、校验（SHA256SUMS）并暂存新版本二进制，供下次启动换装。
+// 主要函数/类型：
+//   - Stage：升级主流程——选资源、下校验和、下载、校验、解压暂存为 artex.new。
+//   - Phase / Progress：分阶段进度回调（百分比+消息）。
+//   - fetchSums / parseSums / isHexSHA256：获取并解析发布附带的 SHA256SUMS 校验和。
+//   - download / get / extractBinary：带进度地下载资源、跟随白名单重定向并从 zip 提取二进制。
+//   - progressWriter / humanSize / short：进度写出器与展示辅助。
 package selfupdate
 
 import (

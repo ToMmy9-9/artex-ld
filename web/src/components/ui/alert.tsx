@@ -1,3 +1,7 @@
+/**
+ * alert.tsx：shadcn/ui 的 Alert 警告条组件封装（含 cva 变体样式）。
+ * 主要组件：Alert、AlertTitle、AlertDescription、AlertAction。
+ */
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 

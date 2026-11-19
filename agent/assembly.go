@@ -1,3 +1,8 @@
+// assembly.go：agent 工具装配层——叠加可见技能/MCP 工具、套用 DB 覆盖解析与 panic 防护。
+// 主要函数/类型：
+//   - DeferredInfo / ToolAugment：声明延迟工具接线结构与服务端注入的工具增强钩子。
+//   - AugmentTools：在基础工具上叠加技能/MCP 工具，并套用 DB 工具表覆盖与 finding 工作流改写。
+//   - guardPanic / guardedTool.Call：把工具 handler 的 panic 降级为普通工具错误，避免拖垮进程。
 package agent
 
 import (
@@ -7,7 +12,7 @@ import (
 	"log"
 	"runtime/debug"
 
-	actool "github.com/Autumn-27/norma/tool"
+	actool "norma/tool"
 )
 
 // DeferredInfo carries the deferred-tools wiring an agent needs to build its

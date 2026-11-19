@@ -1,3 +1,9 @@
+/**
+ * preferences-store.ts：界面偏好的 Zustand vanilla store 定义。
+ * 主要函数/类型：
+ *   - PreferencesState：主题模式、预设、字体、布局、侧栏等偏好状态及 setter
+ *   - createPreferencesStore：创建带默认值与 setter 的 preferences store
+ */
 import { createStore } from "zustand/vanilla";
 
 import type { FontKey } from "@/lib/fonts/registry";

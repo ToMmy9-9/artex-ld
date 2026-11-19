@@ -1,3 +1,12 @@
+// exploration.go：探索图的核心存储，负责节点/边/活动的写入、状态流转与 token 统计。
+// 主要函数/类型：
+//   - ExplorationStore：单个探索（任务）的存储句柄（DB.Exploration() 构造）。
+//   - Node / Activity：探索节点与活动记录结构。
+//   - AddNode / AddIntent / AddGoal：新增事实、探索方向与目标节点。
+//   - Link / Anchor：建立探索边并把节点锚定到资产。
+//   - SetNodeState / CompareAndSetIntentState：节点状态更新与 intent 状态的 CAS 并发控制。
+//   - TokenDailyAll / TokenUsage / SessionTokenUsage：token 用量的结构与按天统计。
+
 package db
 
 import (
@@ -32,17 +41,13 @@ func utf8Clean(s string) string {
 	return strings.ToValidUTF8(s, "�")
 }
 
-// jsonbClean makes marshaled JSON safe for a PostgreSQL jsonb column. json.Marshal
-// faithfully encodes a NUL byte (U+0000) as the 6-byte escape sequence \u0000; the
-// json type stores it, but jsonb rejects it with "unsupported Unicode escape
-// sequence" (SQLSTATE 22P05). Captured HTTP/tool bytes can carry NULs, so drop the
-// escape — this also covers NULs nested inside json.RawMessage fields, which are
-// copied verbatim into the output. Only a *real* escape is stripped: a \u0000 is
-// genuine when preceded by an even number of backslashes, so an escaped-backslash
-// run such as \\u0000 (the literal text u0000) is left intact.
+// jsonbClean makes marshaled JSON safe for PostgreSQL: invalid UTF-8 and raw NULs
+// are removed, and JSON \u0000 escapes are stripped because jsonb rejects them.
+// Captured HTTP/tool bytes can contain all three forms. Only a real NUL escape is
+// removed; an escaped-backslash sequence such as \\u0000 remains literal text.
 func jsonbClean(b []byte) []byte {
 	if !bytes.Contains(b, []byte("\\u0000")) {
-		return b
+		return []byte(utf8Clean(string(b)))
 	}
 	out := make([]byte, 0, len(b))
 	bs := 0 // consecutive backslashes already emitted before position i
@@ -60,7 +65,7 @@ func jsonbClean(b []byte) []byte {
 		}
 		out = append(out, b[i])
 	}
-	return out
+	return []byte(utf8Clean(string(out)))
 }
 
 // Node is a typed reasoning node (= old task_nodes). kind ∈ goal|intent|finding|hint.
@@ -77,10 +82,13 @@ type Node struct {
 	Owner         string          `json:"owner,omitempty"`
 	BlockedReason string          `json:"blocked_reason,omitempty"`
 	DeleteReason  string          `json:"delete_reason,omitempty"` // 仅意图假删除(state='deleted')时非空
-	Anchors       []int64         `json:"anchors,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	SourceTaskID  int64           `json:"source_task_id,omitempty"`
-	Inherited     bool            `json:"inherited,omitempty"`
+	// 【二开·审核流 PR2】content_version 乐观锁版本号：正文编辑/送审状态翻转时递增；
+	// 审核元数据（review_note/pre_review/reviewed_version）不推版本（§8.2）。
+	ContentVersion int       `json:"content_version"`
+	Anchors        []int64   `json:"anchors,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	SourceTaskID   int64     `json:"source_task_id,omitempty"`
+	Inherited      bool      `json:"inherited,omitempty"`
 }
 
 // Activity is one worker execution step (= old task_activity).
@@ -185,6 +193,13 @@ func (d *DB) CreateExploration(description, goal string) (int64, error) {
 func (d *DB) Exploration(id int64) *ExplorationStore { return &ExplorationStore{db: d, expID: id} }
 
 func (s *ExplorationStore) ID() int64 { return s.expID }
+
+// BuildEdgesFromFact exposes the DB-level fact→edge derivation on the store so
+// the agent tool layer does not need the DB handle. Skips/errors are logged
+// inside; the already-persisted fact is never rolled back.
+func (s *ExplorationStore) BuildEdgesFromFact(taskID, factID int64, payload map[string]any, actor string) {
+	s.db.BuildEdgesFromFact(taskID, factID, payload, actor)
+}
 
 // Root returns the exploration's description and goal.
 func (s *ExplorationStore) Root() (description, goal string, err error) {
@@ -402,7 +417,7 @@ func (s *ExplorationStore) SoftDeleteIntent(id int64, reason string) (string, er
 		}
 		return "", err
 	}
-	if state != "running" && state != "paused" && state != "open" {
+	if state != "running" && state != "paused" && state != "open" && state != "proposed" { // 【二开·P-INTENT·D4】白名单加 proposed（待审意图可假删除）
 		return "", fmt.Errorf("%w: intent state %s cannot be deleted", ErrIntentStateConflict, state)
 	}
 	if _, err := tx.Exec(`UPDATE exploration_nodes
@@ -698,12 +713,12 @@ func (u *TokenUsage) add(other TokenUsage) {
 	u.CacheWriteTokens += other.CacheWriteTokens
 }
 
-const nodeCols = `id, kind, payload, priority, state, COALESCE(origin,''), COALESCE(owner,''), COALESCE(blocked_reason,''), COALESCE(delete_reason,''), created_at`
+const nodeCols = `id, kind, payload, priority, state, COALESCE(origin,''), COALESCE(owner,''), COALESCE(blocked_reason,''), COALESCE(delete_reason,''), content_version, created_at`
 
 func scanNode(sc interface{ Scan(...any) error }) (*Node, error) {
 	var n Node
 	var payload []byte
-	if err := sc.Scan(&n.ID, &n.Kind, &payload, &n.Priority, &n.State, &n.Origin, &n.Owner, &n.BlockedReason, &n.DeleteReason, &n.CreatedAt); err != nil {
+	if err := sc.Scan(&n.ID, &n.Kind, &payload, &n.Priority, &n.State, &n.Origin, &n.Owner, &n.BlockedReason, &n.DeleteReason, &n.ContentVersion, &n.CreatedAt); err != nil {
 		return nil, err
 	}
 	n.Payload = json.RawMessage(payload)
@@ -787,6 +802,59 @@ WHERE `+where+` ORDER BY id DESC LIMIT $`+fmt.Sprintf("%d", len(args)), args...)
 func (s *ExplorationStore) countByKindFiltered(kind, q string) (int, error) {
 	where := `exploration_id=$1 AND kind=$2`
 	args := []any{s.expID, kind}
+	if q != "" {
+		args = append(args, "%"+q+"%")
+		where += fmt.Sprintf(` AND payload->>'summary' ILIKE $%d`, len(args))
+	}
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM exploration_nodes WHERE `+where, args...).Scan(&n)
+	return n, err
+}
+
+// ═══ ARTEX 二开 · [LIST-INTENTS·D2 状态过滤意图分页] ═══
+// 功能介绍：listIntentsPageFiltered/countIntentsFiltered——仿 listByKindPageFiltered/countByKindFiltered，
+//           固定 kind=intent，多一个 states 白名单 IN 过滤（空=全部状态）；仅供 ListIntentsPageWithSources
+//           （db/exploration_sources.go）调用。动态 $N 占位符拼法与 :769 同款。
+// 二开日期：2026-10-22
+
+// listIntentsPageFiltered 分页列意图（before 游标、states 过滤、summary ILIKE 关键词，最新在前，多取一行探 hasMore）。
+func (s *ExplorationStore) listIntentsPageFiltered(states []string, before int64, limit int, q string) ([]*Node, error) {
+	where := `exploration_id=$1 AND kind=$2 AND ($3 <= 0 OR id < $3)`
+	args := []any{s.expID, KindIntent, before}
+	if len(states) > 0 {
+		ph := make([]string, 0, len(states))
+		for _, st := range states {
+			args = append(args, st)
+			ph = append(ph, fmt.Sprintf("$%d", len(args)))
+		}
+		where += " AND state IN (" + strings.Join(ph, ",") + ")"
+	}
+	if q != "" {
+		args = append(args, "%"+q+"%")
+		where += fmt.Sprintf(` AND payload->>'summary' ILIKE $%d`, len(args))
+	}
+	args = append(args, limit+1)
+	rows, err := s.db.Query(`SELECT `+nodeCols+` FROM exploration_nodes
+WHERE `+where+` ORDER BY id DESC LIMIT $`+fmt.Sprintf("%d", len(args)), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+// countIntentsFiltered 同款过滤下的意图总数（states 空=计全部 intent）。
+func (s *ExplorationStore) countIntentsFiltered(states []string, q string) (int, error) {
+	where := `exploration_id=$1 AND kind=$2`
+	args := []any{s.expID, KindIntent}
+	if len(states) > 0 {
+		ph := make([]string, 0, len(states))
+		for _, st := range states {
+			args = append(args, st)
+			ph = append(ph, fmt.Sprintf("$%d", len(args)))
+		}
+		where += " AND state IN (" + strings.Join(ph, ",") + ")"
+	}
 	if q != "" {
 		args = append(args, "%"+q+"%")
 		where += fmt.Sprintf(` AND payload->>'summary' ILIKE $%d`, len(args))
@@ -1030,23 +1098,59 @@ func (s *ExplorationStore) FactsYielded(intentID int64) ([]int64, error) {
 // Used to render "how this finding was reached" — origin → … → finding. Returns
 // empty (not error) for a nonexistent node.
 func (s *ExplorationStore) FindingLineage(nodeID int64) ([]*Node, []Edge, error) {
+	nodes, lineageEdges, err := queryFindingLineage(s.db, s.expID, nodeID, false)
+	if err != nil || len(nodes) == 0 {
+		return nodes, nil, err
+	}
+	edges := make([]Edge, 0, len(lineageEdges))
+	for _, edge := range lineageEdges {
+		edges = append(edges, edge.Edge)
+	}
+	return nodes, edges, nil
+}
+
+type findingLineageQuerier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+type findingLineageEdge struct {
+	Edge
+	CreatedAt time.Time
+}
+
+// queryFindingLineage shares the public all-edge lineage read with the selective
+// finding-chain copy. Selective reads never traverse or return non-lineage node
+// kinds or relations.
+func queryFindingLineage(q findingLineageQuerier, explorationID, nodeID int64, selective bool) ([]*Node, []findingLineageEdge, error) {
+	relationFilter := ""
+	sourceNodeJoin := ""
+	nodeKindFilter := ""
+	if selective {
+		relationFilter = " AND e.rel IN ('yields','derived_from')"
+		sourceNodeJoin = `JOIN exploration_nodes source_node
+      ON source_node.id=e.src_id AND source_node.exploration_id=e.exploration_id
+     AND source_node.kind IN ('intent','fact','finding')`
+		nodeKindFilter = " AND kind IN ('intent','fact','finding')"
+	}
 	// anc = the node + everything that can reach it via edges (walk src<-dst).
-	nodeRows, err := s.db.Query(`
+	nodeRows, err := q.Query(`
 WITH RECURSIVE anc(id) AS (
     SELECT $2::bigint
   UNION
     SELECT e.src_id
     FROM exploration_edges e
     JOIN anc ON e.dst_id = anc.id
-    WHERE e.exploration_id = $1
+    `+sourceNodeJoin+`
+    WHERE e.exploration_id = $1`+relationFilter+`
 )
 SELECT `+nodeCols+`
 FROM exploration_nodes
-WHERE exploration_id = $1 AND id IN (SELECT id FROM anc)
-ORDER BY id`, s.expID, nodeID)
+WHERE exploration_id = $1 AND id IN (SELECT id FROM anc)`+nodeKindFilter+`
+ORDER BY id`, explorationID, nodeID)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer nodeRows.Close()
 	nodes, err := scanNodes(nodeRows)
 	if err != nil {
 		return nil, nil, err
@@ -1054,32 +1158,34 @@ ORDER BY id`, s.expID, nodeID)
 	if len(nodes) == 0 {
 		return nil, nil, nil
 	}
-	// edges among the ancestor set only (the lineage's internal relations).
-	edgeRows, err := s.db.Query(`
+	// Edges among the ancestor set only (the lineage's internal relations).
+	edgeRows, err := q.Query(`
 WITH RECURSIVE anc(id) AS (
     SELECT $2::bigint
   UNION
     SELECT e.src_id
     FROM exploration_edges e
     JOIN anc ON e.dst_id = anc.id
-    WHERE e.exploration_id = $1
+    `+sourceNodeJoin+`
+    WHERE e.exploration_id = $1`+relationFilter+`
 )
-SELECT src_id, rel, dst_id
-FROM exploration_edges
-WHERE exploration_id = $1
-  AND src_id IN (SELECT id FROM anc)
-  AND dst_id IN (SELECT id FROM anc)`, s.expID, nodeID)
+SELECT e.src_id, e.rel, e.dst_id, e.created_at
+FROM exploration_edges e
+WHERE e.exploration_id = $1
+  AND e.src_id IN (SELECT id FROM anc)
+  AND e.dst_id IN (SELECT id FROM anc)`+relationFilter+`
+ORDER BY e.src_id, e.rel, e.dst_id`, explorationID, nodeID)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer edgeRows.Close()
-	var edges []Edge
+	var edges []findingLineageEdge
 	for edgeRows.Next() {
-		var e Edge
-		if err := edgeRows.Scan(&e.From, &e.Rel, &e.To); err != nil {
+		var edge findingLineageEdge
+		if err := edgeRows.Scan(&edge.From, &edge.Rel, &edge.To, &edge.CreatedAt); err != nil {
 			return nil, nil, err
 		}
-		edges = append(edges, e)
+		edges = append(edges, edge)
 	}
 	return nodes, edges, edgeRows.Err()
 }
@@ -1212,7 +1318,7 @@ func (s *ExplorationStore) AppendActivity(a Activity) (int64, error) {
 INSERT INTO activity(exploration_id, node_id, worker, kind, tool, tool_use_id, is_error, summary, detail, metadata, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg)
 VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),NULLIF($6,''),$7,NULLIF($8,''),NULLIF($9,''),$10,$11,$12,$13,$14,$15)
 RETURNING id`, s.expID, a.NodeID, utf8Clean(a.Worker), utf8Clean(a.Kind), utf8Clean(a.Tool), utf8Clean(a.ToolUseID), a.IsError, utf8Clean(a.Summary), utf8Clean(a.Detail),
-		metadata, a.InputTokens, a.OutputTokens, a.CacheReadTokens, a.CacheWriteTokens, a.MainSeg).Scan(&id)
+		jsonbClean(metadata), a.InputTokens, a.OutputTokens, a.CacheReadTokens, a.CacheWriteTokens, a.MainSeg).Scan(&id)
 	return id, err
 }
 
@@ -1589,10 +1695,25 @@ func (f ActivitySessionFilter) cond(argStart int) (string, []any) {
 // still-older steps exist before the returned window (so the client can stop loading
 // on scroll-up). Summary-only columns — detail is lazy-loaded via ActivityDetail.
 func (s *ExplorationStore) ActivityPage(f ActivitySessionFilter, before int64, limit int) ([]Activity, bool, error) {
+	return s.activityPage(f, before, limit, false)
+}
+
+// ActivityPageWithDetail is the same as ActivityPage but also returns the
+// detail column. Used by review chat history where the full agent response
+// must be shown instead of the 200-char summary.
+func (s *ExplorationStore) ActivityPageWithDetail(f ActivitySessionFilter, before int64, limit int) ([]Activity, bool, error) {
+	return s.activityPage(f, before, limit, true)
+}
+
+func (s *ExplorationStore) activityPage(f ActivitySessionFilter, before int64, limit int, withDetail bool) ([]Activity, bool, error) {
 	if limit <= 0 {
 		limit = 200
 	}
-	const cols = `id, node_id, COALESCE(worker,''), COALESCE(kind,''), COALESCE(tool,''), COALESCE(tool_use_id,''), is_error, COALESCE(summary,''), metadata, created_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg`
+	detailCol := ""
+	if withDetail {
+		detailCol = ", COALESCE(detail,'')"
+	}
+	const cols = `id, node_id, COALESCE(worker,''), COALESCE(kind,''), COALESCE(tool,''), COALESCE(tool_use_id,''), is_error, COALESCE(summary,'')`
 	args := []any{s.expID}
 	cond, cargs := f.cond(len(args) + 1)
 	args = append(args, cargs...)
@@ -1600,7 +1721,7 @@ func (s *ExplorationStore) ActivityPage(f ActivitySessionFilter, before int64, l
 	args = append(args, before)
 	limitArg := len(args) + 1
 	args = append(args, limit+1) // one extra row to detect older history
-	q := fmt.Sprintf(`SELECT `+cols+`
+	q := fmt.Sprintf(`SELECT `+cols+detailCol+`, metadata, created_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, main_seg
 FROM activity WHERE exploration_id=$1%s AND ($%d <= 0 OR id < $%d)
 ORDER BY id DESC LIMIT $%d`, cond, beforeArg, beforeArg, limitArg)
 	rows, err := s.db.Query(q, args...)
@@ -1611,9 +1732,17 @@ ORDER BY id DESC LIMIT $%d`, cond, beforeArg, beforeArg, limitArg)
 	desc := []Activity{}
 	for rows.Next() {
 		var a Activity
-		if err := rows.Scan(&a.ID, &a.NodeID, &a.Worker, &a.Kind, &a.Tool, &a.ToolUseID, &a.IsError, &a.Summary, &a.Metadata, &a.CreatedAt,
-			&a.InputTokens, &a.OutputTokens, &a.CacheReadTokens, &a.CacheWriteTokens, &a.MainSeg); err != nil {
+		var detail string
+		scanArgs := []any{&a.ID, &a.NodeID, &a.Worker, &a.Kind, &a.Tool, &a.ToolUseID, &a.IsError, &a.Summary}
+		if withDetail {
+			scanArgs = append(scanArgs, &detail)
+		}
+		scanArgs = append(scanArgs, &a.Metadata, &a.CreatedAt, &a.InputTokens, &a.OutputTokens, &a.CacheReadTokens, &a.CacheWriteTokens, &a.MainSeg)
+		if err := rows.Scan(scanArgs...); err != nil {
 			return nil, false, err
+		}
+		if withDetail {
+			a.Detail = detail
 		}
 		desc = append(desc, a)
 	}
@@ -2019,3 +2148,400 @@ func (s *ExplorationStore) ActivityByIDsForTerminalIntents(ids []int64) ([]Activ
 func (s *ExplorationStore) AddStandaloneFinding(taskID, nodeID int64, vulnclass, name, severity, summary, evidence, worker string, assetIDs []int64) (int64, error) {
 	return s.db.AddFinding(taskID, nodeID, vulnclass, name, severity, summary, evidence, worker, assetIDs)
 }
+
+// ═══ ARTEX 二开 · [P-INTENT·D3 proposed 查询/写入方法] ═══
+// 功能介绍：意图人工审核闸门的 db 层数据口（01 册 D3）。审核模式双条件（m00960/m00973 拍板）：
+//           state='proposed' 且 payload->>'executor'='review'——executor≠'review' 的 proposed
+//           意图不进审核面板（那是留给自定义 agent 领取路由的）。本组方法全部带该过滤。
+// 二开日期：2026-10-21
+
+// withTx 在单个事务内执行 fn，fn 返回 nil 时提交、否则回滚。
+func (s *ExplorationStore) withTx(fn func(tx *sql.Tx) error) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// strOf/intOf 读 payload map 的弱类型字段。
+func strOf(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func intOf(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	}
+	return 0
+}
+
+// truncateRunes 按字符数截断（审核意见统一上限用）。
+func truncateRunes(s string, max int) string {
+	rs := []rune(s)
+	if len(rs) <= max {
+		return s
+	}
+	return string(rs[:max])
+}
+
+// proposedPendingCols 生成审核域【待审】过滤片段（§3.6：单一过滤器，全链路复用）：
+// state='proposed' + executor='review' 占位 + review_status='pending'。
+// alias 为空时不加表前缀（exploration_nodes 单表查询）；COALESCE 兼容未迁移的旧行
+// （无 review_status 键视为 pending）。
+func proposedPendingCols(alias string) string {
+	p := ""
+	if alias != "" {
+		p = alias + "."
+	}
+	return p + `kind='intent' AND ` + p + `state='proposed' AND ` + p + `payload->>'executor'='review' AND COALESCE(` + p + `payload->>'review_status','pending')='pending'`
+}
+
+// rejectedCols 生成审核域【被驳回待修订】过滤片段：planner 修订 loop 专用。
+func rejectedCols(alias string) string {
+	p := ""
+	if alias != "" {
+		p = alias + "."
+	}
+	return p + `kind='intent' AND ` + p + `state='proposed' AND ` + p + `payload->>'executor'='review' AND ` + p + `payload->>'review_status'='rejected'`
+}
+
+// ProposedPendingFilter / RejectedReviewFilter 是无限定前缀形态（单表查询用）。
+var (
+	ProposedPendingFilter = proposedPendingCols("")
+	RejectedReviewFilter  = rejectedCols("")
+)
+
+// 审核写路径哨兵错误（§8.1）：调用方据此区分 404/409/422。
+var (
+	// ErrIntentNotFound 意图不存在（或不属于本探索）。
+	ErrIntentNotFound = errors.New("intent not found")
+	// ErrNotPendingReview 意图不在待审态（已被处置/批准/驳回/取消）。
+	ErrNotPendingReview = errors.New("intent is not pending review")
+	// ErrStaleVersion expected_version 与当前 content_version 不一致（写前已被他人改动）。
+	ErrStaleVersion = errors.New("stale intent version")
+	// ErrNoteRequired 驳回/修订意见为空，且该意图也没有可复用的既有批注。
+	ErrNoteRequired = errors.New("review note required")
+)
+
+// HasProposedIntent 报告本探索是否存在待审意图（pending）。planner 心跳抑制（S3）与
+// goalless 判定（S4）共用：有待审意图 = 人在决策环里，不算空转、不重复派单。
+func (s *ExplorationStore) HasProposedIntent() (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM exploration_nodes
+WHERE exploration_id=$1 AND `+ProposedPendingFilter+`)`, s.expID).Scan(&exists)
+	return exists, err
+}
+
+// HasRejectedIntent 报告是否存在被驳回待修订的意图（§4.2.4：goalless 例外判据）。
+func (s *ExplorationStore) HasRejectedIntent() (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM exploration_nodes
+WHERE exploration_id=$1 AND `+RejectedReviewFilter+`)`, s.expID).Scan(&exists)
+	return exists, err
+}
+
+// ProposedIntents 按优先级列出全部待审意图（pending），供审核面板/审核 API 使用。
+func (s *ExplorationStore) ProposedIntents(limit int) ([]*Node, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT `+nodeCols+` FROM exploration_nodes
+WHERE exploration_id=$1 AND `+ProposedPendingFilter+`
+ORDER BY priority DESC, id ASC LIMIT $2`, s.expID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+// RejectedIntents 按最近驳回顺序列出被驳回待修订的意图（planner 修订 loop 与面板角标用）。
+func (s *ExplorationStore) RejectedIntents(limit int) ([]*Node, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT `+nodeCols+` FROM exploration_nodes
+WHERE exploration_id=$1 AND `+RejectedReviewFilter+`
+ORDER BY id DESC LIMIT $2`, s.expID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+// FreshPendingIntents 列出需要（重）审的待审意图（§3.4 fresh 判据 SQL 下推）：
+// 从未审过（无 reviewed_version 键）或审后正文又变过（reviewed_version < content_version）。
+// 预审轮/自动处置轮只处理 fresh 集合，审过且未变的不再重复消耗 LLM。
+func (s *ExplorationStore) FreshPendingIntents(limit int) ([]*Node, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT `+nodeCols+` FROM exploration_nodes
+WHERE exploration_id=$1 AND `+ProposedPendingFilter+`
+  AND (payload->>'reviewed_version' IS NULL
+       OR COALESCE((payload->>'reviewed_version')::int, -1) < content_version)
+ORDER BY priority DESC, id ASC LIMIT $2`, s.expID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+// 【二开·审核流 PR3】版本化审核写回（§8.1）：所有审核处置走 expected_version CAS。
+// 版本翻转只有三种会推 content_version：正文编辑、pending→rejected、rejected→pending（§8.2）；
+// 批准转 open 是状态机迁移也推版本；review_note/pre_review/reviewed_version 属审核元数据，不推版本。
+
+// ApproveIntentAt 批准待审意图：proposed→open，expectedVersion 乐观锁（§2.9.4）。
+// 真实执行器只在此时由 payload.pending_executor 转正得到（有则转正，无则删除 executor 占位键），
+// 不再接受外部 executor 参数（§8：执行器只在批准瞬间定型）。
+// 返回 false=已不在待审态或版本冲突（调用方可用 DiagnoseRevisionMiss 区分）。
+func (s *ExplorationStore) ApproveIntentAt(id int64, expectedVersion int) (bool, error) {
+	return s.approveIntentAt(id, expectedVersion, false)
+}
+
+// ApprovePrescreenPass 预审 pass 专用批准（§3.3.1）：与 ApproveIntentAt 同事务完成，
+// 额外记审计字段 pre_review='pass'、reviewed_version=<审到的版本>，并清空 review_note。
+func (s *ExplorationStore) ApprovePrescreenPass(id int64, expectedVersion int) (bool, error) {
+	return s.approveIntentAt(id, expectedVersion, true)
+}
+
+func (s *ExplorationStore) approveIntentAt(id int64, expectedVersion int, prescreenAudit bool) (bool, error) {
+	var ok bool
+	err := s.withTx(func(tx *sql.Tx) error {
+		// 锁行并读当前 payload（FOR UPDATE 挡住并发处置）。
+		var payload []byte
+		var curVersion int
+		var state string
+		if err := tx.QueryRow(`SELECT payload::text, content_version, state FROM exploration_nodes
+WHERE id=$1 AND exploration_id=$2 FOR UPDATE`, id, s.expID).Scan(&payload, &curVersion, &state); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrIntentNotFound
+			}
+			return err
+		}
+		m := map[string]any{}
+		if len(payload) > 0 {
+			_ = json.Unmarshal(payload, &m)
+		}
+		// CAS：必须仍是 pending 待审且版本未变。
+		if state != "proposed" || strOf(m["executor"]) != "review" || reviewStatusOf(m) != "pending" {
+			return ErrNotPendingReview
+		}
+		if curVersion != expectedVersion {
+			return ErrStaleVersion
+		}
+		// 执行器转正：pending_executor → executor；无则删 executor 占位键。
+		if pe := strOf(m["pending_executor"]); pe != "" {
+			m["executor"] = pe
+		} else {
+			delete(m, "executor")
+		}
+		delete(m, "pending_executor")
+		delete(m, "review_status")
+		if prescreenAudit {
+			m["pre_review"] = "pass"
+			m["reviewed_version"] = curVersion
+			delete(m, "review_note")
+		}
+		raw, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE exploration_nodes
+SET state='open', payload=$3::json, content_version=content_version+1
+WHERE id=$1 AND exploration_id=$2`, id, s.expID, string(raw)); err != nil {
+			return err
+		}
+		ok = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
+// RequestRevisionAt 驳回待审意图退回修订（§8.1.1）：state 保持 proposed，review_status 翻为
+// 'rejected'，记 review_note/reviewed_version/revision_count+1，content_version+1（版本翻转）。
+// note 取值优先级：新填 > 既有 payload.review_note > ErrNoteRequired；统一截断 2000 字。
+// executor/pending_executor 保持不动（修订后重送仍走同一目标执行器，除非 update_intent 改）。
+// ok=false 时 err 经 diagnoseRevisionMiss 细分为 NotFound/NotPending/StaleVersion。
+func (s *ExplorationStore) RequestRevisionAt(id int64, note string, expectedVersion int) (summary string, newVersion int, ok bool, err error) {
+	note = truncateRunes(strings.TrimSpace(note), 2000)
+	err = s.withTx(func(tx *sql.Tx) error {
+		var payload []byte
+		var curVersion int
+		if e := tx.QueryRow(`SELECT payload::text, content_version FROM exploration_nodes
+WHERE id=$1 AND exploration_id=$2 FOR UPDATE`, id, s.expID).Scan(&payload, &curVersion); e != nil {
+			if errors.Is(e, sql.ErrNoRows) {
+				return ErrIntentNotFound
+			}
+			return e
+		}
+		m := map[string]any{}
+		if len(payload) > 0 {
+			_ = json.Unmarshal(payload, &m)
+		}
+		summary = strOf(m["summary"])
+		effNote := note
+		if effNote == "" {
+			effNote = truncateRunes(strings.TrimSpace(strOf(m["review_note"])), 2000)
+		}
+		if effNote == "" {
+			return ErrNoteRequired
+		}
+		m["review_status"] = "rejected"
+		m["review_note"] = effNote
+		m["reviewed_version"] = curVersion
+		m["revision_count"] = intOf(m["revision_count"]) + 1
+		raw, e := json.Marshal(m)
+		if e != nil {
+			return e
+		}
+		res, e := tx.Exec(`UPDATE exploration_nodes
+SET payload=$3::json, content_version=content_version+1
+WHERE id=$1 AND exploration_id=$2 AND `+ProposedPendingFilter+` AND content_version=$4`,
+			id, s.expID, string(raw), expectedVersion)
+		if e != nil {
+			return e
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return s.diagnoseRevisionMiss(tx, id, expectedVersion)
+		}
+		newVersion = expectedVersion + 1
+		ok = true
+		return nil
+	})
+	return summary, newVersion, ok, err
+}
+
+// SetReviewNoteAt 写人工批注（§8.1）：审核元数据，不推 content_version；带 pending 闸门与版本 CAS。
+func (s *ExplorationStore) SetReviewNoteAt(id int64, note string, expectedVersion int) (bool, error) {
+	var ok bool
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, e := tx.Exec(`UPDATE exploration_nodes
+SET payload=jsonb_set(payload::jsonb, '{review_note}', to_jsonb($3::text), true)::json
+WHERE id=$1 AND exploration_id=$2 AND `+ProposedPendingFilter+` AND content_version=$4`,
+			id, s.expID, note, expectedVersion)
+		if e != nil {
+			return e
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return s.diagnoseRevisionMiss(tx, id, expectedVersion)
+		}
+		ok = true
+		return nil
+	})
+	return ok, err
+}
+
+// SetPrescreenVerdict 预审 revise 落账（§3.3.1）：保持 pending，写 pre_review='revise'、
+// review_note=优化建议、reviewed_version=审到的版本；审核元数据不推 content_version。
+// 版本 CAS 保证“审的就是这份稿”：预审期间正文被改（版本已变）则整条丢弃。
+func (s *ExplorationStore) SetPrescreenVerdict(id int64, note string, expectedVersion int) (bool, error) {
+	var ok bool
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, e := tx.Exec(`UPDATE exploration_nodes
+SET payload=(payload::jsonb
+    || jsonb_build_object('pre_review','revise','review_note',$3::text,'reviewed_version',$4::int))::json
+WHERE id=$1 AND exploration_id=$2 AND `+ProposedPendingFilter+` AND content_version=$4`,
+			id, s.expID, note, expectedVersion)
+		if e != nil {
+			return e
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return s.diagnoseRevisionMiss(tx, id, expectedVersion)
+		}
+		ok = true
+		return nil
+	})
+	return ok, err
+}
+
+// SetPrescreenPassNote 预审 pass 纯标注（人工全审模式）：保持 pending 不批准，
+// 写 pre_review='pass'、review_note=放行理由（可空）、reviewed_version；供人工参考。
+// 版本 CAS 与 SetPrescreenVerdict 同语义。
+func (s *ExplorationStore) SetPrescreenPassNote(id int64, note string, expectedVersion int) (bool, error) {
+	var ok bool
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, e := tx.Exec(`UPDATE exploration_nodes
+SET payload=(payload::jsonb
+    || jsonb_build_object('pre_review','pass','review_note',$3::text,'reviewed_version',$4::int))::json
+WHERE id=$1 AND exploration_id=$2 AND `+ProposedPendingFilter+` AND content_version=$4`,
+			id, s.expID, note, expectedVersion)
+		if e != nil {
+			return e
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return s.diagnoseRevisionMiss(tx, id, expectedVersion)
+		}
+		ok = true
+		return nil
+	})
+	return ok, err
+}
+
+// diagnoseRevisionMiss 在 CAS 未命中时细分原因（§8.1.1）：不存在 / 不在待审态 / 版本冲突。
+// 调用时外层已持有该行的 FOR UPDATE 锁或刚从唯一索引查到，诊断结果仅作错误分类。
+func (s *ExplorationStore) diagnoseRevisionMiss(tx *sql.Tx, id int64, expectedVersion int) error {
+	var state, executor, reviewStatus string
+	var curVersion int
+	err := tx.QueryRow(`SELECT state, COALESCE(payload->>'executor',''), COALESCE(payload->>'review_status','pending'), content_version
+FROM exploration_nodes WHERE id=$1 AND exploration_id=$2`, id, s.expID).
+		Scan(&state, &executor, &reviewStatus, &curVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrIntentNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if state != "proposed" || executor != "review" || reviewStatus != "pending" {
+		return ErrNotPendingReview
+	}
+	if curVersion != expectedVersion {
+		return ErrStaleVersion
+	}
+	return ErrStaleVersion // 理论上到不了：过滤器与版本都命中却没更新到
+}
+
+// reviewStatusOf 读 payload 的 review_status，缺省按 pending（兼容未迁移旧行）。
+func reviewStatusOf(m map[string]any) string {
+	if rs := strOf(m["review_status"]); rs != "" {
+		return rs
+	}
+	return "pending"
+}
+
+// AddProposedIntent 落一条待审意图（state=proposed，池领不走——Frontier/ClaimIntent 只认 open）。
+// 【二开·审核流 PR1】防御性补齐 review_status='pending'（调用方 createIntent 内核已写，双保险）；
+// executor='review' 占位与 pending_executor 由调用方保证。
+func (s *ExplorationStore) AddProposedIntent(payload map[string]any, priority int, anchors []int64, origin string) (int64, error) {
+	if origin == "" {
+		origin = "review"
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if payload["review_status"] == nil {
+		payload["review_status"] = "pending"
+	}
+	return s.AddNode("intent", payload, priority, "proposed", origin, anchors)
+}
+
+// 【二开·P-INTENT·D3】止

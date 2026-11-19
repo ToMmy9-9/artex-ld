@@ -1,3 +1,10 @@
+/**
+ * side-question-workspace.tsx：/btw 旁路提问的入口按钮与抽屉工作区，含问答列表与输入区。
+ * 主要函数/类型：
+ *   - SideQuestionButton：旁路提问入口按钮
+ *   - SideQuestionWorkspace：抽屉工作区组件（问答列表 + composer）
+ *   - SidePanel：内部面板（滚动定位、清空确认）
+ */
 "use client";
 
 import { type ReactNode, useEffect, useRef, useState } from "react";

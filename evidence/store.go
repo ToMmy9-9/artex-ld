@@ -1,3 +1,12 @@
+// store.go：发现证据存储，按 SHA-256 落盘证据正文并管理流量快照的引用计数与回收。
+// 主要函数/类型：
+//   - Store / New：证据存储门面，聚合数据库、流量存储与证据目录。
+//   - writeBody / verifyFile：正文先写暂存再原子发布，以及哈希/长度校验。
+//   - Record / Bind：记录发现的证据正文并绑定流量快照。
+//   - StageFindingsExport / CopySnapshots / InstallSnapshots：证据导出暂存与快照目录的复制/安装。
+//   - OpenBody：按快照与方向（请求/响应）打开证据正文文件。
+//   - Collect / RunGC：回收失去引用超 24 小时的快照与孤儿 blob，RunGC 每小时驱动一次。
+
 // Package evidence preserves finding evidence independently of disposable traffic.
 package evidence
 
@@ -16,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	"artex/db"
+	"artex/traffic"
 )
 
 type Store struct {

@@ -1,3 +1,11 @@
+// triggers.go：Agent 触发器（agent_triggers 表）与调度状态、任务事件查询。
+// 主要函数/类型：
+//   - AgentTrigger：挂在自定义 agent 上的 P3 触发器（六种触发条件）。
+//   - CreateTrigger / UpdateTrigger / DeleteTrigger：触发器增改删。
+//   - ListTriggersFor / ListEnabledTriggers：按 agent 或启用状态列出触发器。
+//   - TouchTriggerFire / GetSchedState / SetSchedState：触发时间记录与调度状态读写。
+//   - TaskEvent / NewFindingsSince / TimedOutTasksSince / NewTasksSince / NewToolCallsSince / MetGoals：增量任务事件查询。
+
 package db
 
 import (
@@ -150,6 +158,7 @@ ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, key, value)
 // compose the trigger message context.
 type TaskEvent struct {
 	NodeID     int64  `json:"node_id"`
+	FindingID  int64  `json:"finding_id"`
 	TaskID     int64  `json:"task_id"`
 	TaskDesc   string `json:"task_description"`
 	TaskGoal   string `json:"task_goal"`
@@ -166,8 +175,9 @@ type TaskEvent struct {
 // ordered by id (monotonic watermark → no double-fire).
 func (d *DB) NewFindingsSince(lastID int64) ([]TaskEvent, error) {
 	rows, err := d.Query(`
-SELECT n.id, t.id, t.description, t.goal, n.payload
+SELECT n.id, t.id, t.description, t.goal, n.payload, COALESCE(f.id,0)
 FROM exploration_nodes n JOIN tasks t ON t.exploration_id = n.exploration_id
+LEFT JOIN findings f ON f.node_id=n.id AND f.task_id=t.id
 WHERE n.kind='finding' AND n.id > $1 AND t.deleted_at IS NULL
 ORDER BY n.id`, lastID)
 	if err != nil {
@@ -178,7 +188,7 @@ ORDER BY n.id`, lastID)
 	for rows.Next() {
 		var e TaskEvent
 		var payload []byte
-		if err := rows.Scan(&e.NodeID, &e.TaskID, &e.TaskDesc, &e.TaskGoal, &payload); err != nil {
+		if err := rows.Scan(&e.NodeID, &e.TaskID, &e.TaskDesc, &e.TaskGoal, &payload, &e.FindingID); err != nil {
 			return nil, err
 		}
 		var p struct{ Summary, Vulnclass, Severity string }

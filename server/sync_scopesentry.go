@@ -1,3 +1,10 @@
+// sync_scopesentry.go：ScopeSentry 数据源的配置检查与资产同步 HTTP 接口。
+// 主要函数/类型：
+//   - findMCPByName / scopeSentryClient / envHasValue：定位 ScopeSentry MCP 配置并建立客户端连接。
+//   - syncSSStatus / syncSSDatasource：同步状态探测与数据源 URL/API key 配置接口。
+//   - syncSSProjects / syncSSTasks / syncSSRun：按项目/任务维度拉取 ScopeSentry 数据并入库的同步接口。
+//   - ssPageAll / ssProjectMeta：分页拉取 ScopeSentry 条目与项目元信息。
+//   - ssIngest：把单条 ScopeSentry 资产（subdomain/app/service/ip）写入资产库。
 package server
 
 import (
@@ -9,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/mcphttp"
+	"artex/db"
+	"artex/mcphttp"
 )
 
 // 资产同步（ScopeSentry 数据源）。

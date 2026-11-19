@@ -1,3 +1,8 @@
+/**
+ * lineage.tsx：单条发现的攻击链路子图，复用任务链路图画布，仅展示从任务起点到本发现的子图。
+ * 主要函数/类型：
+ *   - FindingLineageView：经 api.findingLineage 拉取节点与边并渲染 ExplorationGraph
+ */
 "use client";
 
 import * as React from "react";

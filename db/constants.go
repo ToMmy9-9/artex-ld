@@ -1,3 +1,10 @@
+// constants.go：探索图节点类型（kind）、状态（state）与边关系（rel）的常量定义。
+// 主要函数/类型：
+//   - KindBegin / KindGoal / KindIntent / KindFact / KindFinding / KindDigest：探索节点类型常量（KindBegin 已弃用）。
+//   - StateDigestActive / StateDigestSuperseded：digest 节点的活跃/被取代状态。
+//   - StateOrigin / StateIntentDeleted：任务根事实状态与 intent 软删除状态。
+//   - RelSpawns / RelDerivedFrom / RelYields / RelProves / RelCovers：探索边关系常量。
+
 package db
 
 // Exploration node kinds (exploration_nodes.kind).

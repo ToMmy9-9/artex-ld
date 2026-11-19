@@ -1,3 +1,11 @@
+// asset_dsl.go：资产过滤 DSL 的解析与 SQL 生成，把查询表达式编译为参数化 WHERE 子句。
+// 主要函数/类型：
+//   - ParseDSL：把 DSL 字符串解析为 AST 节点树。
+//   - Expr / astNode：叶子表达式与解析树节点结构。
+//   - dslParser：递归下降解析器（parseOr/parseAnd/parseAtom）。
+//   - whereBuilder：把 AST 编译为带占位符的 WHERE SQL。
+//   - buildDSLWhere / buildDSLWhereBase：构建 WHERE 子句及参数的入口函数。
+
 package db
 
 import (

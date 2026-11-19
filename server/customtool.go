@@ -1,3 +1,10 @@
+// customtool.go：自定义工具（命令/Python 脚本/HTTP）的增删改查、构建与执行。
+// 主要函数/类型：
+//   - pgCreateCustomTool / pgUpdateCustomTool / pgDeleteCustomTool / pgTestCustomTool：自定义工具增删改与试运行。
+//   - customTools / buildCustomTool：从数据库行构建可调用的 CoreTool。
+//   - runCommandTool / runScriptTool / runHTTPTool：按类型执行命令 / 脚本 / HTTP 工具。
+//   - detectPython / validatePythonInterp / pythonInterpreter：Python 解释器自动探测、合法性校验与解析。
+//   - execPython：把脚本写入临时文件，以 stdin JSON 传参执行并收集输出。
 package server
 
 import (
@@ -17,9 +24,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/db"
+	"artex/xlog"
+	"norma/permission"
+	actool "norma/tool"
 )
 
 // 本文件实现自定义工具执行器(docs/自定义工具设计.md)。system=false 的 tools 行按
@@ -182,21 +190,62 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 
 const settingPythonInterp = "python_interpreter"
 
-// detectPython finds a python interpreter absolute path (python3 preferred).
+// detectPython returns the first Python interpreter on PATH that can actually run.
+// The version probe skips unusable entries such as Windows Store alias executables.
 func detectPython() string {
 	for _, c := range []string{"python3", "python"} {
-		if p, err := exec.LookPath(c); err == nil {
+		p, err := exec.LookPath(c)
+		if err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err = exec.CommandContext(ctx, p, "--version").Run()
+		cancel()
+		if err == nil {
 			return p
 		}
 	}
 	return ""
 }
 
+// validatePythonInterp restricts configured interpreters to absolute, executable
+// Python paths so script execution cannot be redirected to an arbitrary binary.
+func validatePythonInterp(p string) error {
+	if p == "" {
+		return nil // 允许清空=恢复自动检测
+	}
+	if !filepath.IsAbs(p) {
+		return fmt.Errorf("必须是绝对路径")
+	}
+	rawBase := strings.ToLower(filepath.Base(p))
+	base := strings.TrimSuffix(rawBase, ".exe")
+	ok := base == "python" || base == "pypy" || base == "pypy3" || strings.HasPrefix(base, "python3")
+	if !ok {
+		return fmt.Errorf("解释器必须是 python（basename 形如 python / python3 / python3.11），当前: %s", base)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return fmt.Errorf("路径不存在或不可读: %v", err)
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("路径是目录")
+	}
+	if fi.Mode()&0o111 == 0 && !strings.HasSuffix(rawBase, ".exe") {
+		return fmt.Errorf("文件不可执行")
+	}
+	return nil
+}
+
 // pythonInterpreter resolves the interpreter: user-set > stored auto-detect > live
 // detect. "" only when truly none found.
 func (s *Server) pythonInterpreter() string {
 	if v, ok, _ := s.m.pg.GetSetting(settingPythonInterp); ok && strings.TrimSpace(v) != "" {
-		return strings.TrimSpace(v)
+		v = strings.TrimSpace(v)
+		// 存量脏值（本修复落地前可能已被改过）在使用侧同样拦：非法就当没设。
+		if validatePythonInterp(v) == nil {
+			return v
+		}
+		xlog.Warnf("[tools] 存量 python_interpreter 不合法已忽略: %q", v)
 	}
 	return detectPython()
 }

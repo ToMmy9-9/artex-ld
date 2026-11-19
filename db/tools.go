@@ -1,3 +1,11 @@
+// tools.go：内置/自定义工具目录（tools 表）的种子、绑定与 CRUD。
+// 主要函数/类型：
+//   - Tool：工具目录行（描述、参数 schema、agent 绑定、开关等）。
+//   - SeedTool / UpsertToolForce / RefreshToolDefaults：种子写入与强制 upsert/刷新。
+//   - ListTools / GetTool：工具列表与单查。
+//   - CreateCustomTool / UpdateCustomTool / DeleteCustomTool / ListCustomTools：自定义工具 CRUD。
+//   - AddAgentToToolBinding / RemoveAgentFromTool / RemoveAgentFromToolBindings：维护 agent 与工具的绑定。
+
 package db
 
 import (

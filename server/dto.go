@@ -1,3 +1,10 @@
+// dto.go：任务、Finding、目标、活动、Agent、LLM 配置等 DTO 定义与数据库模型转换。
+// 主要函数/类型：
+//   - TaskDTO / taskDTO：任务详情 DTO 及组装（含归档阻塞标记）。
+//   - FindingDTO / findingDTOsForTask / findingFromDB：Finding DTO 及任务/全局/数据库行多种来源转换。
+//   - ActivityDTO / activityDTOs：活动记录 DTO 转换。
+//   - AgentDTO / agentDTOs、LLMProfileDTO / llmProfileDTOs：Agent 与 LLM 配置 DTO 转换。
+//   - GoalDTO / ConstraintDTO / TrafficExchangeDTO / TaskNodeDTO / EdgeDTO：目标、约束、流量、节点与边的 DTO 及转换。
 package server
 
 import (
@@ -6,8 +13,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	"artex/db"
+	"artex/traffic"
 )
 
 // DTO/serialization layer: each handler emits EXACTLY the frontend's spec shapes
@@ -35,6 +42,7 @@ type TaskDTO struct {
 	Name               string             `json:"name"` // 可选任务名称;空=未命名
 	CategoryID         *int64             `json:"category_id,omitempty"`
 	CategoryName       string             `json:"category_name,omitempty"`
+	CategoryNKey       string             `json:"category_nkey,omitempty"`
 	Pinned             bool               `json:"pinned"`
 	PinnedAt           string             `json:"pinned_at,omitempty"`
 	Description        string             `json:"description"`
@@ -61,6 +69,9 @@ type TaskDTO struct {
 	ArchiveBlockedBy   string             `json:"archive_blocked_by_task_id,omitempty"`
 	CompanyIDs         []int64            `json:"company_ids"`
 	CoverageEnabled    bool               `json:"coverage_enabled"` // 资产覆盖度功能开关(创建时定)
+	ReviewAuto         bool               `json:"review_auto"`      // 【二开·P-REVIEW·D2b】自动审核开关（审核面板 Switch 读写）
+	ReviewEnabled      bool               `json:"review_enabled"`   // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934）
+	AssetMode          string             `json:"asset_mode"`       // 【二开·P-REVIEW·D12】资产图模式标签（m04039）
 }
 
 // FindingSeverityDTO 是任务列表里按严重度分档的漏洞计数（严重/高/中/低）。
@@ -115,11 +126,15 @@ func taskDTO(t *Task, status string) TaskDTO {
 		Name:               lifecycle.Name,
 		CategoryID:         lifecycle.CategoryID,
 		CategoryName:       lifecycle.CategoryName,
+		CategoryNKey:       lifecycle.CategoryNKey,
 		Pinned:             lifecycle.PinnedAt > 0,
 		PinnedAt:           completedRFC(lifecycle.PinnedAt),
 		Description:        t.Description,
 		Goal:               t.Goal,
 		Status:             status,
+		ReviewAuto:         t.ReviewAuto,    // 【二开·P-REVIEW·D2b】
+		ReviewEnabled:      t.ReviewEnabled, // 【二开·P-REVIEW·D2c】
+		AssetMode:          t.AssetMode,     // 【二开·P-REVIEW·D12】
 		CreatedAt:          rfc3339(time.Unix(t.CreatedAt, 0)),
 		CreatedUnix:        t.CreatedAt,
 		CompletedAt:        completedRFC(lifecycle.CompletedAt),
@@ -462,9 +477,6 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 		d.TaskID = i64s(*f.TaskID)
 		d.TaskDescription = f.TaskDescription
 	}
-	if f.NodeID != nil {
-		d.IntentID = "" // node_id is the finding node, not the intent; keep IntentID empty
-	}
 	return d
 }
 
@@ -545,6 +557,9 @@ type AgentDTO struct {
 	WebSearch        bool   `json:"web_search"`
 	InteractiveShell bool   `json:"interactive_shell"`
 	LLMProfileID     *int64 `json:"llm_profile_id"` // 绑定的 LLM 配置;null=跟随任务/全局
+	// 【二开·P-EXEC·U5】执行器标识（K18：仅自定义 agent；空=行为不变 K23）——列表/详情 DTO 都要带，
+	// 否则建任务抽屉的种子执行器下拉（filter a.executor_key）永远为空（m05023 bug）
+	ExecutorKey string `json:"executor_key,omitempty"`
 	// P3 触发后处理策略(仅自定义 agent 有意义)。
 	TriggerRunMode     string `json:"trigger_run_mode"`
 	TriggerMergeMode   string `json:"trigger_merge_mode"`
@@ -569,6 +584,7 @@ func agentDTO(a *db.Agent) AgentDTO {
 		WebSearch:          a.WebSearch,
 		InteractiveShell:   a.InteractiveShell,
 		LLMProfileID:       a.LLMProfileID,
+		ExecutorKey:        a.ExecutorKey,
 		TriggerRunMode:     a.TriggerRunMode,
 		TriggerMergeMode:   a.TriggerMergeMode,
 		TriggerMaxParallel: a.TriggerMaxParallel,

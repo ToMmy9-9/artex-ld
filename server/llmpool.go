@@ -1,13 +1,20 @@
+// llmpool.go：LLM 轮询/故障转移链的构建与成员状态上报。
+// 主要函数/类型：
+//   - newLLMHealthRegistry：创建熔断健康注册表，从 DB 恢复未过期的冷却窗口并持久化状态变化。
+//   - poolMember / poolChain：由 LLM 配置组装链成员并读取故障转移链；链不可用（未开启或成员不足）时返回 nil，回退单 provider。
+//   - poolForActive / poolForBinding：分别为全局生效配置与任务绑定配置解析轮询 provider。
+//   - llmPoolStatus / sortPoolStatus / poolLess：汇总各成员状态并按优先级与活跃标记排序。
+//   - LLMPoolMemberStatus：单个池成员对外暴露的状态结构。
 package server
 
 import (
 	"log"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/llmpool"
-	"github.com/Autumn-27/norma/llm"
+	"artex/agent"
+	"artex/db"
+	"artex/llmpool"
+	"norma/llm"
 )
 
 // LLM 轮询(故障转移)的服务端接线。设计见 docs/LLM轮询设计.md：

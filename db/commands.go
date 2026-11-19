@@ -1,3 +1,11 @@
+// commands.go：工具命令执行记录与 LLM 调用记录的持久化、查询与统计。
+// 主要函数/类型：
+//   - CommandRecord / ListCommands：命令执行记录的筛选与分页查询。
+//   - ToolStats：按工具聚合的执行用量统计。
+//   - LLMRecord / InsertLLMRecord / ListLLMRecords：LLM 调用记录的写入与分页查询。
+//   - EnsureLLMRecordsTable：llm_records 表结构初始化与迁移。
+//   - LLMTasks / DeleteLLMRecords：按任务聚合 LLM 记录及按任务删除。
+
 package db
 
 import (

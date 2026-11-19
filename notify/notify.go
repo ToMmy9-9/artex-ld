@@ -1,3 +1,9 @@
+// notify.go：通知包常量与展示标签——渠道 kind 常量、级别序数及级别/状态中文名。
+// 主要函数/类型：
+//   - InitKind / KindDingTalk 等常量：默认渠道与六个支持的渠道类型名。
+//   - SeverityRank / AtLeast：级别序数映射与「达到门槛」判定。
+//   - SeverityLabel / StatusLabel：级别与处置状态的中文（带 emoji）展示名。
+//
 // Package notify 实现漏洞发现的 IM / 邮件推送渠道适配层。
 //
 // 分层：本包是**叶子包**，只依赖标准库。它不认识数据库、不认识 server。渠道配置

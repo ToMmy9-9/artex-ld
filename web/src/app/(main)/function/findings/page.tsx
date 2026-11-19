@@ -1,3 +1,10 @@
+/**
+ * page.tsx：发现列表页，提供平铺 / 按任务分组 / 资产树三种视图，支持筛选、导出、行内编辑、复测与深入。
+ * 主要函数/类型：
+ *   - FindingsPage：页面主体，拉取 api.findingsPage / findingGroups / findingAssetTree 及统计
+ *   - AssetTreeState / GroupFindingsState / FlatFindingsState：三种视图各自的快照状态
+ *   - findingGroupKey：任务分组键（未分配任务用哨兵值）
+ */
 "use client";
 
 import * as React from "react";

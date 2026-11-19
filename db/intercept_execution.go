@@ -1,3 +1,8 @@
+// intercept_execution.go：从审批记录唯一关联回原始工具执行的导航查询。
+// 主要函数/类型：
+//   - InterceptExecution：原始工具调用定位结果（会话/任务/工具调用 id）。
+//   - GetInterceptExecution：按审批 id 唯一关联出可跳转到原始执行的上下文。
+//   - sameOptionalInt64 / sameMainSegment：关联键宽松匹配的辅助函数。
 package db
 
 import (

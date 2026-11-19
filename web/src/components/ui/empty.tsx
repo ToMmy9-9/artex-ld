@@ -1,3 +1,7 @@
+/**
+ * empty.tsx：shadcn/ui 的 Empty 空状态组件封装。
+ * 主要组件：Empty、EmptyHeader、EmptyTitle、EmptyDescription、EmptyContent、EmptyMedia。
+ */
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"

@@ -1,3 +1,10 @@
+// engine_timeout.go：任务级超时截止协调与有序收尾时序（drain→终局规划→定终态）。
+// 主要函数/类型：
+//   - startDeadlineCoordinator / deadlineCoordinator：启动并运行截止时刻协调循环。
+//   - settleTask：超时后按序收尾——等在跑 drain、跑终局 planner、落 done/timeout 终态。
+//   - runFinalPlannerRound：驱动唯一一轮带超时词的终局规划并判定目标是否达成。
+//   - taskDeadline / stampFirstRun / clockCtx：截止时刻计算、首次运行盖章与带 deadline 的上下文。
+//   - beginTaskOperation / decInflight / inflightCount：在跑操作计数，作为收尾 drain 的依据。
 package server
 
 import (
@@ -8,8 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"artex/agent"
+	"artex/db"
 )
 
 // 任务级超时协调器(见 docs/任务级超时与收尾设计.md §4/§8.5)。
@@ -143,7 +150,7 @@ func (e *Engine) startDeadlineCoordinator(ctx context.Context, t *Task) {
 	}
 	rt := e.registerTaskRoutines(ctx, t.ID, 1)
 	e.deleteMu.RUnlock()
-	runTaskRoutine(rt, func(loopCtx context.Context) { e.deadlineCoordinator(loopCtx, t) })
+	runTaskRoutine(rt, "deadline task="+t.ID, func(loopCtx context.Context) { e.deadlineCoordinator(loopCtx, t) })
 }
 
 // deadlineCoordinator waits until the task's absolute deadline, then runs the settle

@@ -1,3 +1,10 @@
+/**
+ * assets-tab.tsx：任务资产面板，按根域名/IP/子域名分页展示资产并支持把资产加入新任务。
+ * 主要函数/类型：
+ *   - AssetsTab：资产列表主组件（类型页签、分页、加载）。
+ *   - AddTaskAssetsSheet：把选中资产创建/挂接到新任务的弹层。
+ *   - AssetCard / MethodBadge / Chips / SourceCell：资产卡片与单元格展示组件。
+ */
 "use client";
 
 import * as React from "react";
@@ -42,7 +49,7 @@ import { api } from "@/lib/api";
 import { parseCompanyScopeText } from "@/lib/company-scope";
 import { taskAssetSourceLabel } from "@/lib/task-assets";
 import type { Asset, NewAssetType } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, statusTone } from "@/lib/utils";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 
@@ -100,14 +107,6 @@ function MethodBadge({ method }: { method: string }) {
       {normalized || "—"}
     </span>
   );
-}
-
-function statusTone(code: number) {
-  if (code >= 500) return "text-red-500";
-  if (code >= 400) return "text-amber-500";
-  if (code >= 300) return "text-blue-500";
-  if (code >= 200) return "text-emerald-500";
-  return "text-muted-foreground";
 }
 
 function fmtBytes(value?: number | null) {

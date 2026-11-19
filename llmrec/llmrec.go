@@ -1,3 +1,11 @@
+// llmrec.go：llm.Provider 的录制装饰器，拦截每次调用并把完整请求/响应持久化到数据库。
+// 主要函数/类型：
+//   - Recorder / Wrap：录制装饰器及其构造，可带录制开关谓词。
+//   - Stream / Complete：录制流式与非流式补全调用。
+//   - record / recordUsage：把请求响应正文与用量落库的核心路径。
+//   - WithTaskID / TaskIDFrom：在上下文中传递任务注册表 ID。
+//   - WithWorker：覆盖调用的 agent 泳道标签（如 judge）。
+
 // Package llmrec implements a recording decorator for llm.Provider. It intercepts
 // every Stream call, captures the full request and accumulated response, and
 // persists them to PostgreSQL for later inspection.
@@ -11,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/db"
+	"norma/llm"
+	"norma/transcript"
 )
 
 type taskIDContextKey struct{}
@@ -109,6 +117,44 @@ func parseSession(s string) (taskID, worker string) {
 	return taskID, worker
 }
 
+// recordPrepState 是录制准备的公共产物（Stream/Complete 同款字段集）。
+type recordPrepState struct {
+	recordBodies bool
+	start        time.Time
+	session      string
+	taskID       string
+	worker       string
+	expID        int64
+	reqBody      string
+	capt         *Capture
+}
+
+// recordPrep 录制准备公共块：开关判定（llm_record）、session 解析（taskID/worker/expID）、
+// 开闸时的请求序列化 + wire Capture 挂接（返回更新后的 ctx）。Stream/Complete 逐行相同的段落收敛于此。
+func (r *Recorder) recordPrep(ctx context.Context, req llm.CompletionRequest) (context.Context, recordPrepState) {
+	var rec recordPrepState
+	rec.recordBodies = r.enabled == nil || r.enabled()
+	rec.start = time.Now()
+	rec.session = transcript.SessionIDFrom(ctx)
+	parsedID, worker := parseSession(rec.session)
+	if ov := workerFrom(ctx); ov != "" {
+		worker = ov
+	}
+	rec.worker = worker
+	rec.expID = db.ParseExpID(parsedID)
+	rec.taskID = TaskIDFrom(ctx)
+	if rec.taskID == "" {
+		// Backward compatibility for non-task callers. For task calls, the task
+		// runtime always supplies the registry id explicitly.
+		rec.taskID = parsedID
+	}
+	if rec.recordBodies {
+		rec.reqBody = r.serializeRequest(req)
+		ctx, rec.capt = NewCapture(ctx)
+	}
+	return ctx, rec
+}
+
 // Stream implements llm.Provider. It delegates to the inner provider, accumulates
 // the streamed events to reconstruct the response, and records the full exchange.
 //
@@ -120,32 +166,10 @@ func (r *Recorder) Stream(ctx context.Context, req llm.CompletionRequest) iter.S
 	// llm_record setting. Lightweight usage metering always runs — it powers token
 	// stats and must be complete even for interrupted/failed runs, so it is NOT
 	// gated. Only body serialization + response accumulation are skipped when off.
-	recordBodies := r.enabled == nil || r.enabled()
-	start := time.Now()
-	session := transcript.SessionIDFrom(ctx)
-	parsedID, worker := parseSession(session)
-	if ov := workerFrom(ctx); ov != "" {
-		worker = ov
-	}
-	expID := db.ParseExpID(parsedID)
-	taskID := TaskIDFrom(ctx)
-	if taskID == "" {
-		// Backward compatibility for non-task callers. For task calls, the task
-		// runtime always supplies the registry id explicitly.
-		taskID = parsedID
-	}
-
-	// Serialize the request only when storing bodies (this is the expensive part).
-	// Alongside it, attach a Capture so the HTTP transport can hand back the
-	// untouched wire bodies — the normalized view below cannot reconstruct them
-	// (tool schemas are dropped, tool_use blocks never reach this layer, and the
-	// SSE framing is already decoded). See capture.go.
-	reqBody := ""
-	var capt *Capture
-	if recordBodies {
-		reqBody = r.serializeRequest(req)
-		ctx, capt = NewCapture(ctx)
-	}
+	ctx, rec := r.recordPrep(ctx, req)
+	recordBodies, start, session := rec.recordBodies, rec.start, rec.session
+	taskID, worker, expID := rec.taskID, rec.worker, rec.expID
+	reqBody, capt := rec.reqBody, rec.capt
 
 	return func(yield func(llm.StreamEvent, error) bool) {
 		var (
@@ -220,25 +244,10 @@ func (r *Recorder) Stream(ctx context.Context, req llm.CompletionRequest) iter.S
 // Complete implements the atomic completion path while preserving the same
 // usage metering, normalized body recording and raw wire capture as Stream.
 func (r *Recorder) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Message, string, llm.Usage, error) {
-	recordBodies := r.enabled == nil || r.enabled()
-	start := time.Now()
-	session := transcript.SessionIDFrom(ctx)
-	parsedID, worker := parseSession(session)
-	if ov := workerFrom(ctx); ov != "" {
-		worker = ov
-	}
-	expID := db.ParseExpID(parsedID)
-	taskID := TaskIDFrom(ctx)
-	if taskID == "" {
-		taskID = parsedID
-	}
-
-	reqBody := ""
-	var capt *Capture
-	if recordBodies {
-		reqBody = r.serializeRequest(req)
-		ctx, capt = NewCapture(ctx)
-	}
+	ctx, rec := r.recordPrep(ctx, req)
+	recordBodies, start, session := rec.recordBodies, rec.start, rec.session
+	taskID, worker, expID := rec.taskID, rec.worker, rec.expID
+	reqBody, capt := rec.reqBody, rec.capt
 
 	msg, stopReason, usage, err := r.inner.Complete(ctx, req)
 	status := "ok"
@@ -318,17 +327,11 @@ func (r *Recorder) record(req llm.CompletionRequest, session, taskID, worker, re
 	}
 	respBody, _ := json.Marshal(resp)
 
-	model := ""
-	if len(req.System) > 0 {
-		// model is not in CompletionRequest; use the configured model name
-	}
-	model = r.model
-
 	rec := &db.LLMRecord{
 		SessionID:    session,
 		TaskID:       taskID,
 		Worker:       worker,
-		Model:        model,
+		Model:        r.model,
 		ProfileName:  r.prof,
 		LatencyMs:    latency,
 		InputTokens:  usage.InputTokens,

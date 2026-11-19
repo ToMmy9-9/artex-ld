@@ -1,9 +1,13 @@
+// triggers.go：自定义 agent 触发器的增删改查 HTTP 端点。
+// 主要函数/类型：
+//   - triggerReq / validateTrigger：触发器请求体与共享校验（至少一种条件、工具调用需选工具）。
+//   - pgListTriggers / pgCreateTrigger / pgUpdateTrigger / pgDeleteTrigger：触发器的查/建/改/删。
 package server
 
 import (
 	"net/http"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // ---------- P3 agent triggers (仅自定义 agent) ----------

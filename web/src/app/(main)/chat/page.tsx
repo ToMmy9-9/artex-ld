@@ -1,3 +1,11 @@
+/**
+ * page.tsx：聊天页，左侧会话列表（按 Agent 分组、置顶、多选批量删除）+ 右侧草稿/会话对话视图。
+ * 主要函数/类型：
+ *   - ChatPage：页面入口，管理会话列表与选中态（默认导出）
+ *   - DraftChat / ChatView：新建会话草稿与完整对话视图（含历史分页、发送/停止、附件）
+ *   - Composer / LLMProfileRow / LiveBadge / ConversationItem / AgentGroupHeader：输入框、模型切换行、运行徽标、会话项与分组头
+ *   - conversationIsPinned / groupByAgent：置顶判断与会话按 Agent 分组
+ */
 "use client";
 
 import * as React from "react";
@@ -59,31 +67,7 @@ import { shouldSubmitOnKey, useChatSendMode } from "@/lib/chat-send-mode";
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
 import { isBtwCommand } from "@/lib/side-questions";
 import type { Activity, Agent, ChatAttachment, Conversation, LLMProfile } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-// fmtBytes renders a human file size for attachment chips (mirrors transcript.tsx).
-function fmtBytes(n: number): string {
-  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
-  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
-  return `${n} B`;
-}
-
-// fmtTokens renders a compact token count (1234 → 1.2k, 2_000_000 → 2M).
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
-}
-
-// fmtDuration renders an elapsed milliseconds span compactly (90s → 1m30s).
-function fmtDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h${String(m % 60).padStart(2, "0")}m`;
-}
+import { cn, fmtBytes, fmtTokens } from "@/lib/utils";
 
 // HISTORY_PAGE is how many steps one history page loads: the latest page on open,
 // then one more page each time the user scrolls to the top. Kept modest so a long

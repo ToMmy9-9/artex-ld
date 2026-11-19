@@ -1,3 +1,10 @@
+// notify_api.go：通知渠道与投递记录的 HTTP 管理接口。
+// 主要函数/类型：
+//   - notifyChannelDTO / notifyDeliveryDTO / toNotifyChannelDTO / toNotifyDeliveryDTO：渠道与投递记录的 API 序列化结构及转换。
+//   - notifyListChannels / notifyCreateChannel / notifyUpdateChannel / notifyDeleteChannel：通知渠道的增删改查接口。
+//   - notifyTestChannel：发送测试消息验证渠道可用性。
+//   - notifyListDeliveries / notifyRetryDelivery：投递记录查询与失败重投接口。
+//   - notifyMeta / notifierBaseURL：通知元信息接口与对外基础地址解析。
 package server
 
 import (
@@ -8,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/notify"
+	"artex/db"
+	"artex/notify"
 )
 
 // 本文件是推送功能的 HTTP 接口。全部路由挂在 requireAuth 之后（见 Handler()），
@@ -448,7 +455,7 @@ func notifyTestMessage(baseURL string) notify.Message {
 			Name:      "测试消息 · 渠道配置正常",
 			VulnClass: "连通性测试",
 			Severity:  "low",
-			Summary:   "这是 ARTEX 推送渠道的测试消息，收到即表示该渠道配置可用。",
+			Summary:   "这是 artex 推送渠道的测试消息，收到即表示该渠道配置可用。",
 			Assets:    []string{"artex.example.com"},
 			DetailURL: baseURL,
 		}},

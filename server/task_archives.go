@@ -1,3 +1,10 @@
+// task_archives.go：任务冷归档/恢复/删除的后台 worker 与批量 HTTP 接口。
+// 主要函数/类型：
+//   - startTaskArchiveWorker / notifyTaskArchiveWorker / runOneTaskArchiveJob：归档 worker 的启动、唤醒与单任务领取执行。
+//   - archiveTask / restoreTask / restoreTaskArchivePayload / deleteTaskArchive：归档、恢复（含载荷安装）与删除的具体流程。
+//   - loadRestoredTask：恢复后重新加载任务运行时。
+//   - listTaskArchives / getTaskArchive / queueTaskArchive / queueTaskArchiveRestore / queueTaskArchiveDelete：归档记录的查询与单个入队接口。
+//   - queueTaskArchivesBatch / restoreTaskArchivesBatch / deleteTaskArchivesBatch：批量归档/恢复/删除接口（含依赖排序 topoTaskIDs）。
 package server
 
 import (
@@ -13,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	pgdb "github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	"artex/agent"
+	pgdb "artex/db"
+	"artex/traffic"
 )
 
 const taskArchivePollInterval = 2 * time.Second
@@ -126,6 +133,7 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 		}
 	}()
 	s.cancelTaskChat(taskID, agent.AbortTaskDeleted)
+	s.cancelTaskReview(taskID)
 	drainCtx, cancel := context.WithTimeout(s.ctx, taskDeleteDrainTimeout)
 	defer cancel()
 	if err := s.waitTaskQuiescent(drainCtx, taskID); err != nil {

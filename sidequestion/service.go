@@ -1,3 +1,7 @@
+// service.go：旁路问答服务——调用模型生成答案（支持流式与非流式），并回调更新进度。
+// 主要函数/类型：
+//   - SideQuestionService：旁路问答服务，包装一个 LLM Provider。
+//   - Answer：执行一次旁路问答，流式拼接文本、检测工具调用意图并累计用量。
 package sidequestion
 
 import (
@@ -5,7 +9,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Autumn-27/norma/llm"
+	"norma/llm"
 )
 
 // SideQuestionService has no harness, tool executor, transcript writer or model

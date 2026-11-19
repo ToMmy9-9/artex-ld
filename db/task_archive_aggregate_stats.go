@@ -1,3 +1,8 @@
+// task_archive_aggregate_stats.go：已归档任务的聚合统计与实时统计的合并（token/技能维度）。
+// 主要函数/类型：
+//   - taskArchiveAggregate：归档快照中聚合统计的结构（token 配置/天、技能计数）。
+//   - archivedTaskAggregates：读取并解析全部归档任务的聚合统计。
+//   - mergeAgentKeys / mergeArchivedSkillStats：合并 agent key 列表与实时+归档技能统计。
 package db
 
 import (

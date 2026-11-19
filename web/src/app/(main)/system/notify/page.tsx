@@ -1,3 +1,8 @@
+/**
+ * page.tsx：系统通知管理页——渠道配置（增删改/测试/启停）与投递记录两个标签页。
+ * 主要函数/类型：
+ *   - NotifyPage（默认导出）：页面编排，加载数据、维护表单状态、调用通知接口
+ */
 "use client";
 
 import * as React from "react";

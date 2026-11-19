@@ -1,3 +1,8 @@
+/**
+ * task-assets.ts：任务资产的类型与来源中文标签映射。
+ * 主要函数/类型：
+ *   - taskAssetTypeLabel / taskAssetSourceLabel：取资产类型与来源的展示标签
+ */
 import type { NewAssetType } from "@/lib/types";
 
 const ASSET_TYPE_LABELS: Record<NewAssetType, string> = {

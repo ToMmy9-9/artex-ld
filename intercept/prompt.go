@@ -1,3 +1,10 @@
+// prompt.go：LLM 裁判的提示词契约与裁决解析。
+// 主要函数/类型：
+//   - DefaultJudgePrompt：内置裁判系统提示词（已授权渗透测试语义下的 ALLOW/ASK/DENY）。
+//   - JudgeContextBoundary / JudgeOutputContract：输入信任边界与裁决输出协议常量。
+//   - EffectiveJudgePrompt：为自定义提示词补齐边界与输出协议。
+//   - Verdict / ParseVerdict：裁决结构体及从模型输出解析裁决（剥离代码栅栏）。
+
 package intercept
 
 import (

@@ -1,3 +1,9 @@
+/**
+ * findings-tab.tsx：任务发现面板，分页列出漏洞发现并支持状态流转与排序偏好记忆。
+ * 主要函数/类型：
+ *   - FindingsTab：发现列表主组件（加载、排序、分页）。
+ *   - Row：单条发现行，状态操作与详情展开。
+ */
 "use client";
 
 import * as React from "react";

@@ -1,3 +1,10 @@
+// task_intercept.go：任务级拦截规则（task_intercept_rules 表）的 CRUD。
+// 主要函数/类型：
+//   - TaskInterceptRuleInput：任务创建时传入的规则输入。
+//   - ListTaskInterceptRules / TaskInterceptRulesSplit：列出任务规则并按 block/allow 分组。
+//   - CreateTaskInterceptRule / UpdateTaskInterceptRule / DeleteTaskInterceptRule：规则增改删。
+//   - ToggleTaskInterceptRule：启用/停用规则。
+
 package db
 
 import (

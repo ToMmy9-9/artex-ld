@@ -1,4 +1,12 @@
 /**
+ * preferences-config.ts：集中定义偏好系统的键、取值类型、默认值与持久化策略。
+ * 主要函数/类型：
+ *   - PreferenceValueMap / PreferenceKey / PreferencePersistence：偏好键与取值类型
+ *   - LAYOUT_CRITICAL_KEYS / LayoutCriticalKey / NonCriticalKey：SSR 关键布局键与非关键键划分
+ *   - PREFERENCE_DEFAULTS：各偏好首次加载的默认值
+ *   - PREFERENCE_PERSISTENCE：每个键的持久化方式（布局关键键不能用 localStorage）
+ */
+/**
  * How each preference should be saved.
  *
  * "client-cookie"  → write cookie on the browser only.

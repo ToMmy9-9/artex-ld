@@ -1,3 +1,11 @@
+// conversation.go：会话（conversations 表）及会话活动记录的持久化与查询。
+// 主要函数/类型：
+//   - Conversation / CreateConversation：会话行结构与创建会话。
+//   - ListConversations / GetConversation / UpdateConversation：会话列表、详情与局部更新。
+//   - RenameConversation / DeleteConversation / DeleteConversations：重命名与单个/批量删除会话。
+//   - AppendConvActivity / ConvActivityList / ConvActivityPage：追加会话活动并按 ID/游标分页读取。
+//   - ConversationTokenSummaries：按会话聚合的 token 用量汇总。
+
 package db
 
 import (

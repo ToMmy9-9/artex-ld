@@ -1,9 +1,14 @@
+// broadcast.go：任务活动的发布订阅广播器，支撑 SSE 实时推送。
+// 主要函数/类型：
+//   - Broadcaster：按任务维护订阅者列表的活动广播器。
+//   - NewBroadcaster：创建广播器。
+//   - Subscribe / Publish：订阅任务活动流 / 向任务订阅者发布活动。
 package server
 
 import (
 	"sync"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // Broadcaster is a per-task in-process pub/sub for live activity events. The

@@ -1,3 +1,10 @@
+// intercept.go：内容拦截规则的 HTTP 管理接口与聊天完成内容复核接入。
+// 主要函数/类型：
+//   - chatGuard / wireInterceptReviewer：构建拦截 Guard 并把 LLM 完成内容复核器接入聊天流程。
+//   - interceptListRules / interceptCreateRule / interceptUpdateRule / interceptDeleteRule / interceptToggleRule：拦截规则的增删改查与启停接口。
+//   - interceptListPending / interceptGetOne / interceptDetail / interceptDecide：待审项列表、详情与人工裁决接口。
+//   - interceptGetToolConfig / interceptSetToolConfig / interceptGetJudgeConfig / interceptSetJudgeConfig：拦截工具与评审模型的配置读写。
+//   - reviewCompletion / streamCollectText：调用 LLM 复核输入内容并收集流式文本。
 package server
 
 import (
@@ -11,11 +18,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/guard"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/llmrec"
-	"github.com/Autumn-27/norma/llm"
+	"artex/db"
+	"artex/guard"
+	"artex/intercept"
+	"artex/llmrec"
+	"norma/llm"
 )
 
 // judgeWorkerLane is the usage-ledger "worker" label for intercept fallback-judge

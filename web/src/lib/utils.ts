@@ -1,3 +1,11 @@
+/**
+ * utils.ts：通用工具函数集合。
+ * 主要函数/类型：
+ *   - cn：clsx + tailwind-merge 的类名合并
+ *   - radixOverlayWasOpenAtPointerDown：抽屉内弹层打开时的外部点击关闭判定辅助
+ *   - copyText / getInitials / fmtBytes / fmtTokens / fmtTime：复制、姓名缩写与格式化工具
+ *   - statusTone：HTTP 状态码映射 tailwind 文本色
+ */
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -88,24 +96,37 @@ export const getInitials = (str: string): string => {
   );
 };
 
-export function formatCurrency(
-  amount: number,
-  opts?: {
-    currency?: string;
-    locale?: string;
-    minimumFractionDigits?: number;
-    maximumFractionDigits?: number;
-    noDecimals?: boolean;
-  },
-) {
-  const { currency = "USD", locale = "en-US", minimumFractionDigits, maximumFractionDigits, noDecimals } = opts ?? {};
+// fmtBytes renders a human file size: ≥1 MiB → "x.x MB"，≥1 KiB → "x.x KB"，否则 "N B"。
+// 附件 chips、上传清单等共用；需要 GB 或空值语义的版本（如 traffic 页）保留局部实现。
+export function fmtBytes(n: number): string {
+  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
+  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
+  return `${n} B`;
+}
 
-  const formatOptions: Intl.NumberFormatOptions = {
-    style: "currency",
-    currency,
-    minimumFractionDigits: noDecimals ? 0 : minimumFractionDigits,
-    maximumFractionDigits: noDecimals ? 0 : maximumFractionDigits,
-  };
+// fmtTokens renders a compact token count (1234 → 1.2k, 2_000_000 → 2M)。
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(n);
+}
 
-  return new Intl.NumberFormat(locale, formatOptions).format(amount);
+// fmtTime 把后端时间戳格式化为 zh-CN 的 月/日 时:分:秒（列表与详情共用）。
+export function fmtTime(ts: string) {
+  return new Date(ts).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+// statusTone 按 HTTP 状态码返回 tailwind 文本色类（资产/流量/报文查看共用）。
+export function statusTone(status: number) {
+  if (status >= 500) return "text-red-500";
+  if (status >= 400) return "text-amber-500";
+  if (status >= 300) return "text-blue-500";
+  if (status >= 200) return "text-emerald-500";
+  return "text-muted-foreground";
 }

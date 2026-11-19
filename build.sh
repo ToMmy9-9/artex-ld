@@ -183,6 +183,8 @@ package_binary() {
   fi
   cp -R skills "$package_root/"
   cp config.example.json "$package_root/"
+  # scripts/：配置迁移升级 SQL（start.sh upgrade-prompts 子命令读取）等非 Windows 迁移资源。
+  if [ "$goos" != "windows" ] && [ -d scripts ]; then cp -R scripts "$package_root/"; fi
   if [ -f README.md ]; then cp README.md "$package_root/"; fi
   (cd "$ARTEX_PACKAGE_DIR" && zip -q -r -9 "$(basename "$archive")" "$(basename "$package_root")")
   rm -rf "$package_root"
@@ -226,6 +228,27 @@ build_target() {
   compress_binary "$output" "$goos"
   if command -v file >/dev/null 2>&1; then file "$output"; fi
   if [ "$ARTEX_PACKAGE" = "1" ]; then package_binary "$output" "$goos" "$goarch"; fi
+  # 非 Windows 单目标构建顺带产出服务器一键部署包（install.sh --server 直接吃），
+  # 这样「编译 → 部署」就是两条命令，不用手动组包。
+  if [ "$ARTEX_RELEASE" != "1" ] && [ "$goos" != "windows" ]; then
+    deploy_tgz="${ARTEX_OUTPUT_DIR}/artex-${ARTEX_BUILD_VERSION}-${goos}-${goarch}.deploy.tar.gz"
+    stage="$(mktemp -d)"
+    cp "$output" "$stage/artex"
+    # install.sh 随包自带：全新服务器上解包后即可 sudo bash install.sh --server，
+    # 不再需要另外 git clone / scp 脚本（自举闭环）。
+    cp start.sh install.sh config.example.json "$stage/"
+    cp -R skills "$stage/"
+    [ -d scripts ] && cp -R scripts "$stage/"
+    tar -czf "$deploy_tgz" -C "$stage" .
+    rm -rf "$stage"
+    # 旁挂 SHA256：scp 后远端 sha256sum -c 即可校验，不用人肉比对
+    if command -v sha256sum >/dev/null 2>&1; then
+      (cd "$ARTEX_OUTPUT_DIR" && sha256sum "$(basename "$deploy_tgz")" > "$(basename "$deploy_tgz").sha256")
+    elif command -v shasum >/dev/null 2>&1; then
+      (cd "$ARTEX_OUTPUT_DIR" && shasum -a 256 "$(basename "$deploy_tgz")" > "$(basename "$deploy_tgz").sha256")
+    fi
+    ok "一键部署包：$deploy_tgz（服务器上解包后 sudo bash install.sh --server $(basename "$deploy_tgz")）"
+  fi
   ok "编译完成：$output"
 }
 

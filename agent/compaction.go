@@ -1,3 +1,10 @@
+// compaction.go：Compactor——把冷图算法接到探索存储与 LLM，执行冷节点 digest 压缩。
+// 主要函数/类型：
+//   - Compactor / NewCompactor：压缩器状态（阈值、冷却、在跑集合）与构造。
+//   - OnPlannerRound：planner 每轮入口——同步维护冷戳，达阈值则后台触发压缩。
+//   - maintain：推进 round_no、重算冷热并落冷戳。
+//   - minor / major：增量折叠未覆盖冷节点 / 全量回源重压并按签名调和现有 digest。
+//   - foldBlock / compress：压缩单个块并写 digest（提交前复查活性）/ LLM 压缩块为综合结论。
 package agent
 
 // cold-digest §4/§5/§7: the Compactor ties the pure algorithms (coldgraph.go)
@@ -26,9 +33,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/db"
+	"norma/llm"
+	"norma/transcript"
 )
 
 // Compactor performs background cold-node compaction for many explorations.

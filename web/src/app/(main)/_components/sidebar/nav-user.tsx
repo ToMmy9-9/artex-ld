@@ -1,3 +1,8 @@
+/**
+ * nav-user.tsx：侧栏底部用户菜单，展示用户头像信息并提供修改密码与退出登录。
+ * 主要函数/类型：
+ *   - NavUser：侧栏底部的用户下拉菜单组件。
+ */
 "use client";
 
 import * as React from "react";

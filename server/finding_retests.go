@@ -1,3 +1,10 @@
+// finding_retests.go：漏洞复测会话的列表、发起、复测工具与结果落库。
+// 主要函数/类型：
+//   - listActiveFindingRetests / listFindingRetests：进行中 / 历史复测列表。
+//   - startFindingRetest：校验 Finding 与 retester Agent 后创建复测会话并发起任务。
+//   - findingRetestTools：读取复测上下文、登记复测结论两个 agent 工具。
+//   - seedFindingRetester：种子可编辑的复测 Agent 与工具绑定。
+//   - finishRetest：结束复测记录并写状态与原因。
 package server
 
 import (
@@ -12,10 +19,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/agent"
+	"artex/db"
+	"artex/intercept"
+	actool "norma/tool"
 )
 
 func (s *Server) listActiveFindingRetests(w http.ResponseWriter, r *http.Request) {

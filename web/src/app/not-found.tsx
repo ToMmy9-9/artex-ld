@@ -1,3 +1,8 @@
+/**
+ * not-found.tsx：404 页面，路由未匹配时展示「页面未找到」并提供返回首页的链接。
+ * 主要函数/类型：
+ *   - NotFound：渲染 404 提示与返回按钮
+ */
 "use client";
 
 import Link from "next/link";

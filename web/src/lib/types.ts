@@ -1,5 +1,10 @@
 // ARTEX domain model — types used across the UI.
 // Derived from the functional spec (section 7: 关键数据形状).
+// 主要函数/类型（按域节选）：
+//   - Task / TaskStatus / EngineMode：任务领域模型与状态枚举
+//   - Asset / AssetNode / AssetRel / NewAssetType：资产图节点、关系与新建类型
+//   - TaskArchive / TaskArchivePage / ArchiveBatchItem：归档结构与分页
+//   - CoverageGraph*：覆盖率图数据形状
 
 export type TaskStatus = "created" | "queued" | "running" | "paused" | "done" | "failed" | "timeout";
 export type EngineMode = "exploring" | "paused" | "stalled" | "idle";
@@ -9,6 +14,7 @@ export interface Task {
   name?: string; // 可选任务名称;空/缺省=未命名,展示时回退到描述
   category_id?: number;
   category_name?: string;
+  category_nkey?: string;
   pinned?: boolean;
   pinned_at?: string | null;
   description: string;
@@ -39,11 +45,28 @@ export interface Task {
   archive_blocked_by_task_id?: string; // live direct dependent that must be archived first
   company_ids?: number[]; // associated company scopes; current company assets join the task at creation
   coverage_enabled?: boolean; // 资产覆盖度功能开关(创建时定,默认开)；false=不计算/不展示覆盖度
+  // 【二开·P-INTENT·U5】起 —— 任务级新字段（00 册 U5 / D2 / D7）
+  planner_prompt_override?: string; // planner 提示词任务级快照（D2 列；空=走全局/默认链）
+  worker_prompt_override?: string; // Worker 提示词任务级快照；创建后不受模板修改影响
+  worker_count?: number; // 任务级 worker 池大小：0=跟随全局，1~16 专属
+  review_auto?: boolean; // 自动审核开关（审核聊天窗 Switch；true=预审轮自动处置）
+  review_enabled?: boolean; // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934：默认关；开=审核 tab+runner+端点启用，LLM 随任务）
+  asset_mode?: string; // 【二开·P-REVIEW·D12】资产图模式标签（m04039：pentest/vuln_research/code_audit）
+  // 【二开·P-INTENT·U5】止
 }
 
 export interface TaskCategory {
   id: number;
   name: string;
+  // 【二开·P-REVIEW·D12】分类预设包（m04039）
+  default_review_enabled?: boolean;
+  default_planner_template_id?: number;
+  default_worker_template_id?: number;
+  asset_mode?: string;
+  default_description?: string;
+  // 【二开·P-SCENARIO·MERGE】种子意图预设（m03167 场景并入分类）
+  seed_first_intent?: boolean;
+  seed_executor?: string; // ''=默认 worker；否则=自定义 agent 的 executor_key
   task_count: number;
   created_at: string;
   updated_at: string;
@@ -59,6 +82,19 @@ export interface TaskTemplate {
   created_at: string;
   updated_at: string;
 }
+
+// 【二开·P-TPL·U5】起 —— planner 模板（对应 db.PlannerTemplate；快照语义见 03 册 D11-b）
+export interface PlannerTemplate {
+  id: number;
+  name: string;
+  body: string; // planner 提示词正文（Go template）
+  is_default: boolean;
+  builtin: boolean;
+  created_at: string;
+  updated_at: string;
+}
+// 【二开·P-TPL·U5】止
+export type WorkerTemplate = PlannerTemplate;
 
 export interface DeleteTaskOptions {
   delete_assets: boolean;
@@ -196,28 +232,32 @@ export interface Edge {
   rel: AssetRel | ExploreRel;
 }
 
-// Task asset view — server-side enriched, paginated.
-export interface TaskAssetRef {
-  id: string;
-  name?: string;
-  key: string;
-  attrs?: Record<string, unknown>;
-}
-
-export interface TaskAssetItem extends AssetNode {
-  techs?: TaskAssetRef[];
-  auth?: TaskAssetRef[];
-  params?: TaskAssetRef[];
-}
-
-export interface TaskAssetView {
-  counts: Record<string, number>;
-  total: number;
-  items: TaskAssetItem[];
-}
-
 // ---- New unified asset model (new backend) ----
 export type NewAssetType = "root_domain" | "ip" | "subdomain" | "app" | "service" | "endpoint";
+
+export interface AssetHostService {
+  asset_id: number;
+  type: "app" | "service" | "endpoint";
+  label: string;
+  url?: string;
+  method?: string;
+}
+
+export interface AssetHostRow {
+  key: string;
+  company_id?: number;
+  company_name?: string;
+  root_domain?: string;
+  subdomains: string[];
+  ip: string;
+  services: AssetHostService[];
+  asset_ids: number[];
+  finding_count: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
 
 export interface Asset {
   id: number;
@@ -414,7 +454,7 @@ export type ExploreRel = "spawns" | "derived_from" | "yields" | "proves" | "cove
 export interface TaskNode {
   id: string;
   type: ExploreKind;
-  payload?: string;
+  payload?: string; // JSONB 原文（前端 JSON.parse 后取 summary/executor/review_note/pending_executor 等键，U3/U4）
   priority: number; // 0..10
   state: string; // GoalState | IntentState | FindingState | HintState
   origin: string;
@@ -581,6 +621,8 @@ export interface FindingQuery {
   sort?: "severity" | "time";
   // 资产树节点 key;选中一个节点 = 选中它的整棵子树。空 = 不按资产筛选。
   assetScope?: string;
+  // 宿主行聚合的精确资产 ID 集合；任一资产关联的发现都会命中。
+  assetIDs?: number[];
 }
 
 // ---- Findings by asset (资产视图) ----
@@ -752,12 +794,12 @@ export interface LogLine {
   seq: number;
   db_id?: number; // server_logs.id; present for DB-persisted lines
   ts: string;
-  level: "info" | "warn" | "error";
+  level: "debug" | "info" | "warn" | "error"; // 【二开·P-LOG】debug 档（日志级别热切换）
   tag: string;
   text: string;
 }
 
-export type SessionRole = "mainagent" | "planner" | "worker" | "system";
+export type SessionRole = "mainagent" | "planner" | "worker" | "system" | "review"; // 【二开·P-INTENT·U5】加 review（审核会话角色，U3）
 export type SessionStatus = "running" | "paused" | "done" | "blocked" | "exhausted" | "pending" | "stopped" | "deleted";
 
 // Daily token aggregate bucket (GET /api/tokens/daily).
@@ -928,6 +970,8 @@ export interface Settings {
   global_proxy?: string;
   python_interpreter?: string; // 自定义脚本工具的 python 解释器路径(空=运行时检测)
   workers?: number; // 并发工作 agent 数(默认3)；对之后启动的任务生效
+  // 【P-LOG·M0】日志级别热切换：debug/info/warn/error；选择后立即生效、无需重启。
+  log_level?: string;
   // 任务并发上限:同时「运行中」的任务数上限。关闭=不限;开启后新建任务超限则排队,有空位自动启动。
   task_concurrency_enabled?: boolean; // 默认 false
   task_concurrency_limit?: number; // 开启后默认 5
@@ -1127,6 +1171,9 @@ export interface Agent {
   trigger_run_mode?: "serial" | "parallel"; // 串行排队 / 每次触发各自并发一个会话
   trigger_merge_mode?: "by_task" | "all" | "none"; // 仅 serial：同任务合并 / 全部合并 / 不合并
   trigger_max_parallel?: number; // 仅 parallel：每 agent 并发上限；0=不限
+  // 【二开·P-EXEC·U5】起 —— executor_key（K18：仅自定义 agent 可声明；空=行为不变 K23）
+  executor_key?: string;
+  // 【二开·P-EXEC·U5】止
   // 绑定数量(仅列表接口返回)：可见 MCP / 可见 Skill / 绑定工具
   mcp_count?: number;
   skill_count?: number;
@@ -1359,6 +1406,32 @@ export interface InterceptApprovalRow extends InterceptPending {
   conv_agent_key: string; // "" if no linked conversation
   rule_name: string; // "" if rule was deleted
 }
+
+// ── 二开类型（P-INTENT 审核域，01 册 S6/U3）──────────────────────────
+// 【二开·P-INTENT·U5】起 —— 审核面板数据类型
+/** 待审意图（GET /tasks/{id}/review/proposed 行）。 */
+export interface ReviewProposedIntent {
+  id: number;
+  summary?: string;
+  priority?: number;
+  origin?: string;
+  pending_executor?: string | null; // 送审时预选执行器（K24），approve 时转正
+  review_note?: string | null; // K20 预审摘要（≤200 字）
+  replaces?: number | null; // 替代血缘（旧意图 id，K21）
+  created_at?: number; // unix 秒
+  content_version?: number; // PR3：批准/驳回时回传做 expected_version CAS
+}
+/** 审核会话消息（GET /tasks/{id}/review/messages 行）。 */
+export interface ReviewMessage {
+  id: number;
+  worker: string; // "review"=agent / "user"=人
+  kind: string;
+  summary: string;
+  detail?: string; // 完整 agent 回复（summary 仅 200 字首行）
+  is_error: boolean; // 错误红卡样式
+  created_at: number; // unix 秒
+}
+// 【二开·P-INTENT·U5】止
 
 // ── 资产同步 (ScopeSentry 数据源) ──────────────────────────────────────────────
 export interface SSProject {
@@ -1609,4 +1682,102 @@ export interface InterceptExecution {
   session: string;
   seq: number;
   items: Activity[];
+}
+
+// ---- Task topology editor ----
+// 后端 db/task_topology_editor.go 的忠实投影：所有写接口都返回整张图，前端只做
+// "请求 → 用响应替换本地状态"，不做本地推断（入口重算/孤儿修补都在后端）。
+export type TopologyEdgeKind = "solid" | "reachable";
+export type TopologyEntryStatus = "" | "suspected" | "confirmed";
+
+// 节点坐标是相对坐标：group_id 非空时相对于分组框左上角，为空时是画布绝对坐标。
+export interface TopologyGraphNode {
+  ip: string;
+  hostname: string;
+  display_label: string;
+  group_id: number | null;
+  x: number;
+  y: number;
+  entry_status: TopologyEntryStatus;
+  color: string;
+  description: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+export interface TopologyGraphEdge {
+  id: number;
+  src_ip: string;
+  dst_ip: string;
+  label: string;
+  kind: TopologyEdgeKind;
+  evidence_ref: string;
+  color: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+export interface TopologyGraphGroup {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+export interface TopologyNote {
+  id: number;
+  body: string;
+  created_by: string;
+  created_at: string;
+}
+export interface TopologyGraph {
+  nodes: TopologyGraphNode[];
+  edges: TopologyGraphEdge[];
+  groups: TopologyGraphGroup[];
+  notes: Record<string, TopologyNote[]>;
+}
+// 新增节点的首个联系：dst_ip 留空由后端改成新节点，src_ip 留空由后端自动连入口。
+export interface TopologyEdgeInput {
+  src_ip?: string;
+  dst_ip?: string;
+  label?: string;
+  kind?: TopologyEdgeKind;
+  evidence_ref?: string;
+  color?: string;
+}
+export interface TopologyNodeInput {
+  ip: string;
+  hostname?: string;
+  display_label?: string;
+  group_id?: number | null;
+  x?: number;
+  y?: number;
+  entry_status?: TopologyEntryStatus;
+}
+export interface TopologyNodePatch {
+  hostname?: string;
+  display_label?: string;
+  x?: number;
+  y?: number;
+  group_id?: number | null;
+  entry_status?: TopologyEntryStatus;
+  color?: string;
+  description?: string;
+}
+export interface TopologyEdgePatch {
+  src_ip?: string;
+  dst_ip?: string;
+  label?: string;
+  kind?: TopologyEdgeKind;
+  color?: string;
+}
+export interface TopologyGroupInput {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color?: string;
 }

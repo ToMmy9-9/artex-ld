@@ -1,3 +1,9 @@
+// telegram.go：Telegram Bot 渠道——Bot API 地址构造、HTML 正文渲染与发送。
+// 主要函数/类型：
+//   - telegramChannel：渠道实现，Send 以 parse_mode=HTML 投递 sendMessage。
+//   - telegramEndpoint：按 base_url/bot_token 构造 Bot API 请求地址。
+//   - telegramHTML：渲染 HTML 正文（有 4096 字符上限保护）。
+//   - telegramEscape / telegramEscapeAttr / telegramBatchLine / telegramBatchTitle：HTML 转义与汇总行渲染。
 package notify
 
 import (

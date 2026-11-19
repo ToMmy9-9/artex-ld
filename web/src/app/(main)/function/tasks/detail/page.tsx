@@ -1,3 +1,10 @@
+/**
+ * page.tsx：任务详情页，展示任务信息、启停/归档操作与 LLM 配置，并按 tab 挂载各功能面板。
+ * 主要函数/类型：
+ *   - TaskDetailPage（默认导出）：Suspense 边界包裹的页面入口。
+ *   - TaskDetailInner：加载任务与统计、渲染头部操作区和 tab 切换。
+ *   - TaskLLMControl：弹层内编辑任务的 LLM 配置链。
+ */
 "use client";
 
 import * as React from "react";
@@ -49,6 +56,7 @@ import { OverviewTab } from "./_tabs/overview-tab";
 import { ReportTab } from "./_tabs/report-tab";
 import { RetestsTab } from "./_tabs/retests-tab";
 import { SessionsTab } from "./_tabs/sessions-tab";
+import { TopologyTab } from "./_tabs/topology-tab";
 
 const TABS = [
   { value: "sessions", label: "会话" },
@@ -225,9 +233,9 @@ function TaskDetailInner() {
     let alive = true;
     const load = () =>
       api
-        .interceptTask(id)
-        .then((rows) => {
-          if (alive) setInterceptPendingCount(rows.filter((r) => r.status === "pending").length);
+        .interceptTaskPage(id, 1, 1, { status: "pending" })
+        .then((page) => {
+          if (alive) setInterceptPendingCount(page.total);
         })
         .catch(() => {
           // Polling is best-effort; the next interval retries automatically.
@@ -270,6 +278,10 @@ function TaskDetailInner() {
       });
   }, [id]);
   React.useEffect(() => {
+    // URL 切换后先移除旧任务，防止标题和操作按钮短时指向错误任务。
+    setTask(null);
+    setPaused(false);
+    setLoaded(false);
     load();
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
@@ -336,6 +348,9 @@ function TaskDetailInner() {
     controlIcon = <PlayIcon data-icon="inline-start" />;
     controlLabel = "恢复";
   }
+  // 内网拓扑编辑并入「资产覆盖图」tab（tab 内切换覆盖/拓扑视图），
+  // 且只对「内网渗透」类目任务开放：后端 topology 接口对其他类目直接返回 404。
+  const topologyEnabled = task?.category_nkey === "内网渗透";
   const archiveTrigger = (
     <Button
       size="icon-sm"
@@ -439,7 +454,11 @@ function TaskDetailInner() {
           <AssetsTab taskId={id} />
         </TabsContent>
         <TabsContent value="coverage" className="mt-0">
-          <CoverageGraphTab taskId={id} coverageEnabled={task?.coverage_enabled !== false} />
+          {topologyEnabled ? (
+            <TopologyTab taskId={id} coverageEnabled={task?.coverage_enabled !== false} />
+          ) : (
+            <CoverageGraphTab taskId={id} coverageEnabled={task?.coverage_enabled !== false} />
+          )}
         </TabsContent>
         <TabsContent value="intercept" className="mt-0">
           <InterceptTab taskId={id} />

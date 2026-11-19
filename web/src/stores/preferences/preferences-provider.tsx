@@ -1,3 +1,9 @@
+/**
+ * preferences-provider.tsx：偏好 Zustand store 的 React Context 提供与订阅。
+ * 主要函数/类型：
+ *   - PreferencesStoreProvider：创建 store、从 DOM/cookie 恢复偏好并同步主题模式的 Provider
+ *   - usePreferencesStore：订阅偏好 store 的选择器 Hook
+ */
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";

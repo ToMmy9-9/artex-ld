@@ -1,3 +1,8 @@
+// html.go：邮件 HTML 正文渲染——内联样式布局的单条/汇总正文、条目与转义。
+// 主要函数/类型：
+//   - htmlBody / htmlTitle：渲染邮件正文整体与标题。
+//   - htmlItem / htmlBatchIntro：渲染单条漏洞卡片与汇总邮件开头的级别分布。
+//   - htmlEscape / htmlEscapeAttr / htmlSeverityColor：正文与属性转义、级别强调色。
 package notify
 
 import (

@@ -1,3 +1,8 @@
+// chat.go：通用会话 agent——按 agentKey 跑独立对话，每会话独立工作目录。
+// 主要函数/类型：
+//   - ChatAgent / NewChatAgent：会话 agent 状态与构造（provider/模型/转录窗口）。
+//   - Chat：跑一轮对话并恢复历史，执行步骤以活动流发射。
+//   - chatSystem / chatWorkDirSpec：渲染自定义 agent 的系统提示词与工作目录说明。
 package agent
 
 import (
@@ -6,14 +11,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/guard"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/norma/agentcore"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/db"
+	"artex/guard"
+	"artex/intercept"
+	"norma/agentcore"
+	"norma/llm"
+	"norma/permission"
+	actool "norma/tool"
+	"norma/transcript"
 )
 
 // ChatAgent is the generic, task-independent conversational runner behind the chat
@@ -115,11 +120,16 @@ func (c *ChatAgent) Chat(ctx context.Context, agentKey, sessionID, message strin
 	_ = os.MkdirAll(sessionWorkDir, 0o755)
 	ctx = intercept.WithReviewWorkingDirectory(ctx, sessionWorkDir)
 
+	// Merge into any RunInfo the caller attached (trigger runs carry TaskID so
+	// domain tools can resolve the task's exploration graph) — never overwrite it.
+	ri := RunInfoFrom(ctx)
+	ri.SessionID = sessionID
+	ctx = WithRunInfo(ctx, ri)
+
 	// Pure assistant: DefaultTools as the base; AugmentTools layers in the key's
 	// visible skills/MCP and lets the DB tools table filter/override. DefaultTools
 	// have no tools-table rows, so they always pass through.
 	base := actool.DefaultTools()
-	ctx = WithRunInfo(ctx, RunInfo{SessionID: sessionID})
 	tools, def, cleanup := AugmentTools(ctx, agentKey, base)
 	defer cleanup()
 
@@ -147,6 +157,7 @@ func (c *ChatAgent) Chat(ctx context.Context, agentKey, sessionID, message strin
 		WebSearchProxy:        ws.Proxy,
 		BashEnv:               proxyEnv(c.proxyAddr, c.proxyCACert), // Bash 子命令默认走代理+信任 CA
 		WorkingDir:            sessionWorkDir,
+		Root:                  c.workDir, // 文件工具硬边界（同 worker）
 		MaxTurns:              maxTurns,
 		MaxDuration:           maxDuration,
 		Compaction:            compactionConfig(c.window),

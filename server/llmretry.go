@@ -1,10 +1,17 @@
+// llmretry.go：LLM 重试策略的服务端解析与下发（见 docs/LLM重试设计.md）。
+// 主要函数/类型：
+//   - retryPolicy：读取全局 LLM 重试策略。
+//   - resolveRetry：把 profile 级覆盖与全局策略合并为 agent 重试配置（留空项逐级继承）。
+//   - applyProfileRetry / applyRetryPolicy：把重试配置应用到单个 profile 的 agent 配置与全局生效配置。
+//   - modelErrorRetryPolicy：引擎侧模型错误路径的重试次数与退避时长。
+//   - emptyTurnNudgeLimit：空轮提醒的触发上限。
 package server
 
 import (
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"artex/agent"
+	"artex/db"
 )
 
 // 重试策略的服务端解析，见 docs/LLM重试设计.md。五层里：

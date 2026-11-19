@@ -1,3 +1,12 @@
+// companies.go：公司实体（companies 表）及其资产范围规则的 CRUD 与事务处理。
+// 主要函数/类型：
+//   - CompanyStore：公司存储入口（DB.Companies() 构造）。
+//   - UpsertCompany / CreateCompanyWithScope：创建或更新公司（可附带初始范围）。
+//   - GetCompany / GetCompanyByName / ListCompanies：按 ID/名称查询公司及范围列表。
+//   - DeleteCompany / DeleteCompanyWithAssets：删除公司，可选级联删除其资产。
+//   - AddScopeInputsChecked / AddScope：追加范围规则并做合法性校验。
+//   - ValidateCompanyScopeInputBounds：范围输入条数上限校验。
+
 package db
 
 import (

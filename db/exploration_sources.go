@@ -1,7 +1,16 @@
+// exploration_sources.go：带来源（所属任务）信息的节点与活动查询，支持跨任务继承标记。
+// 主要函数/类型：
+//   - DirectSourceStore：节点直接来源（任务）描述。
+//   - ListByKindPageWithSources / ListIntentsPageWithSources：分页查询指定类型节点（含来源）。
+//   - GetNodeWithSources：单节点详情及其来源链。
+//   - ActivityTraceWithSources / ActivityTraceSearchWithSources：活动轨迹与关键词搜索（含继承来源）。
+//   - AssetRefsWithSources：引用指定资产的节点及来源。
+
 package db
 
 import (
 	"database/sql"
+	"errors"
 	"sort"
 )
 
@@ -155,6 +164,52 @@ func (s *ExplorationStore) ListByKindPageWithSources(kind string, before int64, 
 	return merged, hasMore, total, nil
 }
 
+// ═══ ARTEX 二开 · [LIST-INTENTS·D1 跨源意图分页] ═══
+// 功能介绍：ListIntentsPageWithSources——ListByKindPageWithSources 的 intent 专用版（合并排序/多取一行
+//
+//	探 hasMore/关联任务继承节点标 inherited=true 只读，全部同款），多一个 states 白名单过滤
+//	（空=全部状态）。供 list_intents 工具（agent/tools.go LIST-INTENTS·A1）。
+//
+// 二开日期：2026-10-22
+func (s *ExplorationStore) ListIntentsPageWithSources(states []string, before int64, limit int, q string) (nodes []*Node, hasMore bool, total int, err error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	own, err := s.listIntentsPageFiltered(states, before, limit, q)
+	if err != nil {
+		return nil, false, 0, err
+	}
+	merged := own
+	total, err = s.countIntentsFiltered(states, q)
+	if err != nil {
+		return nil, false, 0, err
+	}
+	sources, err := s.DirectSourceStores()
+	if err != nil {
+		return nil, false, 0, err
+	}
+	for _, source := range sources {
+		page, err := source.Store.listIntentsPageFiltered(states, before, limit, q)
+		if err != nil {
+			return nil, false, 0, err
+		}
+		for _, n := range page {
+			merged = append(merged, markInheritedNode(n, source.Task.TaskID))
+		}
+		cnt, err := source.Store.countIntentsFiltered(states, q)
+		if err != nil {
+			return nil, false, 0, err
+		}
+		total += cnt
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].ID > merged[j].ID })
+	hasMore = len(merged) > limit
+	if hasMore {
+		merged = merged[:limit]
+	}
+	return merged, hasMore, total, nil
+}
+
 // GetNodeWithSources reads a node only when it belongs to this exploration or
 // one of its direct sources. Inherited nodes are tagged so tool callers can keep
 // them read-only and show their provenance.
@@ -265,6 +320,65 @@ func (s *ExplorationStore) ActivityListWithSources(nodeID, sinceID int64, limit 
 		return markInheritedActivities(acts, source.Task.TaskID), cursor, nil
 	}
 	return []Activity{}, sinceID, nil
+}
+
+// LatestWorkerOutputWithSources returns the newest final result for an intent,
+// falling back to its newest text only when no result exists. The dedicated
+// query avoids the old first-1000-history limit; inherited intents must still
+// be terminal before their activity is exposed.
+func (s *ExplorationStore) LatestWorkerOutputWithSources(nodeID int64) (*Activity, error) {
+	store := s
+	sourceTaskID := int64(0)
+	terminalOnly := false
+	node, err := s.GetNode(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	if node == nil {
+		sources, err := s.DirectSourceStores()
+		if err != nil {
+			return nil, err
+		}
+		for _, source := range sources {
+			node, err = source.Store.GetNode(nodeID)
+			if err != nil {
+				return nil, err
+			}
+			if node != nil && node.Kind == KindIntent {
+				store = source.Store
+				sourceTaskID = source.Task.TaskID
+				terminalOnly = true
+				break
+			}
+		}
+		if store == s {
+			return nil, nil
+		}
+	}
+
+	query := `SELECT a.id,a.node_id,COALESCE(a.worker,''),COALESCE(a.kind,''),a.is_error,COALESCE(a.summary,''),a.created_at
+FROM activity a`
+	if terminalOnly {
+		query += ` JOIN exploration_nodes n ON n.id=a.node_id AND n.exploration_id=a.exploration_id`
+	}
+	query += ` WHERE a.exploration_id=$1 AND a.node_id=$2 AND a.kind IN ('result','text')`
+	if terminalOnly {
+		query += ` AND n.state IN ('done','blocked','exhausted','stopped')`
+	}
+	query += ` ORDER BY (a.kind='result') DESC,a.id DESC LIMIT 1`
+	var a Activity
+	err = store.db.QueryRow(query, store.expID, nodeID).Scan(&a.ID, &a.NodeID, &a.Worker, &a.Kind, &a.IsError, &a.Summary, &a.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if sourceTaskID != 0 {
+		a.SourceTaskID = sourceTaskID
+		a.Inherited = true
+	}
+	return &a, nil
 }
 
 // ActivityDetailWithSources keeps the legacy local-task lookup (including local

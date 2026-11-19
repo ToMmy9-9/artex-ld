@@ -1,10 +1,14 @@
+// deferred.go：延迟工具的提示词接线——deferred 工具块的系统提示构造与技能门控 MCP 重解锁。
+// 主要函数/类型：
+//   - deferredSystem：按 DeferredInfo 构造系统提示段与缓存边界（deferred 工具名列作末段）。
+//   - seedUnlockFromHistory：回放历史 Skill 调用，恢复会话的技能门控 MCP 解锁集。
 package agent
 
 import (
 	"encoding/json"
 
-	"github.com/Autumn-27/norma/llm"
-	actool "github.com/Autumn-27/norma/tool"
+	"norma/llm"
+	actool "norma/tool"
 )
 
 // deferredSystem builds an agent's system-prompt segments and cache boundary from

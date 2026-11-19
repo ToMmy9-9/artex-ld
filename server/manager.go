@@ -1,6 +1,14 @@
+// manager.go：任务管理器 Task/Manager 的定义、生命周期状态与运行开关管理。
+// 主要函数/类型：
+//   - Task / taskLifecycleState / taskLLMState：任务运行时结构及其生命周期、LLM 绑定状态的快照与更新。
+//   - Manager / NewManager：管理器本体（任务表、DB、流量代理、资产增强引擎等）与初始化。
+//   - ConcurrencyLimit / SetConcurrency、Workers / SetWorkers：并发上限与工作线程数的读写。
+//   - TrafficEnabled / SetTrafficEnabled、LLMRecordEnabled / SetLLMRecordEnabled、WebSearch / SetWebSearch：流量录制、LLM 录制与联网搜索开关及配置。
+//   - syncBrowserMCPProxy：让预置浏览器 MCP 的代理参数与流量录制状态保持一致。
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,15 +20,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic" // 【二开·P-REVIEW·S6】reviewBusy
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	pgdb "github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/enrich"
-	"github.com/Autumn-27/artex/guard"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/traffic"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/agent"
+	pgdb "artex/db"
+	"artex/enrich"
+	"artex/guard"
+	"artex/intercept"
+	"artex/traffic"
+	actool "norma/tool"
 )
 
 // Task is one engagement: a description + goal + its own exploration store,
@@ -32,6 +41,7 @@ type Task struct {
 	Name         string `json:"name"` // 可选任务名称;空=未命名
 	CategoryID   *int64 `json:"category_id,omitempty"`
 	CategoryName string `json:"category_name,omitempty"`
+	CategoryNKey string `json:"category_nkey,omitempty"`
 	PinnedAt     int64  `json:"pinned_at,omitempty"`
 	Description  string `json:"description"`
 	Goal         string `json:"goal"`
@@ -55,22 +65,59 @@ type Task struct {
 	CompanyIDs         []int64 `json:"company_ids,omitempty"`
 	Status             string  `json:"status"` // persisted lifecycle status (done/failed/timeout 为终态；空/其它则由运行态推导)
 	// 任务级超时(见 docs/任务级超时与收尾设计.md)。DeadlineAt/FirstRunAt 为 unix 秒,0=未设/未运行。
-	TimeoutSeconds       int                    `json:"timeout_seconds"`
-	PlanHeartbeatSeconds int                    `json:"plan_heartbeat_seconds"` // planner 心跳触发间隔(秒)
-	CoverageEnabled      bool                   `json:"coverage_enabled"`       // 资产覆盖度功能开关(创建时定,默认开)
-	FirstRunAt           int64                  `json:"first_run_at,omitempty"`
-	DeadlineAt           int64                  `json:"deadline_at,omitempty"`
-	Store                *pgdb.ExplorationStore `json:"-"`
-	Guard                *guard.Guard           `json:"-"`
-	notify               chan struct{}
-	lifecycleMu          sync.RWMutex
-	llmMu                sync.RWMutex
+	TimeoutSeconds       int  `json:"timeout_seconds"`
+	PlanHeartbeatSeconds int  `json:"plan_heartbeat_seconds"` // planner 心跳触发间隔(秒)
+	CoverageEnabled      bool `json:"coverage_enabled"`       // 资产覆盖度功能开关(创建时定,默认开)
+	// 【二开·P-INTENT·D7】起 —— db.Task 镜像（taskFromPG 透传；S10 种子 executor / P3 模板快照 / 任务级 worker 池）
+	PreAgent              string `json:"pre_agent,omitempty"`               // 种子意图预选执行器 executor_key（空=默认 worker）
+	PlannerPromptOverride string `json:"planner_prompt_override,omitempty"` // planner 提示词任务级快照（空=走全局/默认链）
+	WorkerPromptOverride  string `json:"worker_prompt_override,omitempty"`  // Worker 提示词任务级快照（空=走全局/默认链）
+	WorkerCount           int    `json:"worker_count"`                      // 任务级 worker 池：0=跟随全局，1~16 专属
+	ReviewAuto            bool   `json:"review_auto"`                       // 【二开·P-REVIEW·D2b】自动审核开关（审核聊天窗 Switch）
+	ReviewEnabled         bool   `json:"review_enabled"`                    // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934）
+	AssetMode             string `json:"asset_mode"`                        // 【二开·P-REVIEW·D12】资产图模式标签（m04039）
+	// 【二开·P-INTENT·D7】止
+	FirstRunAt int64                  `json:"first_run_at,omitempty"`
+	DeadlineAt int64                  `json:"deadline_at,omitempty"`
+	Store      *pgdb.ExplorationStore `json:"-"`
+	Guard      *guard.Guard           `json:"-"`
+	notify     chan struct{}
+	// 【二开·P-REVIEW·S6】reviewBusy：review 会话单飞门（同任务同刻只允许一个 review 对话在跑）
+	reviewBusy   atomic.Bool
+	reviewMu     sync.Mutex
+	reviewCancel context.CancelFunc
+	lifecycleMu  sync.RWMutex
+	llmMu        sync.RWMutex
 
 	// pendingTriggers accumulates the concrete changes (worker done / finding) that
 	// fired planning rounds since the last one consumed them. The debounce coalesces
 	// a burst into one round, so several may pile up before drainTriggers() clears them.
 	trigMu          sync.Mutex
 	pendingTriggers []agent.TriggerEvent
+}
+
+// setReviewCancel 注册当前 review 会话的取消函数；reviewBusy 保证同时只有一个会话。
+func (t *Task) setReviewCancel(cancel context.CancelFunc) {
+	t.reviewMu.Lock()
+	t.reviewCancel = cancel
+	t.reviewMu.Unlock()
+}
+
+// cancelReview 取消当前 review 会话，供任务删除和归档在 drain 前调用。
+func (t *Task) cancelReview() {
+	t.reviewMu.Lock()
+	cancel := t.reviewCancel
+	t.reviewMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// clearReviewCancel 在会话完全退出后清除取消函数，避免保留已结束的上下文。
+func (t *Task) clearReviewCancel() {
+	t.reviewMu.Lock()
+	t.reviewCancel = nil
+	t.reviewMu.Unlock()
 }
 
 // taskLifecycleState is an internally consistent view of the mutable task
@@ -92,6 +139,7 @@ type taskLifecycleState struct {
 	CompanyIDs    []int64
 	CategoryID    *int64
 	CategoryName  string
+	CategoryNKey  string
 }
 
 func (t *Task) lifecycleSnapshot() taskLifecycleState {
@@ -119,6 +167,7 @@ func (t *Task) lifecycleSnapshotLocked() taskLifecycleState {
 		CompanyIDs:    append([]int64(nil), t.CompanyIDs...),
 		CategoryID:    cloneInt64Ptr(t.CategoryID),
 		CategoryName:  t.CategoryName,
+		CategoryNKey:  t.CategoryNKey,
 	}
 }
 
@@ -143,6 +192,7 @@ func (t *Task) updateLifecycle(update func(*taskLifecycleState)) {
 	t.CompanyIDs = append(t.CompanyIDs[:0], state.CompanyIDs...)
 	t.CategoryID = cloneInt64Ptr(state.CategoryID)
 	t.CategoryName = state.CategoryName
+	t.CategoryNKey = state.CategoryNKey
 	t.lifecycleMu.Unlock()
 }
 
@@ -832,7 +882,7 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 	return &Task{
 		ID: strconv.FormatInt(pt.ID, 10), ExpID: pt.ExplorationID,
 		Name:       pt.Name,
-		CategoryID: cloneInt64Ptr(pt.CategoryID), CategoryName: pt.CategoryName,
+		CategoryID: cloneInt64Ptr(pt.CategoryID), CategoryName: pt.CategoryName, CategoryNKey: pt.CategoryNKey,
 		PinnedAt:    unixOrZero(pt.PinnedAt),
 		Description: pt.Description, Goal: pt.Goal, CreatedAt: pt.CreatedAt.Unix(), Paused: pt.Paused, Queued: pt.Queued,
 		QueuedAt: unixNanoOrZero(pt.QueuedAt), QueueMode: pt.QueueMode,
@@ -845,7 +895,15 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		CompanyIDs:     append([]int64(nil), pt.CompanyIDs...),
 		TimeoutSeconds: pt.TimeoutSeconds, PlanHeartbeatSeconds: pt.PlanHeartbeatSeconds,
 		CoverageEnabled: pt.CoverageEnabled,
-		FirstRunAt:      unixOrZero(pt.FirstRunAt), DeadlineAt: unixOrZero(pt.DeadlineAt),
+		// 【二开·P-INTENT·D7】镜像：db.Task → server.Task（S10 种子 executor / P3 模板快照 / 任务级 worker 池）
+		PreAgent:              pt.PreAgent,
+		PlannerPromptOverride: pt.PlannerPromptOverride,
+		WorkerPromptOverride:  pt.WorkerPromptOverride,
+		WorkerCount:           pt.WorkerCount,
+		ReviewAuto:            pt.ReviewAuto,
+		ReviewEnabled:         pt.ReviewEnabled,
+		AssetMode:             pt.AssetMode,
+		FirstRunAt:            unixOrZero(pt.FirstRunAt), DeadlineAt: unixOrZero(pt.DeadlineAt),
 		Store: store, Guard: guard.NewWithInterceptor(ic), notify: make(chan struct{}, 1),
 	}
 }
@@ -873,6 +931,13 @@ func (m *Manager) UpdateTaskMetadata(taskID string, patch pgdb.TaskPatch) (*Task
 		state.Name = updated.Name
 		state.PinnedAt = unixOrZero(updated.PinnedAt)
 	})
+	// 【二开·P-REVIEW】自动审核开关同步到内存对象（PATCH 后立即生效，不等任务重载）
+	if patch.ReviewAuto != nil {
+		task.ReviewAuto = updated.ReviewAuto
+	}
+	if patch.ReviewEnabled != nil {
+		task.ReviewEnabled = updated.ReviewEnabled
+	}
 	return task, nil
 }
 
@@ -898,6 +963,8 @@ func (m *Manager) CreateTaskWithOptions(description, goal string, opts pgdb.Task
 		return nil, err
 	}
 	t := taskFromPG(pt, m.pg.Exploration(pt.ExplorationID), m.interceptor)
+	// 【二开·P-INTENT·D7】PreAgent 不落 tasks 表（仅建任务时透传）：db 侧 RETURNING 不回读，这里直接从 opts 补镜像
+	t.PreAgent = opts.PreAgent
 	m.mu.Lock()
 	m.tasks[t.ID] = t
 	m.active = t.ID
@@ -920,6 +987,7 @@ func (m *Manager) RenameTaskCategory(id int64, name string) (*pgdb.TaskCategory,
 		task.updateLifecycle(func(state *taskLifecycleState) {
 			if state.CategoryID != nil && *state.CategoryID == id {
 				state.CategoryName = category.Name
+				state.CategoryNKey = category.NKey
 			}
 		})
 	}
@@ -941,6 +1009,7 @@ func (m *Manager) DeleteTaskCategory(id int64) (bool, error) {
 			if state.CategoryID != nil && *state.CategoryID == id {
 				state.CategoryID = nil
 				state.CategoryName = ""
+				state.CategoryNKey = ""
 			}
 		})
 	}
@@ -966,8 +1035,10 @@ func (m *Manager) SetTaskCategory(taskID string, categoryID *int64) (*pgdb.TaskC
 		task.updateLifecycle(func(state *taskLifecycleState) {
 			state.CategoryID = cloneInt64Ptr(categoryID)
 			state.CategoryName = ""
+			state.CategoryNKey = ""
 			if category != nil {
 				state.CategoryName = category.Name
+				state.CategoryNKey = category.NKey
 			}
 		})
 	}
@@ -993,9 +1064,10 @@ func (m *Manager) SetTasksCategory(taskIDs []string, categoryID *int64) (map[str
 	if err != nil {
 		return nil, nil, err
 	}
-	categoryName := ""
+	categoryName, categoryNKey := "", ""
 	if category != nil {
 		categoryName = category.Name
+		categoryNKey = category.NKey
 	}
 	updated := make(map[string]bool, len(updatedIDs))
 	m.mu.RLock()
@@ -1012,6 +1084,7 @@ func (m *Manager) SetTasksCategory(taskIDs []string, categoryID *int64) (map[str
 		task.updateLifecycle(func(state *taskLifecycleState) {
 			state.CategoryID = cloneInt64Ptr(categoryID)
 			state.CategoryName = categoryName
+			state.CategoryNKey = categoryNKey
 		})
 	}
 	return updated, category, nil
@@ -1577,32 +1650,13 @@ type taskFileDeleteStage struct {
 
 // stageTaskFiles atomically renames the task workspace and owned transcripts to
 // a same-filesystem staging directory. The trailing dash in the transcript
-// prefix is significant: exploration 12 must not match exploration 123.
+// prefix is significant: exploration 12 must not match exploration 123
+// (target enumeration is shared in taskWorkspaceTargets).
 func stageTaskFiles(dataDir, taskID string, explorationID int64) (*taskFileDeleteStage, error) {
 	stage := &taskFileDeleteStage{}
-	var targets []string
-	taskDir := filepath.Join(dataDir, "tasks", taskID)
-	if _, err := os.Lstat(taskDir); err == nil {
-		targets = append(targets, taskDir)
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-
-	transcriptDir := filepath.Join(dataDir, "transcripts")
-	entries, err := os.ReadDir(transcriptDir)
+	targets, err := taskWorkspaceTargets(dataDir, taskID, explorationID)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return nil, err
-		}
-		entries = nil
-	}
-	prefix := fmt.Sprintf("exp%d-", explorationID)
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasPrefix(name, prefix) || (!entry.IsDir() && !strings.HasSuffix(name, ".jsonl")) {
-			continue
-		}
-		targets = append(targets, filepath.Join(transcriptDir, name))
+		return nil, err
 	}
 	if len(targets) == 0 {
 		stage.done = true
@@ -1755,15 +1809,23 @@ func (t *Task) Notify() {
 	}
 }
 
+// enqueueTrigger 入账一条触发事件并唤醒 planner（八个通知入口同款：锁内追加 + 非阻塞唤醒）。
+// 入口侧各自的参数校验与 log 留在入口（如 NotifyFinding 的 finding 入账日志）。
+func (t *Task) enqueueTrigger(ev agent.TriggerEvent) {
+	t.trigMu.Lock()
+	t.pendingTriggers = append(t.pendingTriggers, ev)
+	t.trigMu.Unlock()
+	t.Notify()
+}
+
 // NotifyDone is Notify plus a hint: a worker just finished intentID and that is
 // what triggered this wake-up. The planner reads the accumulated triggers next
 // round so it can spell out which intent finished (+ its output). Events pile up
 // (debounce) until the round drains them via drainTriggers.
 func (t *Task) NotifyDone(intentID int64) {
 	if intentID > 0 {
-		t.trigMu.Lock()
-		t.pendingTriggers = append(t.pendingTriggers, agent.TriggerEvent{Kind: "done", IntentID: intentID})
-		t.trigMu.Unlock()
+		t.enqueueTrigger(agent.TriggerEvent{Kind: "done", IntentID: intentID})
+		return
 	}
 	t.Notify()
 }
@@ -1771,10 +1833,10 @@ func (t *Task) NotifyDone(intentID int64) {
 // NotifyFinding records that a worker reported a finding on intentID (summary),
 // then wakes the planner — so the round spells out which intent found what.
 func (t *Task) NotifyFinding(intentID int64, summary string) {
-	t.trigMu.Lock()
-	t.pendingTriggers = append(t.pendingTriggers, agent.TriggerEvent{Kind: "finding", IntentID: intentID, Detail: summary})
-	t.trigMu.Unlock()
-	t.Notify()
+	// 【二开·P-LOG·O1】INFO 记 finding 入账（排障：finding 到子任务派发链断在哪环；触发器命中见 P-LOG·O2）。
+	// 日志留在入口侧（enqueueTrigger 只管入账 + 唤醒）。
+	log.Printf("[finding] finding 入账：task %s 意图 #%d %s（派发链：planner 唤醒 + on_finding 触发器广播）", t.ID, intentID, firstLine(summary, 60))
+	t.enqueueTrigger(agent.TriggerEvent{Kind: "finding", IntentID: intentID, Detail: summary})
 }
 
 // NotifyGoal records that one OR MORE goals were added in a single set_goals call —
@@ -1787,10 +1849,7 @@ func (t *Task) NotifyGoal(texts []string) {
 	if len(texts) == 0 {
 		return
 	}
-	t.trigMu.Lock()
-	t.pendingTriggers = append(t.pendingTriggers, agent.TriggerEvent{Kind: "goal", Goals: texts})
-	t.trigMu.Unlock()
-	t.Notify()
+	t.enqueueTrigger(agent.TriggerEvent{Kind: "goal", Goals: texts})
 }
 
 // NotifyHint records that one OR MORE hints were added in a single add_hint call —
@@ -1802,10 +1861,23 @@ func (t *Task) NotifyHint(texts []string) {
 	if len(texts) == 0 {
 		return
 	}
-	t.trigMu.Lock()
-	t.pendingTriggers = append(t.pendingTriggers, agent.TriggerEvent{Kind: "hint", Hints: texts})
-	t.trigMu.Unlock()
-	t.Notify()
+	t.enqueueTrigger(agent.TriggerEvent{Kind: "hint", Hints: texts})
+}
+
+// 【二开·审核流 PR5/§4.2.3】NotifyRevisionRequested 记录「意图被审核驳回、退回修订」事件
+// 并唤醒 planner：不复用 hint（其文案会诱导新建意图），不落任何图节点（修订循环靠
+// rejected 意图本身做持久兼底——进程重启后 planner 概览仍能发现待改稿）。
+// 三入口统一调用：自动审核 reject / 人工面板 reject / 对话 set_intent_status reject。
+func (t *Task) NotifyRevisionRequested(intentID int64, reason string) {
+	reason = strings.TrimSpace(reason)
+	if intentID <= 0 || reason == "" {
+		return
+	}
+	t.enqueueTrigger(agent.TriggerEvent{
+		Kind:     "revision_requested",
+		IntentID: intentID,
+		Detail:   reason,
+	})
 }
 
 // NotifyGoalDeleted records that the human deleted a goal (via 总览的目标管理), then
@@ -1816,10 +1888,7 @@ func (t *Task) NotifyGoalDeleted(text string) {
 	if text == "" {
 		return
 	}
-	t.trigMu.Lock()
-	t.pendingTriggers = append(t.pendingTriggers, agent.TriggerEvent{Kind: "goal_deleted", Detail: text})
-	t.trigMu.Unlock()
-	t.Notify()
+	t.enqueueTrigger(agent.TriggerEvent{Kind: "goal_deleted", Detail: text})
 }
 
 // NotifyGoalEdited records that the human edited a goal (via 总览的目标管理), then wakes
@@ -1830,10 +1899,7 @@ func (t *Task) NotifyGoalEdited(oldText, newText string) {
 	if newText == "" {
 		return
 	}
-	t.trigMu.Lock()
-	t.pendingTriggers = append(t.pendingTriggers, agent.TriggerEvent{Kind: "goal_edited", OldGoal: oldText, NewGoal: newText})
-	t.trigMu.Unlock()
-	t.Notify()
+	t.enqueueTrigger(agent.TriggerEvent{Kind: "goal_edited", OldGoal: oldText, NewGoal: newText})
 }
 
 // NotifyCancelled records that the human deleted intentID (reason = 删除原因), then
@@ -1843,9 +1909,8 @@ func (t *Task) NotifyGoalEdited(oldText, newText string) {
 // soft (state='deleted') and hard (physical cascade) delete.
 func (t *Task) NotifyCancelled(intentID int64, summary, reason string) {
 	if intentID > 0 {
-		t.trigMu.Lock()
-		t.pendingTriggers = append(t.pendingTriggers, agent.TriggerEvent{Kind: "cancelled", IntentID: intentID, Summary: summary, Detail: reason})
-		t.trigMu.Unlock()
+		t.enqueueTrigger(agent.TriggerEvent{Kind: "cancelled", IntentID: intentID, Summary: summary, Detail: reason})
+		return
 	}
 	t.Notify()
 }
@@ -1857,4 +1922,25 @@ func (t *Task) drainTriggers() []agent.TriggerEvent {
 	ev := t.pendingTriggers
 	t.pendingTriggers = nil
 	return ev
+}
+
+// drainTriggersRetaining 清空触发队列但保留指定种类（【二开·审核流 PR5/§4.2.4】）：
+// 审核抑制分支用它留住 revision_requested/hint（send_planner_hint 入队的 Kind 是 "hint"），
+// 抑制解除后随下一轮送达 planner，其余易再生触发（done/finding 等）仍丢弃以防无界累积。
+func (t *Task) drainTriggersRetaining(kinds ...string) {
+	t.trigMu.Lock()
+	defer t.trigMu.Unlock()
+	if len(t.pendingTriggers) == 0 {
+		return
+	}
+	keep := make([]agent.TriggerEvent, 0, len(t.pendingTriggers))
+	for _, ev := range t.pendingTriggers {
+		for _, k := range kinds {
+			if ev.Kind == k {
+				keep = append(keep, ev)
+				break
+			}
+		}
+	}
+	t.pendingTriggers = keep
 }

@@ -1,3 +1,9 @@
+/**
+ * update-card.tsx：系统版本检查与自更新卡片——检查新版本、下载进度（SSE）、换装后轮询健康检查。
+ * 主要函数/类型：
+ *   - UpdateCard：更新卡片组件（检查/下载/重启全流程状态机）
+ *   - humanSize：把字节数格式化为可读大小
+ */
 "use client";
 
 import * as React from "react";
@@ -306,7 +312,7 @@ export function UpdateCard() {
 
         <p className="text-xs text-muted-foreground">
           一键更新依赖守护脚本重启程序。请通过 <span className="font-mono">start.sh</span>（Windows 为
-          <span className="font-mono"> start.bat</span>）启动 ARTEX；直接运行 artex 本体时，程序退出后不会被自动拉起。
+          <span className="font-mono"> start.bat</span>）启动 artex；直接运行 artex 本体时，程序退出后不会被自动拉起。
         </p>
       </CardContent>
     </Card>

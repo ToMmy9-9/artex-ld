@@ -1,3 +1,12 @@
+/**
+ * page.tsx：任务管理页，当前/归档双标签页列表任务，支持新建、批量控制、归档、删除与并发限制设置。
+ * 主要函数/类型：
+ *   - TasksPage：页面主体，拉取任务列表/分类/归档（api.tasks / taskArchives 等）
+ *   - appendUploads：把上传文件的绝对路径折叠进任务描述
+ *   - taskControlAction / PAUSABLE_STATUSES / ARCHIVABLE_STATUSES：暂停/继续与可归档状态门控
+ *   - deleteSummary / deleteDetails：删除结果汇总文案
+ *   - fmtDuration / taskDuration / fmtDateTime：时长与时间点格式化
+ */
 "use client";
 
 import * as React from "react";
@@ -49,6 +58,11 @@ import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
 import { TaskLLMProfileChain } from "@/components/task-llm-profile-chain";
 import { TaskTemplateControls } from "@/components/task-template-controls";
+// 【二开·P-TPL·U2】起
+import { PlannerTemplateControls, WorkerTemplateControls } from "@/components/prompt-template-controls";
+// 【二开·P-TPL·U2】止
+// 【二开·P-SCENARIO·U3】起 —— 任务管理页直接打开场景管理面板（场景=建任务预设打包）
+// 【二开·P-SCENARIO·U3】止
 import {
   AlertDialog,
   AlertDialogAction,
@@ -99,6 +113,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; // 【二开·P-INTENT·U2】种子执行方式 RadioGroup
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -122,26 +137,22 @@ import { api } from "@/lib/api";
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
 import { type SortDirection, useStoredSortPreference } from "@/lib/sort-preference";
 import type {
+  Agent, // 【二开·P-INTENT·U2】执行器下拉列表类型
   AssetInterceptRuleInput,
   ChatAttachment,
   Company,
   DeleteTaskOptions,
   DeleteTaskResult,
   LLMProfile,
+  PlannerTemplate, // 【二开·P-REVIEW·D12】分类预设模板下拉
+  WorkerTemplate,
   Task,
   TaskArchive,
   TaskArchiveState,
   TaskCategory,
   TaskStatus,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-// fmtBytes renders a human file size for the upload manifest.
-function fmtBytes(n: number): string {
-  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
-  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
-  return `${n} B`;
-}
+import { cn, fmtBytes, fmtTokens } from "@/lib/utils";
 
 // UPLOAD_MARKER labels the auto-appended block of uploaded-file paths inside the task
 // description, so re-uploads append under the same block instead of adding a new header.
@@ -163,13 +174,6 @@ function appendUploads(desc: string, atts: ChatAttachment[]): string {
 // worker), so the list has to be pulled; 10s is plenty for status / 进度 / token 变化.
 const POLL_MS = 10_000;
 const MAX_SOURCE_TASKS = 8;
-
-// fmtTokens renders a compact token count (1234 → 1.2k, 2_000_000 → 2M).
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
-  return String(n);
-}
 
 // fmtDuration renders a run duration in seconds as a compact human string.
 function fmtDuration(sec: number): string {
@@ -323,6 +327,8 @@ export default function TasksPage() {
   const [nowSec, setNowSec] = React.useState(() => Math.floor(Date.now() / 1000));
   const [batchControlling, setBatchControlling] = React.useState<"pause" | "resume" | null>(null);
   const [movingCategory, setMovingCategory] = React.useState(false);
+  // 【二开·P-SCENARIO·MERGE】场景管理=分类管理面板（m03167 合并）；场景预设字段在 CategoryManagementSheet 内维护
+  // 【二开·P-SCENARIO·U3】止
 
   React.useEffect(() => {
     const raw = getLocalStorageValue(TASK_FILTER_PREFERENCE_KEY);
@@ -747,7 +753,7 @@ export default function TasksPage() {
       const ids = [...selectedIds];
       if (ids.length === 0 || movingCategory) return;
       if (ids.length > 100) {
-        toast.error("一次最多修改 100 个任务的分类");
+        toast.error("一次最多修改 100 个任务的场景");
         return;
       }
       setMovingCategory(true);
@@ -755,7 +761,7 @@ export default function TasksPage() {
         const result = await api.updateTasksCategory(ids, categoryID);
         const succeeded = result.items.filter((item) => item.ok);
         const failed = result.items.filter((item) => !item.ok);
-        const target = result.category?.name ?? "未分类";
+        const target = result.category?.name ?? "未设场景";
         if (succeeded.length > 0) {
           toast.success(`已将 ${succeeded.length} 个任务移动到「${target}」`);
           setSelectedIds(new Set());
@@ -769,7 +775,7 @@ export default function TasksPage() {
         }
         refreshCategoriesAndTasks();
       } catch (error) {
-        toast.error(`修改分类失败：${(error as Error).message}`);
+        toast.error(`修改场景失败：${(error as Error).message}`);
       } finally {
         setMovingCategory(false);
       }
@@ -823,12 +829,12 @@ export default function TasksPage() {
               </Select>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="w-40">
-                  <SelectValue placeholder="任务分类" />
+                  <SelectValue placeholder="场景" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectItem value="all">全部分类</SelectItem>
-                    <SelectItem value={UNCATEGORIZED_VALUE}>未分类</SelectItem>
+                    <SelectItem value="all">全部场景</SelectItem>
+                    <SelectItem value={UNCATEGORIZED_VALUE}>未设场景</SelectItem>
                     {categories.map((category) => (
                       <SelectItem key={category.id} value={String(category.id)}>
                         {category.name}
@@ -1879,7 +1885,7 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
                 </TableHead>
                 <TableHead>任务</TableHead>
                 <TableHead>原状态</TableHead>
-                <TableHead>分类</TableHead>
+                <TableHead>场景</TableHead>
                 <TableHead>归档时间</TableHead>
                 <TableHead>压缩大小</TableHead>
                 <TableHead>数据量</TableHead>
@@ -1922,7 +1928,7 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
                     <TableCell>
                       <StatusBadge domain="task" value={archive.original_status} dot />
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{archive.category_name || "未分类"}</TableCell>
+                    <TableCell className="text-muted-foreground">{archive.category_name || "未设场景"}</TableCell>
                     <TableCell className="text-muted-foreground whitespace-nowrap text-xs">
                       {archiveDate(archive.archived_at || archive.requested_at)}
                     </TableCell>
@@ -2240,23 +2246,23 @@ function MoveTasksCategoryDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
-          <FolderInputIcon data-icon="inline-start" /> 修改分类
+          <FolderInputIcon data-icon="inline-start" /> 修改场景
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>修改所选 {count} 个任务的分类</DialogTitle>
-          <DialogDescription>目标分类对所选任务统一生效；选「未分类」会把它们移出当前分类。</DialogDescription>
+          <DialogTitle>修改所选 {count} 个任务的场景</DialogTitle>
+          <DialogDescription>目标场景对所选任务统一生效；选「未设场景」会把它们移出当前场景。</DialogDescription>
         </DialogHeader>
         <Field>
-          <FieldLabel htmlFor="bulk-category">目标分类</FieldLabel>
+          <FieldLabel htmlFor="bulk-category">目标场景</FieldLabel>
           <Select value={target} onValueChange={setTarget} disabled={moving}>
             <SelectTrigger id="bulk-category" className="w-full">
-              <SelectValue placeholder="选择分类" />
+              <SelectValue placeholder="选择场景" />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value={UNCATEGORIZED_VALUE}>未分类</SelectItem>
+                <SelectItem value={UNCATEGORIZED_VALUE}>未设场景</SelectItem>
                 {categories.map((category) => (
                   <SelectItem key={category.id} value={String(category.id)}>
                     {category.name}
@@ -2265,7 +2271,7 @@ function MoveTasksCategoryDialog({
               </SelectGroup>
             </SelectContent>
           </Select>
-          {categories.length === 0 && <FieldDescription>还没有任何分类，先用「分类管理」创建一个。</FieldDescription>}
+          {categories.length === 0 && <FieldDescription>还没有任何场景，先用「场景管理」创建一个。</FieldDescription>}
         </Field>
         <DialogFooter>
           <DialogClose asChild>
@@ -2489,9 +2495,9 @@ function CategoryPicker({
       onValueChange(created.id);
       setInputValue("");
       onCategoryCreated();
-      toast.success(`已创建分类「${created.name}」`);
+      toast.success(`已创建场景「${created.name}」`);
     } catch (e) {
-      toast.error(`创建分类失败：${(e as Error).message}`);
+      toast.error(`创建场景失败：${(e as Error).message}`);
     } finally {
       setCreating(false);
     }
@@ -2515,12 +2521,12 @@ function CategoryPicker({
       <ComboboxChips>
         <ComboboxValue>
           {selectedIDs.map((id) => (
-            <ComboboxChip key={id}>{byID.get(id)?.name ?? "未知分类"}</ComboboxChip>
+            <ComboboxChip key={id}>{byID.get(id)?.name ?? "未知场景"}</ComboboxChip>
           ))}
         </ComboboxValue>
         <ComboboxChipsInput
           id="task-category"
-          placeholder={selectedIDs.length ? "" : "搜索分类，或输入新名称后回车创建"}
+          placeholder={selectedIDs.length ? "" : "搜索场景，或输入新名称后回车创建"}
           onKeyDown={(e) => {
             // 完全无匹配时回车 = 创建；有匹配项时保留 base-ui 的「回车选中高亮项」。
             if (e.key === "Enter" && matchCount === 0 && trimmed) {
@@ -2547,10 +2553,10 @@ function CategoryPicker({
               className="flex w-full items-center gap-2 px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
             >
               {creating ? <Spinner className="size-4" /> : <PlusIcon className="size-4" />}
-              创建分类「{trimmed}」
+              创建场景「{trimmed}」
             </button>
           ) : (
-            <div className="px-2 py-2 text-sm text-muted-foreground">输入名称以搜索或创建分类</div>
+            <div className="px-2 py-2 text-sm text-muted-foreground">输入名称以搜索或创建场景</div>
           ))}
       </ComboboxContent>
     </Combobox>
@@ -2751,6 +2757,25 @@ function CategoryManagementSheet({
   const [open, setOpen] = React.useState(false);
   const [selectedView, setSelectedView] = React.useState<CategoryManagementView>("new");
   const [draftName, setDraftName] = React.useState("");
+  // 【二开·P-REVIEW·D12】起 —— 分类预设包编辑态（m04039）
+  const [draftReviewEnabled, setDraftReviewEnabled] = React.useState(false);
+  const [draftTemplateID, setDraftTemplateID] = React.useState(0);
+  const [draftWorkerTemplateID, setDraftWorkerTemplateID] = React.useState(0);
+  const [draftAssetMode, setDraftAssetMode] = React.useState("pentest");
+  const [draftDescription, setDraftDescription] = React.useState("");
+  // 【二开·P-SCENARIO·MERGE】种子意图预设编辑态（m03167 场景并入分类）
+  const [draftSeedFirstIntent, setDraftSeedFirstIntent] = React.useState(false);
+  const [draftSeedExecutor, setDraftSeedExecutor] = React.useState("");
+  const [presetAgents, setPresetAgents] = React.useState<Agent[]>([]);
+  const [presetTemplates, setPresetTemplates] = React.useState<PlannerTemplate[]>([]);
+  const [presetWorkerTemplates, setPresetWorkerTemplates] = React.useState<WorkerTemplate[]>([]);
+  React.useEffect(() => {
+    if (!open) return;
+    api.plannerTemplates().then(setPresetTemplates).catch(() => {});
+    api.workerTemplates().then(setPresetWorkerTemplates).catch(() => {});
+    api.agents().then((l) => setPresetAgents(l.filter((a) => a.executor_key))).catch(() => {});
+  }, [open]);
+  // 【二开·P-REVIEW·D12】止
   const [saving, setSaving] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
@@ -2798,6 +2823,15 @@ function CategoryManagementSheet({
   const selectCategory = (category: TaskCategory) => {
     setSelectedView(category.id);
     setDraftName(category.name);
+    // 【二开·P-REVIEW·D12】带出预设包
+    setDraftReviewEnabled(category.default_review_enabled ?? false);
+    setDraftTemplateID(category.default_planner_template_id ?? 0);
+    setDraftWorkerTemplateID(category.default_worker_template_id ?? 0);
+    setDraftAssetMode(category.asset_mode || "pentest");
+    setDraftDescription(category.default_description ?? "");
+    // 【二开·P-SCENARIO·MERGE】带出种子意图预设
+    setDraftSeedFirstIntent(category.seed_first_intent ?? false);
+    setDraftSeedExecutor(category.seed_executor ?? "");
   };
 
   const selectUncategorized = () => {
@@ -2808,6 +2842,14 @@ function CategoryManagementSheet({
   const startNew = () => {
     setSelectedView("new");
     setDraftName("");
+    // 【二开·P-REVIEW·D12】重置预设包
+    setDraftReviewEnabled(false);
+    setDraftTemplateID(0);
+    setDraftWorkerTemplateID(0);
+    setDraftAssetMode("pentest");
+    setDraftDescription("");
+    setDraftSeedFirstIntent(false);
+    setDraftSeedExecutor("");
   };
 
   async function saveCategory() {
@@ -2817,17 +2859,36 @@ function CategoryManagementSheet({
     try {
       if (selectedView === "new") {
         const created = await api.createTaskCategory(name);
+        // 【二开·P-REVIEW·D12】创建后立即写预设包（m04039）
+        await api.renameTaskCategory(created.id, {
+          default_review_enabled: draftReviewEnabled,
+          default_planner_template_id: draftTemplateID,
+          default_worker_template_id: draftWorkerTemplateID,
+          asset_mode: draftAssetMode,
+          default_description: draftDescription,
+          seed_first_intent: draftSeedFirstIntent,
+          seed_executor: draftSeedExecutor,
+        });
         setSelectedView(created.id);
         setDraftName(created.name);
-        toast.success("分类已创建");
+        toast.success("场景已创建");
       } else {
-        const updated = await api.renameTaskCategory(selectedView, name);
+        const updated = await api.renameTaskCategory(selectedView, {
+          name,
+          default_review_enabled: draftReviewEnabled,
+          default_planner_template_id: draftTemplateID,
+          default_worker_template_id: draftWorkerTemplateID,
+          asset_mode: draftAssetMode,
+          default_description: draftDescription,
+          seed_first_intent: draftSeedFirstIntent,
+          seed_executor: draftSeedExecutor,
+        });
         setDraftName(updated.name);
-        toast.success("分类已更新");
+        toast.success("场景已更新");
       }
       onChanged();
     } catch (error) {
-      toast.error(`${selectedView === "new" ? "创建" : "更新"}分类失败：${(error as Error).message}`);
+      toast.error(`${selectedView === "new" ? "创建" : "更新"}场景失败：${(error as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -2842,11 +2903,11 @@ function CategoryManagementSheet({
       const next = categories.find((category) => category.id !== deletedID);
       if (next) selectCategory(next);
       else selectUncategorized();
-      toast.success("分类已删除，关联任务已移入未分类");
+      toast.success("场景已删除，关联任务已移入未设场景");
       setDeleteOpen(false);
       onChanged();
     } catch (error) {
-      toast.error(`删除分类失败：${(error as Error).message}`);
+      toast.error(`删除场景失败：${(error as Error).message}`);
     } finally {
       setDeleting(false);
     }
@@ -2857,7 +2918,7 @@ function CategoryManagementSheet({
     const category =
       destination === "uncategorized" ? null : (categories.find((item) => item.id === Number(destination)) ?? null);
     if (destination !== "uncategorized" && !category) {
-      toast.error("目标分类不存在，请刷新后重试");
+      toast.error("目标场景不存在，请刷新后重试");
       return;
     }
     if (task.category_id === category?.id || (task.category_id == null && category == null)) return;
@@ -2866,7 +2927,7 @@ function CategoryManagementSheet({
     try {
       await api.updateTaskCategory(task.id, category?.id);
       onTaskMoved(task.id, category);
-      toast.success(`任务 #${task.id} 已移至「${category?.name ?? "未分类"}」`);
+      toast.success(`任务 #${task.id} 已移至「${category?.name ?? "未设场景"}」`);
     } catch (error) {
       toast.error(`移动任务失败：${(error as Error).message}`);
     } finally {
@@ -2891,7 +2952,7 @@ function CategoryManagementSheet({
     void moveTask(task, destination.slice("category:".length));
   }
 
-  const saveLabel = saving ? "保存中" : selectedView === "new" ? "创建分类" : "保存修改";
+  const saveLabel = saving ? "保存中" : selectedView === "new" ? "创建场景" : "保存修改";
 
   return (
     <>
@@ -2899,13 +2960,13 @@ function CategoryManagementSheet({
         <SheetTrigger asChild>
           <Button size="sm" variant="outline">
             <TagsIcon data-icon="inline-start" />
-            分类管理
+            场景管理
           </Button>
         </SheetTrigger>
         <SheetContent className="grid h-full w-full! max-w-none! grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:w-[48rem]! sm:max-w-[48rem]!">
           <SheetHeader className="border-b px-6 py-5">
-            <SheetTitle>任务分类管理</SheetTitle>
-            <SheetDescription>分类用于任务筛选与归档；修改不会影响任务执行，删除后任务会移入未分类。</SheetDescription>
+            <SheetTitle>场景管理</SheetTitle>
+            <SheetDescription>场景用于任务筛选与归档；修改不会影响任务执行，删除后任务会移入未设场景。</SheetDescription>
           </SheetHeader>
           <DndContext
             sensors={sensors}
@@ -2917,13 +2978,13 @@ function CategoryManagementSheet({
               <div className="flex min-h-0 flex-col border-b p-3 lg:border-r lg:border-b-0">
                 <Button type="button" variant="outline" className="w-full" onClick={startNew}>
                   <PlusIcon data-icon="inline-start" />
-                  新建分类
+                  新建场景
                 </Button>
                 <ScrollArea className="mt-2 max-h-44 lg:max-h-none lg:flex-1">
                   <div className="flex flex-col gap-1 pr-2">
                     <CategoryDropTarget
                       value="uncategorized"
-                      name="未分类"
+                      name="未设场景"
                       count={uncategorizedCount}
                       selected={selectedView === "uncategorized"}
                       disabled={movingTaskID != null}
@@ -2947,7 +3008,7 @@ function CategoryManagementSheet({
                 <FieldGroup className="p-6">
                   {selectedView !== "uncategorized" && (
                     <Field>
-                      <FieldLabel htmlFor="task-category-name">分类名称</FieldLabel>
+                      <FieldLabel htmlFor="task-category-name">场景名称</FieldLabel>
                       <Input
                         id="task-category-name"
                         value={draftName}
@@ -2960,27 +3021,125 @@ function CategoryManagementSheet({
                       />
                       <FieldDescription>
                         {selectedCategory
-                          ? `当前有 ${selectedCategory.task_count} 个任务使用该分类。重命名后会同步更新任务列表。`
+                          ? `当前有 ${selectedCategory.task_count} 个任务使用该场景。重命名后会同步更新任务列表。`
                           : "创建后可在新建任务和任务列表筛选中使用。"}
                       </FieldDescription>
                     </Field>
                   )}
+                  {/* 【二开·P-REVIEW·D12】起 —— 分类预设包（m04039）：建任务选中本分类时带出三默认 */}
+                  {selectedView !== "uncategorized" && (
+                    <Field>
+                      <FieldLabel>场景预设（建任务默认值）</FieldLabel>
+                      <label htmlFor="cat-review-default" className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          id="cat-review-default"
+                          checked={draftReviewEnabled}
+                          onCheckedChange={(v) => setDraftReviewEnabled(!!v)}
+                        />
+                        默认开启意图审核（review agent）
+                      </label>
+                      <div className="grid gap-1.5">
+                        <Label className="text-muted-foreground text-xs">默认 planner 模板</Label>
+                        <Select value={String(draftTemplateID)} onValueChange={(v) => setDraftTemplateID(Number(v))}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="不指定" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">不指定（走默认模板链）</SelectItem>
+                            {presetTemplates.map((t) => (
+                              <SelectItem key={t.id} value={String(t.id)}>
+                                {t.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label className="text-muted-foreground text-xs">默认 Worker 模板</Label>
+                        <Select value={String(draftWorkerTemplateID)} onValueChange={(v) => setDraftWorkerTemplateID(Number(v))}>
+                          <SelectTrigger id="default-worker-template" className="w-full">
+                            <SelectValue placeholder="不指定" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">不指定（走默认模板链）</SelectItem>
+                            {presetWorkerTemplates.map((t) => (
+                              <SelectItem key={t.id} value={String(t.id)}>
+                                {t.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label className="text-muted-foreground text-xs">资产模式（asset_mode）</Label>
+                        <Select value={draftAssetMode} onValueChange={setDraftAssetMode}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pentest">渗透测试（IP/端口/服务/漏洞）</SelectItem>
+                            <SelectItem value="vuln_research">漏洞挖掘</SelectItem>
+                            <SelectItem value="code_audit">代码审计（仓库/文件/函数/污点）</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label className="text-muted-foreground text-xs">默认任务描述</Label>
+                        <Textarea
+                          value={draftDescription}
+                          onChange={(e) => setDraftDescription(e.target.value)}
+                          placeholder="选此场景建任务时自动带出（人可改）"
+                          rows={2}
+                        />
+                      </div>
+                      {/* 【二开·P-SCENARIO·MERGE】起 —— 种子意图预设：建任务带出「直接下发首个意图」+可选自定义执行器 */}
+                      <label htmlFor="cat-seed-intent" className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          id="cat-seed-intent"
+                          checked={draftSeedFirstIntent}
+                          onCheckedChange={(v) => setDraftSeedFirstIntent(!!v)}
+                        />
+                        默认下发种子意图（免等首轮 planner 直接开跑）
+                      </label>
+                      {draftSeedFirstIntent && (
+                        <div className="grid gap-1.5">
+                          <Label className="text-muted-foreground text-xs">种子意图执行器</Label>
+                          <Select value={draftSeedExecutor || "__worker"} onValueChange={(v) => setDraftSeedExecutor(v === "__worker" ? "" : v)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__worker">默认 worker</SelectItem>
+                              {presetAgents.map((a) => (
+                                <SelectItem key={a.key} value={a.executor_key ?? ""}>
+                                  {a.executor_key}（{a.name}）
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {/* 【二开·P-SCENARIO·MERGE】止 */}
+                      <FieldDescription>仅作建任务时的默认值（快照进任务）；之后改场景预设不影响在建任务。</FieldDescription>
+                    </Field>
+                  )}
+                  {/* 【二开·P-REVIEW·D12】止 */}
                   {selectedView !== "new" && (
                     <Field>
                       <div className="flex flex-wrap items-end justify-between gap-2">
                         <div className="flex min-w-0 flex-col gap-1">
-                          <FieldLabel>{selectedCategory ? "分类任务" : "未分类任务"}</FieldLabel>
+                          <FieldLabel>{selectedCategory ? "场景任务" : "未设场景的任务"}</FieldLabel>
                           <FieldDescription>
                             {selectedCategory
-                              ? `该分类包含 ${visibleTasks.length} 个任务。`
-                              : `当前有 ${visibleTasks.length} 个任务尚未分类。`}
+                              ? `该场景包含 ${visibleTasks.length} 个任务。`
+                              : `当前有 ${visibleTasks.length} 个任务尚未设置场景。`}
                           </FieldDescription>
                         </div>
                       </div>
                       {visibleTasks.length === 0 ? (
                         <Empty className="min-h-36 border">
                           <EmptyHeader>
-                            <EmptyTitle>{selectedCategory ? "该分类暂无任务" : "暂无未分类任务"}</EmptyTitle>
+                            <EmptyTitle>{selectedCategory ? "该场景暂无任务" : "暂无未设场景的任务"}</EmptyTitle>
                             <EmptyDescription>此处将在任务归入后显示内容。</EmptyDescription>
                           </EmptyHeader>
                         </Empty>
@@ -3013,7 +3172,7 @@ function CategoryManagementSheet({
                 onClick={() => setDeleteOpen(true)}
               >
                 <Trash2Icon data-icon="inline-start" />
-                删除分类
+                删除场景
               </Button>
             )}
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
@@ -3035,9 +3194,9 @@ function CategoryManagementSheet({
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除分类「{selectedCategory?.name || "未命名分类"}」？</AlertDialogTitle>
+            <AlertDialogTitle>删除场景「{selectedCategory?.name || "未命名场景"}」？</AlertDialogTitle>
             <AlertDialogDescription>
-              分类删除后，其中 {selectedCategory?.task_count ?? 0} 个任务会自动移入“未分类”，任务数据不会被删除。
+              场景删除后，其中 {selectedCategory?.task_count ?? 0} 个任务会自动移入“未设场景”，任务数据不会被删除。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -3086,6 +3245,20 @@ function CreateTaskSheet({
   const [timeoutMin, setTimeoutMin] = React.useState(""); // 任务级超时(分钟);空/0 = 不限时
   const [heartbeatMin, setHeartbeatMin] = React.useState("10"); // planner 心跳(分钟);默认10,下限10(与后端一致)
   const [seedFirstIntent, setSeedFirstIntent] = React.useState(false); // 创建时下发种子意图,worker 免等首轮 planner 直接开跑;默认关闭,走标准先规划再执行
+  const [reviewEnabled, setReviewEnabled] = React.useState(false); // 【二开·P-REVIEW·D2c】任务级意图审核总开关（m03934；默认关）
+  const [assetMode, setAssetMode] = React.useState("pentest"); // 【二开·P-REVIEW·D12】资产模式（m04039：选分类带出，可改）
+  // 【二开·P-TPL·U2】起 —— planner 模板/提示词覆盖/worker 数三控件状态
+  const [plannerTemplateID, setPlannerTemplateID] = React.useState<number | null>(null); // 选中的规划模板；null=跟随模板库默认
+  const [plannerPrompt, setPlannerPrompt] = React.useState(""); // 规划提示词覆盖；''=不覆盖（选模板后自动灌入正文，可再手改）
+  const [workerTemplateID, setWorkerTemplateID] = React.useState<number | null>(null);
+  const [workerPrompt, setWorkerPrompt] = React.useState("");
+  const [workerCount, setWorkerCount] = React.useState(""); // 任务级 worker 数输入态；''=0=跟随全局默认
+  // 【二开·P-TPL·U2】止
+  // 【二开·P-INTENT·U2】起 —— 种子意图预选执行器（K23 opt-in，默认 worker；m00973：种子不送审，选中即直发）
+  const [preAgent, setPreAgent] = React.useState("");
+  const [execMode, setExecMode] = React.useState<"worker" | "custom">("worker");
+  const [executorAgents, setExecutorAgents] = React.useState<Agent[]>([]);
+  // 【二开·P-INTENT·U2】止
   const [coverageEnabled, setCoverageEnabled] = React.useState(true); // 资产覆盖度功能;默认开。关闭=不计算/展示覆盖度、不累积范围、隐藏范围类工具(company 关联不受影响)
   const [interceptRules, setInterceptRules] = React.useState<AssetInterceptRuleInput[]>([]); // 任务级资产拦截规则(仅本任务生效,不进全局表)
   // 方式1 文件上传:建任务前把文件暂存到 drafts/<draftId>/uploads/,拿回绝对路径追加进描述。
@@ -3145,6 +3318,7 @@ function CreateTaskSheet({
       await api.createTask({
         name: name.trim(),
         categoryId: categoryID,
+        assetMode, // 【二开·P-REVIEW·D12】
         description: description.trim(),
         goal: goal.trim(),
         llmProfileIds: llmProfileIDs.map(Number),
@@ -3152,8 +3326,19 @@ function CreateTaskSheet({
         companyIds: companyIDs,
         timeoutSeconds: timeoutSec,
         seedFirstIntent,
+        // 【二开·P-INTENT·U2】起 —— 种子意图预选执行器透传（选中即种子带 payload.executor 直发 open，不经审核，m00973）
+        preAgent: seedFirstIntent && execMode === "custom" ? preAgent : "",
+        // 【二开·P-INTENT·U2】止
         planHeartbeatSeconds: heartbeatSec,
         coverageEnabled,
+        // 【二开·P-TPL·U2】起
+        plannerPrompt: plannerPrompt.trim(),
+        plannerTemplateId: plannerTemplateID ?? 0,
+        workerPrompt: workerPrompt.trim(),
+        workerTemplateId: workerTemplateID ?? 0,
+        workerCount: Math.max(0, Math.min(16, Math.floor(Number(workerCount) || 0))),
+        // 【二开·P-TPL·U2】止
+        reviewEnabled, // 【二开·P-REVIEW·D2c】
         interceptRules: interceptRules
           .map((r) => ({ ...r, pattern: r.pattern.trim() }))
           .filter((r) => r.pattern !== ""),
@@ -3170,6 +3355,18 @@ function CreateTaskSheet({
       setTimeoutMin("");
       setHeartbeatMin("10");
       setSeedFirstIntent(false);
+      // 【二开·P-TPL·U2】起
+      setPlannerTemplateID(null);
+      setPlannerPrompt("");
+      setWorkerTemplateID(null);
+      setWorkerPrompt("");
+      setWorkerCount("");
+      // 【二开·P-TPL·U2】止
+      setReviewEnabled(false); // 【二开·P-REVIEW·D2c】
+      setAssetMode("pentest"); // 【二开·P-REVIEW·D12】
+      // 【二开·P-INTENT·U2】种子执行方式子区状态复位
+      setPreAgent("");
+      setExecMode("worker");
       setCoverageEnabled(true);
       setInterceptRules([]);
       setUploadCount(0);
@@ -3230,16 +3427,58 @@ function CreateTaskSheet({
               />
             </div>
             <Field>
-              <FieldLabel htmlFor="task-category">任务分类</FieldLabel>
+              <FieldLabel htmlFor="task-category">场景</FieldLabel>
               <CategoryPicker
                 categories={categories}
                 value={categoryID}
-                onValueChange={setCategoryID}
+                onValueChange={(v) => {
+                  setCategoryID(v);
+                  // 【二开·P-REVIEW·D12】分类预设快照（m04039）：带出三默认，人仍可改
+                  const cat = categories.find((c) => c.id === v);
+                  if (cat) {
+                    setReviewEnabled(cat.default_review_enabled ?? false);
+                    setAssetMode(cat.asset_mode || "pentest");
+                    if (!description.trim() && (cat.default_description ?? "").trim()) {
+                      setDescription(cat.default_description ?? "");
+                    }
+                    if (!plannerPrompt.trim() && (cat.default_planner_template_id ?? 0) > 0) {
+                      setPlannerTemplateID(cat.default_planner_template_id ?? null);
+                    }
+                    if (!workerPrompt.trim() && (cat.default_worker_template_id ?? 0) > 0) {
+                      setWorkerTemplateID(cat.default_worker_template_id ?? null);
+                    }
+                    // 【二开·P-SCENARIO·MERGE】种子意图预设带出（m03167 场景并入分类）
+                    setSeedFirstIntent(cat.seed_first_intent ?? false);
+                    if (cat.seed_first_intent && (cat.seed_executor ?? "")) {
+                      setExecMode("custom");
+                      setPreAgent(cat.seed_executor ?? "");
+                    } else {
+                      setExecMode("worker");
+                      setPreAgent("");
+                    }
+                  }
+                }}
                 onCategoryCreated={onCategoriesChanged}
                 portalContainer={sheetContentRef}
               />
-              <FieldDescription>可选，单个分类；用于任务列表筛选和归档，不影响 Agent 执行。</FieldDescription>
+              <FieldDescription>可选，单个场景；用于任务列表筛选和归档，并带出场景预设（模板/审核/种子意图等建任务默认值，带出后仍可逐项调整）。</FieldDescription>
             </Field>
+            {/* 【二开·P-REVIEW·D12】起 —— 资产模式选择（m04039 占位） */}
+            <Field>
+              <FieldLabel htmlFor="asset-mode">资产模式</FieldLabel>
+              <Select value={assetMode} onValueChange={setAssetMode}>
+                <SelectTrigger id="asset-mode" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pentest">渗透测试（IP/端口/服务/漏洞）</SelectItem>
+                  <SelectItem value="vuln_research">漏洞挖掘</SelectItem>
+                  <SelectItem value="code_audit">代码审计（仓库/文件/函数/污点）</SelectItem>
+                </SelectContent>
+              </Select>
+              <FieldDescription>资产图模式标签：随任务落库，选场景自动带出；资产展示差异化后续按此实现。</FieldDescription>
+            </Field>
+            {/* 【二开·P-REVIEW·D12】止 */}
             <div className="grid gap-2">
               <Label htmlFor="description">描述</Label>
               <Textarea
@@ -3335,7 +3574,8 @@ function CreateTaskSheet({
               <CollapsibleTrigger className="group flex w-full items-center gap-2 border-t pt-4 text-sm font-medium">
                 <ChevronRightIcon className="text-muted-foreground size-4 transition-transform group-data-[state=open]:rotate-90" />
                 高级设置
-                <span className="text-muted-foreground ml-auto text-xs font-normal">超时 · 心跳 · 首个意图</span>
+                {/* 【二开·P-TPL·U2】尾注加「规划」 */}
+                <span className="text-muted-foreground ml-auto text-xs font-normal">超时 · 心跳 · 规划 · 首个意图</span>
               </CollapsibleTrigger>
               <CollapsibleContent className="grid gap-5 pt-5">
                 <div className="grid gap-2">
@@ -3369,6 +3609,24 @@ function CreateTaskSheet({
                     worker）。下限 10 分钟。
                   </p>
                 </div>
+                {/* 【二开·P-TPL·U2】起 —— 规划模板/提示词覆盖/Worker 数量三控件（样例 planner模板样例.html 转换） */}
+                <PlannerTemplateControls
+                  plannerTemplateID={plannerTemplateID}
+                  onPlannerTemplateIDChange={setPlannerTemplateID}
+                  plannerPrompt={plannerPrompt}
+                  onPlannerPromptChange={setPlannerPrompt}
+                  workerCount={workerCount}
+                  onWorkerCountChange={setWorkerCount}
+                  portalContainer={sheetContentRef}
+                />
+                <WorkerTemplateControls
+                  workerTemplateID={workerTemplateID}
+                  onWorkerTemplateIDChange={setWorkerTemplateID}
+                  workerPrompt={workerPrompt}
+                  onWorkerPromptChange={setWorkerPrompt}
+                  portalContainer={sheetContentRef}
+                />
+                {/* 【二开·P-TPL·U2】止 */}
                 <div className="grid gap-2">
                   <label htmlFor="seed-first-intent" className="flex items-center gap-2 text-sm">
                     <Checkbox
@@ -3383,6 +3641,73 @@ function CreateTaskSheet({
                     接手判定/补充。CTF 等常一个 work 直接解决的场景推荐开启；关闭则走标准的先规划再执行。
                   </p>
                 </div>
+                {/* ═══ ARTEX 二开 · [P-INTENT·U2 种子意图执行方式子区] ═══
+                    功能介绍：种子意图勾选后展开——执行方式 RadioGroup（默认 worker / 自定义执行器）+ executor Select；选中即种子带 payload.executor 直发 open，池领取后 pickExecutor 路由，全程无审核停留（m00973）
+                    二开日期：2026-10-21 */}
+                {seedFirstIntent && (
+                  <div className="ml-6 grid gap-3 rounded-lg border bg-muted/40 p-3">
+                    <Label className="text-sm">执行方式</Label>
+                    <RadioGroup
+                      value={execMode}
+                      onValueChange={(v) => {
+                        const mode = v as "worker" | "custom";
+                        setExecMode(mode);
+                        if (mode === "worker") setPreAgent("");
+                      }}
+                      className="grid gap-2"
+                    >
+                      <label htmlFor="exec-worker" className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem id="exec-worker" value="worker" />
+                        默认 worker（现状路径）
+                      </label>
+                      <label htmlFor="exec-custom" className="flex items-center gap-2 text-sm">
+                        <RadioGroupItem id="exec-custom" value="custom" />
+                        自定义执行器（种子落库即带 executor，池领取后直接路由执行，不经审核）
+                      </label>
+                    </RadioGroup>
+                    {execMode === "custom" && (
+                      <div className="grid gap-1.5">
+                        <Label htmlFor="pre-agent" className="text-sm">执行器</Label>
+                        <select
+                          id="pre-agent"
+                          className="h-8 w-full rounded-md border bg-card px-2 text-sm"
+                          value={preAgent}
+                          onChange={(e) => setPreAgent(e.target.value)}
+                          onFocus={() => {
+                            if (executorAgents.length === 0) {
+                              api.agents().then((l) => setExecutorAgents(l.filter((a) => a.executor_key))).catch(() => {});
+                            }
+                          }}
+                        >
+                          <option value="">请选择执行器…</option>
+                          {executorAgents.map((a) => (
+                            <option key={a.key} value={a.executor_key}>{a.executor_key}（{a.name}）</option>
+                          ))}
+                        </select>
+                        <p className="text-muted-foreground text-xs">
+                          只列出声明了执行器标识（executor_key）的自定义 agent；选中后种子意图以 open 落库并带 payload.executor，池领取后 pickExecutor 直接路由到该 agent 执行，全程无审核停留（m00973）。不选执行方式则种子由默认 worker 执行，行为与现状一致。
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* 【二开·P-REVIEW·D2c】起 —— 意图审核总开关（m03934：默认关；开=该任务挂审核 tab，review agent 用任务 LLM 预审/会话/自动处置） */}
+                <div className="grid gap-2">
+                  <label htmlFor="review-enabled" className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      id="review-enabled"
+                      checked={reviewEnabled}
+                      onCheckedChange={(v) => setReviewEnabled(!!v)}
+                    />
+                    开启意图审核（review agent）
+                  </label>
+                  <p className="text-muted-foreground text-xs">
+                    开启后该任务挂「审核」面板：送审意图（add_review_intent）先进待审池，review agent 用本任务的
+                    LLM 配置自动预审，人工在面板批准/驳回后放行执行；审核聊天窗可再开「自动处置」。关闭（默认）则
+                    意图全部由 planner 直发执行，无审核停留，runner 不扫描本任务。
+                  </p>
+                </div>
+                {/* 【二开·P-REVIEW·D2c】止 */}
                 <div className="grid gap-2">
                   <label htmlFor="coverage-enabled" className="flex items-center gap-2 text-sm">
                     <Checkbox

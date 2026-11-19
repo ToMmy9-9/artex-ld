@@ -1,3 +1,10 @@
+// side_questions.go：agent 侧问（side question）的生命周期、HTTP 接口与执行。
+// 主要函数/类型：
+//   - sideQuestionState / initSideQuestions：侧问运行表与 provider 绑定的初始化。
+//   - sideSnapshot / runSide：为父任务构建侧问上下文快照并运行一轮侧问。
+//   - registerSideRoutes / sideParent / handleSideQuestions：侧问路由注册、父级解析与提问处理接口。
+//   - sideEvents / cancelSideRequest：侧问 SSE 事件流与取消接口。
+//   - cancelSideWhere / drainTaskSideQuestions / cancelWorkerSide：按任务或 worker 批量取消侧问。
 package server
 
 import (
@@ -15,12 +22,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/llmrec"
-	"github.com/Autumn-27/artex/sidequestion"
-	"github.com/Autumn-27/norma/llm"
-	"github.com/Autumn-27/norma/transcript"
+	"artex/agent"
+	"artex/db"
+	"artex/llmrec"
+	"artex/sidequestion"
+	"norma/llm"
+	"norma/transcript"
 )
 
 type sideRun struct {

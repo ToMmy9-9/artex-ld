@@ -1,3 +1,12 @@
+/**
+ * page.tsx：LLM 配置页——模型配置卡片、编辑抽屉与轮询池状态。
+ * 主要函数/类型：
+ *   - LLMPage：默认导出页组件，配置卡片列表 + 新建 / 编辑 / 激活 / 删除
+ *   - ProfileSheet：单个模型配置的编辑抽屉（格式 / 代理 / 限速 / 重试覆盖等）
+ *   - PoolSheet：轮询配置抽屉（开关、失败兜底、成员健康与熔断恢复）
+ *   - healthOf / cooldownText：健康徽章状态与冷却倒计时文案
+ *   - NONE / fromStore / toStore：「不发送」字段的哨兵值转换
+ */
 "use client";
 
 import * as React from "react";
@@ -887,7 +896,6 @@ export default function LLMPage() {
             {profiles.map((p) => {
               const h = healthOf(p, health.get(p.id));
               return (
-                // biome-ignore lint/a11y/useSemanticElements: 卡片内含自己的操作按钮，用原生 <button> 会造成按钮嵌套（非法 HTML）
                 <Card
                   key={p.id}
                   role="button"

@@ -1,3 +1,10 @@
+/**
+ * asset-tree.tsx：发现资产树组件，把扁平的 FindingAssetNode 列表组装成树并支持关键字过滤与展开折叠。
+ * 主要函数/类型：
+ *   - AssetTree：树组件主体（搜索、展开/折叠、选中回调）
+ *   - buildAssetTree / assetPathOf：由扁平节点建树 / 计算节点到根的路径
+ *   - TreeNode：内部树节点类型（children、depth、display）
+ */
 "use client";
 
 import * as React from "react";

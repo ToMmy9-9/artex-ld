@@ -1,3 +1,11 @@
+// findings.go：findings 漏洞发现表的持久化与查询（插入、分页、分组、导出、统计、跟进意图派生）。
+// 主要函数/类型：
+//   - DBFinding / FindingGroup / FindingStats：发现记录、按任务分组与统计结构。
+//   - AddFinding：插入新发现行并关联资产锚点，返回 id。
+//   - ListFindingsPage / ListFindingGroups：按 FindingFilter 分页查询发现行/任务分组。
+//   - ListFindingsForExport：按严重度与时间排序导出选中或筛选的发现。
+//   - AddFindingFollowUpIntent：从存活发现原子派生优先级 10 的人工跟进意图。
+//   - ValidFindingStatus / ValidSeverity：校验发现状态与严重度取值的合法性。
 package db
 
 import (
@@ -159,6 +167,9 @@ type FindingFilter struct {
 	// AssetScope 是资产树的节点 key(a:<id> / c:<id> / r:<domain> / __none__),
 	// 选中一个节点等于选中它的整棵子树。空 = 不按资产筛选。
 	AssetScope string
+	// AssetIDs selects findings linked to any of these exact assets. It is used
+	// by host rows that aggregate several assets without a synthetic tree node.
+	AssetIDs []int64
 
 	// 下面三个由 applyAssetScope 从 AssetScope 解析而来,调用方不用设置。
 	assetIDs  []int64 // 子树里所有资产 id

@@ -1,15 +1,25 @@
+// tools.go：ToolSet 核心——把双图（资产+探索）暴露给 LLM agent 的图读写工具集与每轮运行信号。
+// 主要函数/类型：
+//   - ToolSet：一次 planner/worker 运行持有的图工具集合与写回计数。
+//   - NewToolSet：按探索存储与 worker 名创建工具集。
+//   - compactIntents：把意图节点折叠为列表展示的紧凑摘要。
+//   - WriteCounts：事实/资产/发现的写回计数及汇总。
+//   - SetNotifyGoal / SetNotifyReview 等 Set 系列：挂接目标达成、审核唤醒等回调。
+//   - DropCoverageTools / CoverageDisabled：按覆盖开关裁剪仅覆盖类工具。
+
 package agent
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
-	acperm "github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/db"
+	acperm "norma/permission"
+	actool "norma/tool"
 )
 
 // compactIntents distills intents to {id, summary, state, asset_ids, parents,
@@ -40,6 +50,14 @@ func compactIntents(ns []*db.Node, parentsOf, yieldsOf map[int64][]int64) []map[
 		if ps := parentsOf[n.ID]; len(ps) > 0 {
 			m["parents"] = ps // 上游：本意图派生自哪些节点（多个事实可共同产生一个意图）
 		}
+		// 【二开·P-EXEC·A7】起 —— compactIntents 透出 payload.executor 执行器标注
+		// 【审核-2 P2-9】payload.executor='review' 是待审闸门标记、不是执行器（真实执行器在
+		// pending_executor，已由 review_status/revision_count/pending_executor 字段透出）——
+		// 不透出，避免 planner 把 'review' 误认为可用 worker 类型。
+		if ex, ok := p["executor"].(string); ok && ex != "" && ex != "review" {
+			m["executor"] = ex
+		}
+		// 【二开·P-EXEC·A7】止
 		if ys := yieldsOf[n.ID]; len(ys) > 0 {
 			m["yields"] = ys // 下游：本意图产生了哪些事实/发现
 		}
@@ -59,9 +77,9 @@ type ToolSet struct {
 	taskID          int64 // PG tasks.id; 0 when unknown (tests / orchestrator cross-task reads)
 	// coverageDisabled mirrors tasks.coverage_enabled=false. Stored inverted so the
 	// zero value (all existing ToolSet constructions) means ENABLED — matching the
-	// DB default (true). When true: graphOverviewData drops the coverage block, the
-	// auto-scope hook (insertAssets) is skipped, and add_task_scope/list_untested_assets
-	// are filtered out of the agent's tool list. The scope field stays regardless.
+	// DB default (true). When true: graphOverviewData drops coverage metrics while
+	// retaining scope/host context; auto-scope is skipped and scope-mutation tools
+	// are filtered out of the agent's tool list.
 	coverageDisabled bool
 	// ownerNode is the exploration node that writes attach to: assets this run
 	// touches get anchored to it as lineage/provenance (NOT visibility — the asset
@@ -107,6 +125,25 @@ type ToolSet struct {
 	// the planner having to spot it folded into the graph overview. Wired for the main
 	// agent + cross-task orchestration; nil elsewhere → falls back to the bare notify.
 	notifyHint func(texts []string)
+	// 【二开·审核流 PR1/§2.6】notifyReview 是 ReviewRunner 的专用唤醒通道：add_review_intent
+	// 送审成功、update_intent 重送成功后调用一次（批量合并为一次），参数为 tasks.id。
+	// 不复用 notify（planner wake）——叫醒 planner 只会被待审抑制门丢弃触发。
+	// nil = 未接线，退化为 ReviewRunner 的 60s ticker 兜底。
+	notifyReview func(taskID int64)
+	// 【二开·审核流 PR5/§4.2.3】notifyRevision 是「驳回退回修订」事件通道：
+	// set_intent_status(reject) 成功后调用，携带 (intentID, reason)，由 Task
+	// 追加 Kind="revision_requested" 触发并唤醒 planner。三入口统一（§4.2.3），
+	// 不复用 notifyHint（hint 文案会诱导 planner 新建意图而非修订原稿）。
+	// nil = 退化为 notify 裸唤醒。
+	notifyRevision func(intentID int64, reason string)
+	// 【二开·审核流 PR1/§2.4】reviewEnabledFn 是任务级审核总开关（tasks.review_enabled）的
+	// 即时解析器：add_review_intent 落库前现读（不是一轮开始时的快照），false → 明确报错，
+	// 绝不静默改投 open。nil = 不校验（测试/无任务上下文场景保持旧行为）。
+	reviewEnabledFn func() bool
+	// 【二开·审核流 PR8/§2.9.3】checkExecutor 校验 target_executor（建议执行器 key）：
+	// 未注册/已禁用/内置 agent 一律拒绝。由 server 注入（内部复用 engine.resolveExecutor）。
+	// nil = 不校验（仅兼容无 server 的单元测试；生产装配必须接线）。
+	checkExecutor func(key string) error
 }
 
 // SetNotifyGoal wires the goal-add trigger callback (see ToolSet.notifyGoal). Set only
@@ -125,6 +162,30 @@ func (t *ToolSet) SetResumeTask(fn func()) { t.resumeTask = fn }
 // SetNotify wires the planner-wake callback (see ToolSet.notify). Set by callers
 // that hold the task handle (main-agent chat, cross-task orchestration).
 func (t *ToolSet) SetNotify(fn func()) { t.notify = fn }
+
+// 【二开·审核流 PR1/§2.6】SetNotifyReview wires the ReviewRunner wake channel (see
+// ToolSet.notifyReview). Wired by the server assembly (planner bundle / review chat).
+func (t *ToolSet) SetNotifyReview(fn func(taskID int64)) { t.notifyReview = fn }
+
+// 【二开·审核流 PR5/§4.2.3】SetNotifyRevision wires the revision_requested trigger
+// channel (see ToolSet.notifyRevision). Wired wherever a task handle is available.
+func (t *ToolSet) SetNotifyRevision(fn func(intentID int64, reason string)) { t.notifyRevision = fn }
+
+// 【二开·审核流 PR1/§2.4】SetReviewEnabled wires the task review gate resolver (see
+// ToolSet.reviewEnabledFn). Wired per planner round from the live task config.
+func (t *ToolSet) SetReviewEnabled(fn func() bool) { t.reviewEnabledFn = fn }
+
+// 【二开·审核流 PR8/§2.9.3】SetExecutorChecker wires the target_executor validator
+// (see ToolSet.checkExecutor).
+func (t *ToolSet) SetExecutorChecker(fn func(key string) error) { t.checkExecutor = fn }
+
+// wakeReview 送审/重送成功后唤醒 ReviewRunner：单个与批量路径都收口到这里调一次，
+// 避免"单条调了、批量漏调"的旧缺陷（§2.6.1 收口要求）。
+func (t *ToolSet) wakeReview() {
+	if t.notifyReview != nil {
+		t.notifyReview(t.taskID)
+	}
+}
 
 // SetNotifyFinding wires the finding-wake callback (see ToolSet.notifyFinding).
 func (t *ToolSet) SetNotifyFinding(fn func(int64, string)) { t.notifyFinding = fn }
@@ -216,6 +277,12 @@ func (t *ToolSet) ListWorkerTracesTool() actool.CoreTool   { return t.listWorker
 func (t *ToolSet) SearchWorkerTracesTool() actool.CoreTool { return t.searchAllWorkerTraces() }
 func (t *ToolSet) NodeDetailTool() actool.CoreTool         { return t.nodeDetail() }
 func (t *ToolSet) AddHintTool() actool.CoreTool            { return t.addHint() }
+
+// 【二开·P-INTENT·U22】起 —— 约束只读工具（跨任务只读委派：vuln_dispatcher 派发前读父任务约束）
+// ListConstraintsTool 只读列出本任务操作约束（allow/deny）。
+func (t *ToolSet) ListConstraintsTool() actool.CoreTool { return t.listTaskConstraints() }
+
+// 【二开·P-INTENT·U22】止
 
 // SetEnrich wires the async enrichment engine (DNS/HTTP auto-completion).
 func (t *ToolSet) SetEnrich(e EnrichTrigger) { t.enrich = e }
@@ -425,6 +492,19 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 		}
 	}
 	out["running_intents"] = compactIntents(running, parentsOf, yieldsOf)
+	// 【二开·P-INTENT·A6】起 —— proposed_intents 块（01 册 A6）
+	// planner 每轮看到待审意图清单：知道"哪些意图在等人审"，去重时不把待审当不存在、
+	// 也不为同方向重复提交审核。双条件过滤（executor='review'）与 db 层一致。
+	if proposed, err := t.ts.ProposedIntents(20); err == nil && len(proposed) > 0 {
+		out["proposed_intents"] = compactIntents(proposed, parentsOf, yieldsOf)
+	}
+	// 【二开·P-INTENT·A6】止
+	// 【二开·审核流 PR5/§3.8】rejected_intents 块：被驳回待修订的意图是 planner 修订 loop
+	// 的持久兼底——即使 revision_requested 触发事件丢失（进程重启），planner 仍能在概览
+	// 里发现待改稿，用 update_intent 修订后自动重送审。
+	if rejected, err := t.ts.RejectedIntents(20); err == nil && len(rejected) > 0 {
+		out["rejected_intents"] = compactIntents(rejected, parentsOf, yieldsOf)
+	}
 	// done_intents_total：已结束意图（done/blocked/exhausted）总数，与 recent_done_intents
 	// 平行命名——后者只是它的最新窗口截断视图。两键并排即自描述："看到的是 N/总数"，
 	// 让 planner 去重时别把"没显示"当成"没派过"，无需在提示词里另行解释。
@@ -518,12 +598,19 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	out["related_tasks"] = t.relatedTaskOverviews()
 	// coverage：粗略的资产测试覆盖度参考——范围(task_scope)内的资产里，被 fact 碰过的
 	// 占比 + by_type(按类型的 总数/已测)。要看未测的具体资产由 agent 按需调 list_untested_assets 自行判断。仅任务上下文有。
-	// 资产覆盖度功能关闭时(coverageDisabled)：只保留 host_count(目标主机数的感知信息)，
+	// 资产覆盖度功能关闭时(coverageDisabled)：保留 scope 与 host_count(目标主机数的感知信息)，
 	// 丢弃 denominator/tested/pct/by_type/note 等覆盖度度量，避免污染上下文、也不诱导
 	// 已隐藏的 add_task_scope/list_untested_assets。
 	if t.as != nil && t.ts != nil && t.taskID > 0 {
 		{
 			m := map[string]any{}
+			if scope, total, truncated := t.currentTaskScopeOverview(); total > 0 {
+				m["scope"] = scope
+				m["scope_count"] = total
+				if truncated {
+					m["scope_truncated"] = true
+				}
+			}
 			if !t.coverageDisabled {
 				if cov, err := t.as.TaskCoverageWithSources(t.taskID); err == nil {
 					m["denominator"] = cov.Denominator
@@ -549,6 +636,94 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 		}
 	}
 	return out
+}
+
+const (
+	graphOverviewMaxTaskScope    = 50
+	graphOverviewMaxCompanyScope = 100
+)
+
+// currentTaskScopeOverview exposes the task's persisted targeting context to the
+// planner. Company rows include their configured rules; otherwise a company ID
+// alone does not tell the model which domains, networks, ICPs, or keywords are in
+// scope. Caps bound prompt growth while the count/truncation fields preserve the
+// fact that only a window is being shown. Full rules remain available in the DB/UI.
+func (t *ToolSet) currentTaskScopeOverview() ([]map[string]any, int, bool) {
+	if t.as == nil || t.taskID <= 0 {
+		return nil, 0, false
+	}
+	rows, err := t.as.ListTaskScope(t.taskID)
+	if err != nil {
+		return nil, 0, false
+	}
+	total := len(rows)
+	truncated := total > graphOverviewMaxTaskScope
+	if truncated {
+		rows = rows[:graphOverviewMaxTaskScope]
+	}
+	out := make([]map[string]any, 0, len(rows))
+	companyScopeBudget := graphOverviewMaxCompanyScope
+	for _, row := range rows {
+		entry := map[string]any{"id": row.ID, "kind": row.Kind, "source": row.Source}
+		if value := taskScopeOverviewValue(row.Domain, row.Net, row.Value); value != "" {
+			entry["value"] = firstLine(value, 400)
+		}
+		if row.Reason != "" {
+			entry["reason"] = firstLine(row.Reason, 300)
+		}
+		if row.CompanyID != nil {
+			entry["company_id"] = *row.CompanyID
+			entry["company_name"] = row.CompanyName
+		}
+		if row.Kind == "company" && row.CompanyID != nil && t.cs != nil {
+			if rules, err := t.cs.GetScope(*row.CompanyID); err == nil {
+				totalRules := len(rules)
+				entry["company_scope_count"] = totalRules
+				shownRules := totalRules
+				if shownRules > companyScopeBudget {
+					shownRules = companyScopeBudget
+				}
+				rules = rules[:shownRules]
+				companyScopeBudget -= shownRules
+				if shownRules < totalRules {
+					entry["company_scope_truncated"] = true
+				}
+				companyScope := make([]map[string]any, 0, len(rules))
+				keywords := make([]string, 0)
+				for _, rule := range rules {
+					value := companyScopeOverviewValue(rule)
+					companyScope = append(companyScope, map[string]any{
+						"id": rule.ID, "kind": rule.Kind, "value": value,
+					})
+					if rule.Kind == "keyword" {
+						keywords = append(keywords, value)
+					}
+				}
+				entry["company_scope"] = companyScope
+				entry["company_keywords"] = keywords
+			}
+		}
+		out = append(out, entry)
+	}
+	return out, total, truncated
+}
+
+func companyScopeOverviewValue(rule db.ScopeRule) string {
+	value := rule.Raw
+	if value == "" {
+		value = taskScopeOverviewValue(rule.Domain, rule.Net, rule.Value)
+	}
+	return firstLine(value, 400)
+}
+
+func taskScopeOverviewValue(domain, network, value string) string {
+	if domain != "" {
+		return domain
+	}
+	if network != "" {
+		return network
+	}
+	return value
 }
 
 func inheritedMap(m map[string]any, sourceTaskID int64) map[string]any {
@@ -881,14 +1056,62 @@ func compactNode(n *db.Node) map[string]any {
 	return m
 }
 
+// ═══ ARTEX 二开 · [LIST-INTENTS·A2 意图紧凑行] ═══
+// 功能介绍：compactIntent——compactNode 加 intent 特有字段（priority/executor/pending_executor/review_note/
+//
+//	replaces/asset_ids/blocked_reason/delete_reason），summary 160 符文截断（factSummaryMax 同款）。
+//	pending_executor/review_note 使 K4 取代后 review agent 看到的字段与旧 get_proposed_intents 等价。
+//
+// 二开日期：2026-10-22
+const intentSummaryMax = 160
+
+func compactIntent(n *db.Node) map[string]any {
+	m := compactNode(n)
+	m["priority"] = n.Priority
+	// 【二开·审核流 PR2】乐观锁版本号：update_intent/set_intent_status 的 expected_version 依据。
+	m["content_version"] = n.ContentVersion
+	var p map[string]any
+	_ = json.Unmarshal(n.Payload, &p)
+	if ex, ok := p["executor"].(string); ok && ex != "" {
+		m["executor"] = ex
+	}
+	if ex, ok := p["pending_executor"].(string); ok && ex != "" {
+		m["pending_executor"] = ex // 建议执行器（approve 转正），审核场景关键
+	}
+	// 【二开·审核流 PR2】审核子状态：pending/rejected（审核域意图才有）。
+	if rs, ok := p["review_status"].(string); ok && rs != "" {
+		m["review_status"] = rs
+	}
+	if note, ok := p["review_note"].(string); ok && note != "" {
+		m["review_note"] = note // 驳回理由/预审优化建议（需要优化的内容）
+	}
+	if rc, ok := p["revision_count"]; ok && rc != nil {
+		m["revision_count"] = rc
+	}
+	if rp, ok := p["replaces"]; ok && rp != nil {
+		m["replaces"] = rp
+	}
+	if ids, ok := p["asset_ids"].([]any); ok && len(ids) > 0 {
+		m["asset_ids"] = ids
+	}
+	if n.BlockedReason != "" {
+		m["blocked_reason"] = n.BlockedReason
+	}
+	if n.DeleteReason != "" {
+		m["delete_reason"] = n.DeleteReason // 驳回理由对 review 场景关键
+	}
+	if s, ok := m["summary"].(string); ok && len([]rune(s)) > intentSummaryMax {
+		m["summary"] = string([]rune(s)[:intentSummaryMax]) + "…"
+		m["summary_truncated"] = true
+	}
+	return m
+}
+
 // compactFinding is compactNode plus the vuln-specific vulnclass/severity.
 func compactFinding(n *db.Node) map[string]any {
 	var p map[string]any
 	_ = json.Unmarshal(n.Payload, &p)
-	m := map[string]any{"id": n.ID, "state": n.State, "summary": p["summary"]}
-	if n.Inherited {
-		inheritedMap(m, n.SourceTaskID)
-	}
+	m := compactNode(n)
 	if vc, ok := p["vulnclass"]; ok && vc != nil && vc != "" {
 		m["vulnclass"] = vc
 	}
@@ -1017,23 +1240,34 @@ func (t *ToolSet) nodeDetail() actool.CoreTool {
 
 // --- planner write tools ---
 
-// intentItem 是 add_intent 批量/单条的一条探索方向。
+// intentItem 是 add_intent / add_review_intent 批量/单条的一条探索方向（公共字段，§2.3）。
+// TargetExecutor 只在送审路径（proposed=true）生效：建议执行器 key → payload.pending_executor。
 type intentItem struct {
-	Summary   string            `json:"summary"`
-	AssetIDs  []json.RawMessage `json:"asset_ids"`
-	ParentIDs []json.RawMessage `json:"parent_ids"`
-	Priority  int               `json:"priority"`
+	Summary        string            `json:"summary"`
+	AssetIDs       []json.RawMessage `json:"asset_ids"`
+	ParentIDs      []json.RawMessage `json:"parent_ids"`
+	Priority       int               `json:"priority"`
+	TargetExecutor string            `json:"target_executor"`
 }
 
-// addOneIntent 创建一条意图节点并连上游血缘，返回 id。
-// 约束：意图只能锚在已确认知识上——每个 parent_id 必须是已存在的 fact/finding
-// 节点（不能挂在别的意图/目标/提示上）。顶层全新方向留空 parent_ids，兜底连 origin fact。
-// 这样"每个意图都连到 fact 节点、且是发现驱动而非凭空规划"从创建路径上被强制。
-func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
+// createIntent 是 add_intent / add_review_intent 的公共创建内核（ARTEX 二开·审核流 PR1，§2.3）：
+// 资产与血缘逻辑只有这一份——summary/priority 校验、parent_ids（必须是已存在的 fact/finding，
+// 只建 derived_from 血缘）、asset_ids（exploration_anchors 资产锚 + payload.asset_ids + 范围拦截）、
+// 空 parent 兜底连 origin fact。两条调用路径只在"是否送审"上分叉（§2.4）：
+//
+//	proposed=false → AddIntent，永远创建 open（直投，不经过人工审核）
+//	proposed=true  → AddProposedIntent，永远创建 proposed 并强制 review_status=pending +
+//	                 executor='review'（待审闸门双条件，§2.9.5；禁止 extraPayload 覆盖）
+//
+// extraPayload 只承载调用方白名单字段（pending_executor/replaces/review_reason），且必须
+// 先经服务端校验（如 target_executor 的 checkExecutor 校验在送审工具侧完成）。
+// origin 传空时兜底为 t.worker（实际调用方），不再硬编码 "planner"。
+func (t *ToolSet) createIntent(it intentItem, proposed bool, origin string, extraPayload map[string]any) (int64, error) {
 	if strings.TrimSpace(it.Summary) == "" {
 		return 0, fmt.Errorf("summary 不能为空")
 	}
 	// 先校验锚点（建节点前，避免坏锚点留下孤儿意图）。
+	// parent_ids 只建 derived_from 血缘，绝不产生资产锚点（E1 修复）。
 	parents := pidList(it.ParentIDs)
 	for _, pidv := range parents {
 		n, err := t.ts.GetNodeWithSources(pidv)
@@ -1045,8 +1279,11 @@ func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
 		}
 	}
 	priority := it.Priority
-	if priority == 0 {
+	if priority <= 0 {
 		priority = 5
+	}
+	if priority > 10 {
+		priority = 10
 	}
 	anchors := pidList(it.AssetIDs)
 	// 资产拦截：意图绑定的资产若命中系统资产拦截规则，则禁止下发该意图。
@@ -1065,31 +1302,59 @@ func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
 		}
 	}
 	payload := map[string]any{"summary": it.Summary}
+	for k, v := range extraPayload {
+		payload[k] = v // 调用方白名单字段（pending_executor/replaces/review_reason）
+	}
 	if len(anchors) > 0 {
 		payload["asset_ids"] = anchors
 	}
-	id, err := t.ts.AddIntent(payload, priority, anchors, "planner")
+	if proposed {
+		// 待审闸门双条件（§2.9.5）：强制写入，禁止 extraPayload 覆盖。
+		payload["review_status"] = "pending"
+		payload["executor"] = "review"
+	}
+	if origin == "" {
+		origin = t.worker // 实际调用方（planner/review/...），不再硬编码
+	}
+	var id int64
+	var err error
+	if proposed {
+		id, err = t.ts.AddProposedIntent(payload, priority, anchors, origin)
+	} else {
+		id, err = t.ts.AddIntent(payload, priority, anchors, origin)
+	}
 	if err != nil {
 		return 0, err
 	}
 	// upstream lineage: link each (validated) fact/finding parent → this intent, so
 	// "multiple facts combine into one new intent" is expressible.
+	// 【审核-2 P1-6】Link 失败不再静默丢弃：节点已建无法回滚（AddNode 独立事务），
+	// 记入告警日志——意图无 derived_from 血缘会让图溯源断裂，排障时必须可见。
 	for _, parent := range parents {
-		_ = t.ts.Link(parent, db.RelDerivedFrom, id)
+		if err := t.ts.Link(parent, db.RelDerivedFrom, id); err != nil {
+			log.Printf("[intent] ⚠ 意图 #%d 血缘建立失败（parent #%d → derived_from）: %v", id, parent, err)
+		}
 	}
 	// a top-level intent (no explicit parent) connects to the origin fact, so every
 	// intent still traces back to a fact node — at task start the only fact is the
 	// origin, and the first intents derive from it.
 	if len(parents) == 0 {
-		if origin, _ := t.ts.OriginFactID(); origin > 0 {
-			_ = t.ts.Link(origin, db.RelDerivedFrom, id)
+		if originFact, _ := t.ts.OriginFactID(); originFact > 0 {
+			if err := t.ts.Link(originFact, db.RelDerivedFrom, id); err != nil {
+				log.Printf("[intent] ⚠ 意图 #%d 血缘建立失败（origin fact #%d → derived_from）: %v", id, originFact, err)
+			}
 		}
 	}
 	return id, nil
 }
 
+// addOneIntent 直投路径薄封装（§2.4）：永远创建 open，origin=实际调用方。
+func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
+	return t.createIntent(it, false, "", nil)
+}
+
 func (t *ToolSet) addIntent() actool.CoreTool {
-	return t.writeExpTool("add_intent", "生成【探索方向】写入 frontier，并连入探索链路。意图是开放的探索方向，不是固定类型——用 summary 一句话自由描述要探索/验证/利用什么。\n"+
+	return t.writeExpTool("add_intent", "【直投】生成【探索方向】写入 frontier 并立即可执行（open 状态，worker 可直接领取），不经过人工审核；任务开启意图审核时，需要人工把关的方向请改用 add_review_intent（送审）。连入探索链路。意图是开放的探索方向，不是固定类型——用 summary 一句话自由描述要探索/验证/利用什么。\n"+
 		"★优先批量：一轮筛出的多个新方向放进 intents 数组一次提交（比逐条调用省往返）。返回 ids 数组，与 intents 等长同序（失败项 id=0，详情见 errors）。单条则省略 intents 直接给顶层 summary。",
 		obj(map[string]any{
 			"intents":    map[string]any{"type": "array", "description": "【优先用这个】要新增的探索方向数组，按顺序处理。每个元素字段同下方顶层字段（summary/asset_ids/parent_ids/priority）。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
@@ -1137,11 +1402,76 @@ func (t *ToolSet) addIntent() actool.CoreTool {
 				}
 				return actool.Text(fmt.Sprintf("intent created: %d", ids[0])), nil
 			}
-			out := map[string]any{"ids": ids}
+			// 【审核-2 P2-12】批量也带整体 created 语义（PR1：明确返回 created 或 proposed）。
+			out := map[string]any{"ids": ids, "created": createdAny}
 			if len(errs) > 0 {
 				out["errors"] = errs
 			}
 			return jsonResult(out)
+		})
+}
+
+// ═══ ARTEX 二开 · [LIST-INTENTS·A1 list_intents 工具] ═══
+// 功能介绍：list_intents——list_facts 同款游标分页范式补到 intent kind（docs/获取intent工具计划书）：
+//           states 白名单过滤/q 关键词/limit 20~100/before 游标；紧凑行 compactIntent，全文 node_detail 兜底。
+//           K4=取代 get_proposed_intents：review agent 用 list_intents(states=["proposed"])。
+// 二开日期：2026-10-22
+
+// listIntentStates intent 合法 state 全集（K5 白名单校验；与 db/schema.sql ck_node_state 对齐）。
+var listIntentStates = []string{"open", "running", "paused", "done", "blocked", "exhausted", "stopped", "deleted", "proposed"}
+
+func (t *ToolSet) listIntents() actool.CoreTool {
+	return t.readExpTool("list_intents",
+		"分页列本任务及直接关联任务的【意图】，最新在前（紧凑：id+state+priority+summary+executor，摘要截断，全文用 node_detail(id)）。参数均可选：states(状态过滤数组，枚举 open/running/paused/done/blocked/exhausted/stopped/deleted/proposed；省略=全部)、q(按摘要关键词过滤)、limit(默认 20，上限 100)、before(游标，传上一页 next_before)。返回 {intents,total,has_more,next_before}。关联任务条目带 source_task_id/inherited=true 且只读。待审意图用 states=[\"proposed\"]。",
+		obj(map[string]any{
+			"states": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "意图状态过滤数组（枚举见描述）；省略或空 = 全部状态"},
+			"q":      str("按意图摘要关键词过滤（不区分大小写）；省略 = 不过滤"),
+			"limit":  intp("返回条数，默认 20，上限 100"),
+			"before": intp("分页游标：只返回 id 小于该值的更早意图；省略或 0 = 最新一页"),
+		}),
+		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+			var a struct {
+				States []string `json:"states"`
+				Q      string   `json:"q"`
+				Limit  int      `json:"limit"`
+				Before int64    `json:"before"`
+			}
+			_ = json.Unmarshal(in, &a)
+			limit := a.Limit
+			if limit <= 0 {
+				limit = factsPageSize
+			}
+			if limit > 100 {
+				limit = 100
+			}
+			// K5 白名单校验：非法状态直接报错附合法清单，防幻觉值查空结果误导推理
+			var states []string
+			for _, st := range a.States {
+				ok := false
+				for _, v := range listIntentStates {
+					if st == v {
+						ok = true
+						break
+					}
+				}
+				if !ok {
+					return actool.Errorf(fmt.Sprintf("非法意图状态 %q；合法值：%s", st, strings.Join(listIntentStates, "/"))), nil
+				}
+				states = append(states, st)
+			}
+			ns, hasMore, total, err := t.ts.ListIntentsPageWithSources(states, a.Before, limit, strings.TrimSpace(a.Q))
+			if err != nil {
+				return actool.Result{}, err
+			}
+			out := make([]map[string]any, 0, len(ns))
+			for _, n := range ns {
+				out = append(out, compactIntent(n))
+			}
+			res := map[string]any{"intents": out, "total": total, "has_more": hasMore}
+			if hasMore && len(ns) > 0 {
+				res["next_before"] = ns[len(ns)-1].ID // 传回它取下一页（更旧的）
+			}
+			return jsonResult(res)
 		})
 }
 
@@ -1218,7 +1548,7 @@ func (t *ToolSet) goalMet() actool.CoreTool {
 
 func (t *ToolSet) addFinding() actool.CoreTool {
 	return writeTool("report_finding", "记录确认的漏洞，用 evidence 提供命令输出、日志等可验证证据。任务上下文传当前 intent_id。返回的 finding_id 是独立漏洞记录 ID，finding_node_id 是探索节点 ID（第一行保留该节点编号）。", obj(map[string]any{
-		"vulnclass": str("漏洞类别"), "name": str("漏洞名称"), "severity": str("critical|high|medium|low"), "summary": str("发现摘要"),
+		"vulnclass": str("漏洞类别；按系统提示词的 vulnclass 词表填写实际已验证类型（如 getshell/webshell/rce/file_upload/deserialization/sqli 等）。该值供 Planner 判断后续显式派发，本工具不会自动创建子任务。"), "name": str("漏洞名称"), "severity": str("critical|high|medium|low"), "summary": str("发现摘要"),
 		"intent_id": idp("当前任务的意图 id"), "asset_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "受影响资产 id"},
 		"evidence":         str("证据/PoC 文本"),
 		"evidence_hint_id": idp("可选：本任务中对应此漏洞的提示节点 ID，自动携带其结构化 traffic_refs；不能引用继承提示或其他漏洞的提示"),
@@ -1310,6 +1640,17 @@ type factItem struct {
 	Confidence string            `json:"confidence"` // observed（直接看到）| inferred（据现象推断）
 	IntentID   json.RawMessage   `json:"intent_id"`
 	AssetIDs   []json.RawMessage `json:"asset_ids"`
+	Topology   *factTopology     `json:"topology"` // 【可选】内网拓扑关系；nil=纯事实不建边
+}
+
+// factTopology 描述一批内网资产的拓扑关系。只有同一发现方式、同一父节点、
+// 同一 kind 的资产才合在一条 fact 里；不同方式或不同父要拆成不同 fact。
+// 「如何发现的」只在这里写一次（单一事实源），拓扑边 label 由它派生。
+type factTopology struct {
+	Discovery string   `json:"discovery"` // 如何发现的，≤20字写手段（如"nmap 扫到445开放"），不写结论
+	SrcIP     string   `json:"src_ip"`    // 父节点/立足点 IP（内网）
+	DstIPs    []string `json:"dst_ips"`   // 目标内网 IP；多台=同方式同父的一批
+	Kind      string   `json:"kind"`      // solid=已突破(漏洞/横向成功) / reachable=仅可达存活；缺省 reachable
 }
 
 // recordOneFact 写一条 fact 节点并连到意图（intent→yields→fact）。defaultIntent 为
@@ -1327,6 +1668,9 @@ func (t *ToolSet) recordOneFact(it factItem, defaultIntent int64) (int64, error)
 	}
 	if c := strings.TrimSpace(it.Confidence); c != "" {
 		payload["confidence"] = c
+	}
+	if it.Topology != nil {
+		payload["topology"] = it.Topology
 	}
 	intent := pid(it.IntentID)
 	if intent <= 0 {
@@ -1346,6 +1690,11 @@ func (t *ToolSet) recordOneFact(it factItem, defaultIntent int64) (int64, error)
 	if intent > 0 {
 		_ = t.ts.Link(intent, db.RelYields, id) // chain: intent -> fact
 	}
+	// fact 落库即 confirmed（无单独确认时机）：拓扑边在此由 fact 派生。
+	// db 层对连线不成立的（非内网/自环/成环）静默跳过记日志，不回滚 fact。
+	if it.Topology != nil && t.taskID > 0 {
+		t.ts.BuildEdgesFromFact(t.taskID, id, payload, t.worker)
+	}
 	t.writes.Facts++
 	return id, nil
 }
@@ -1357,7 +1706,8 @@ func (t *ToolSet) recordFact() actool.CoreTool {
 		"⚠️只写你在工具输出里【真实看到】的结论，不要脑补。evidence 与 confidence 用来防止不准确的结论污染图谱：\n"+
 		"  · evidence=支撑本结论的【一行】关键证据（命令+最能证明的那一两行输出），**务必简洁**——细节已在 detail，这里不要再粘大段输出。\n"+
 		"  · confidence=observed（输出里直接看到）| inferred（据现象推断）。\n"+
-		"  · **否定类结论**（不可注入/端口关闭/未发现入口等）只写\"观察 + 试探性读法\"——陈述你实际看到什么，方向是否放弃由规划者综合全局定；务必给 evidence，手段没穷尽或证据弱（含只探一次、看起来像）标 inferred，确已穷尽且直接看到才标 observed。",
+		"  · **否定类结论**（不可注入/端口关闭/未发现入口等）只写\"观察 + 试探性读法\"——陈述你实际看到什么，方向是否放弃由规划者综合全局定；务必给 evidence，手段没穷尽或证据弱（含只探一次、看起来像）标 inferred，确已穷尽且直接看到才标 observed。\n"+
+		"  · 【内网拓扑】确认网卡/路由/容器网络/会话连接或发现新内网资产时，额外给 topology 字段：discovery=如何发现的（≤20字写手段，如'nmap 扫到445开放'/'ARP 扫描发现存活'/'docker 网桥推断'，不写结论）、src_ip=父节点（立足点）、dst_ips=目标内网 IP（多台=同方式同父同 kind 的一批）、kind=solid（发现漏洞或横向移动成功）| reachable（仅可达存活，缺省）。**不同发现方式或不同父节点要拆成不同 fact**。拓扑边由 fact 自动生成，边文字取 discovery。找不到证据就保持独立节点，禁止因同任务、同网段或存在入口而猜测连线。",
 		obj(map[string]any{
 			"facts":      map[string]any{"type": "array", "description": "【有多条不同结论时用】事实数组，元素字段同下方顶层字段（summary/detail/evidence/confidence/intent_id/asset_ids）；省略 intent_id 则用顶层 intent_id。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
 			"summary":    str("对本次探索结论的【总结性一句话】（是对 detail 的概括）"),
@@ -1366,6 +1716,7 @@ func (t *ToolSet) recordFact() actool.CoreTool {
 			"evidence":   str("【一行】关键证据：命令 + 最能证明结论的那一两行输出。务必简洁，不要粘大段输出（细节放 detail）。"),
 			"confidence": str("observed（输出里直接看到）| inferred（据现象推断）。否定结论务必如实标注。"),
 			"asset_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "相关资产 id（可选，0/1/多个）：该事实涉及哪些资产"},
+			"topology":   map[string]any{"type": "object", "description": "【可选，仅记录内网拓扑关系时给】{discovery, src_ip, dst_ips, kind}：discovery=如何发现的（≤20字写手段不写结论）、src_ip=父节点/立足点内网 IP、dst_ips=目标内网 IP 数组（同方式同父同 kind 的一批）、kind=solid（已突破）| reachable（仅可达，缺省）。给了此字段则拓扑边自动生成。"},
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
@@ -1613,6 +1964,27 @@ func (t *ToolSet) setConstraints() actool.CoreTool {
 		})
 }
 
+// listTaskConstraints 只读列出本任务的操作约束（allow/deny，task_constraints 表）。
+// 供跨任务只读委派：vuln_dispatcher 派生子任务前据此判断方向是否被明确禁止。
+func (t *ToolSet) listTaskConstraints() actool.CoreTool {
+	return t.readExpTool("list_task_constraints", "只读列出本任务的操作约束（allow/deny 列表，含来源 origin）。派生子任务或执行敏感行动前先读。",
+		obj(map[string]any{}),
+		func(context.Context, json.RawMessage) (actool.Result, error) {
+			if t.ts == nil {
+				return actool.Errorf("任务上下文不可用"), nil
+			}
+			cs, err := t.ts.ListConstraints()
+			if err != nil {
+				return actool.Errorf(err.Error()), nil
+			}
+			list := make([]map[string]any, 0, len(cs))
+			for _, c := range cs {
+				list = append(list, map[string]any{"kind": c.Kind, "text": c.Text, "origin": c.Origin})
+			}
+			return jsonResult(map[string]any{"count": len(list), "constraints": list})
+		})
+}
+
 func (t *ToolSet) addHint() actool.CoreTool {
 	return t.writeExpTool("add_hint", "把人类/主 agent 的战略提示挂到探索图，规划者下次生成意图时会读到它。\n"+
 		"★优先批量：多条提示放进 hints 数组一次提交（比逐条调用省往返）。返回 ids 数组，与 hints 等长同序（失败项 id=0，详情见 errors）。单条则省略 hints 直接给顶层 text。",
@@ -1756,23 +2128,9 @@ func (t *ToolSet) getWorkerOutput() actool.CoreTool {
 			if intentNode == nil || intentNode.Kind != db.KindIntent {
 				return actool.Errorf("intent_id 不属于本任务或其直接关联任务"), nil
 			}
-			acts, _, err := t.ts.ActivityListWithSources(id, 0, 1000)
+			pick, err := t.ts.LatestWorkerOutputWithSources(id)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
-			}
-			var chosen, fallback *db.Activity
-			for i := range acts {
-				switch acts[i].Kind {
-				case "result":
-					chosen = &acts[i]
-					fallback = &acts[i]
-				case "text":
-					fallback = &acts[i]
-				}
-			}
-			pick := chosen
-			if pick == nil {
-				pick = fallback
 			}
 			if pick == nil {
 				if intentNode.Inherited {
@@ -1782,7 +2140,10 @@ func (t *ToolSet) getWorkerOutput() actool.CoreTool {
 				}
 				return actool.Text("（该 work 尚无任何输出）"), nil
 			}
-			detail, _ := t.ts.ActivityDetailWithSources(pick.ID)
+			detail, err := t.ts.ActivityDetailWithSources(pick.ID)
+			if err != nil {
+				return actool.Errorf(err.Error()), nil
+			}
 			if detail == "" {
 				detail = pick.Summary
 			}
@@ -2035,7 +2396,8 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.graphOverview(), t.listFindings(), t.listFacts(), t.nodeDetail(),
 		// cold-digest §6.1: restore folded cold nodes (digest body → members → detail).
 		t.expandDigest(),
-		t.getWorkerOutput(), t.getWorkerTrace(), t.searchAllWorkerTraces(), t.listGoals(), t.addIntent(), t.proveGoal(), t.goalMet(),
+		t.listIntents(), // 【二开·LIST-INTENTS·A3】planner 默认绑定
+		t.getWorkerOutput(), t.getWorkerTrace(), t.searchAllWorkerTraces(), t.listGoals(), t.addIntent(), t.addReviewIntent(), t.updateIntent(), t.cancelIntent(), t.proveGoal(), t.goalMet(),
 		t.killWorkTool(), t.steerWorkTool(),
 		// report_finding：规划态势研判时若自身已确证漏洞，可直接登记（与 worker 同工具）。
 		t.addFinding(),

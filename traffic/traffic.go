@@ -1,3 +1,14 @@
+// traffic.go：流量录制子系统核心——内嵌 MITM 代理落盘交换记录，SQLite 索引支撑分页查询，
+// 另含 blob 存储、主机删除（含分阶段事务）与空间回收。
+// 主要函数/类型：
+//   - Traffic：录制子系统主体（代理、索引库、blob 目录、写锁与关闭协调）。
+//   - Open：初始化目录、打开 SQLite 索引并建表。
+//   - Search / Page / Get / Hosts / Count：按主机、关键词等条件分页查询流量。
+//   - Blob / BlobRange：按内容哈希读取响应体 blob（支持范围读取）。
+//   - DeleteHost / DeleteAll / StageDeleteHostsExact / RecoverHostDeleteStages：删除主机流量，
+//     分阶段执行并可崩溃恢复。
+//   - Tools / SeedToolMetas：暴露给 Agent 的流量检索工具定义。
+//
 // Package traffic implements the request-recording subsystem (docs §10): an
 // embedded go-mitmproxy proxy whose addon writes every target HTTP exchange into
 // a human-browsable file tree, with a sidecar SQLite index for paged queries.
@@ -30,11 +41,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/db"
 	mproxy "github.com/lqqyt2423/go-mitmproxy/proxy"
 	_ "modernc.org/sqlite"
+	"norma/permission"
+	actool "norma/tool"
 )
 
 const indexSchema = `
@@ -430,6 +441,12 @@ func proxyCausedErr(err error) bool {
 	return false
 }
 
+// nextExchangeID 组合纳秒时间和进程内单调序号；序号不再按 10000 取模，
+// 因此同一秒的第 10001 条流量也不会覆盖前面的证据。
+func (t *Traffic) nextExchangeID(now time.Time) string {
+	return fmt.Sprintf("%d-%d", now.UnixNano(), t.seq.Add(1))
+}
+
 // record persists one exchange entirely in SQLite: metadata, bodies and the
 // full-text index. Nothing is written to a per-request directory — only bodies
 // above maxInlineBody spill to the content-addressed blob store.
@@ -441,9 +458,8 @@ func (t *Traffic) record(f *mproxy.Flow) {
 	host := f.Request.URL.Hostname()
 	method := f.Request.Method
 	tmpl := db.TemplatePath(f.Request.URL.EscapedPath())
-	n := t.seq.Add(1)
 	now := time.Now()
-	id := fmt.Sprintf("%d-%04d", now.Unix(), n%10000)
+	id := t.nextExchangeID(now)
 
 	ct := f.Response.Header.Get("Content-Type")
 	url := f.Request.URL.String()
@@ -463,7 +479,7 @@ func (t *Traffic) record(f *mproxy.Flow) {
 
 	// path stays empty for db-resident exchanges; a non-empty path marks a legacy
 	// row whose bodies still live in the old on-disk tree (see Get).
-	res, err := tx.Exec(`INSERT OR REPLACE INTO exchanges(id,ts,host,method,url_template,url,status,content_type,req_len,resp_len,path)
+	res, err := tx.Exec(`INSERT INTO exchanges(id,ts,host,method,url_template,url,status,content_type,req_len,resp_len,path)
 VALUES(?,?,?,?,?,?,?,?,?,?,'')`,
 		id, now.Unix(), host, method, tmpl, url, f.Response.StatusCode, ct,
 		len(f.Request.Body), len(f.Response.Body))
@@ -762,12 +778,22 @@ type ExchangeMeta struct {
 	Path        string `json:"path"`
 }
 
+// exchangeMetaCols 是 ExchangeMeta 的 SELECT 列清单（Search/Page/query 三处同一份，单点维护）。
+const exchangeMetaCols = `id,ts,host,method,url_template,url,status,content_type,resp_len,path`
+
+// scanExchangeMeta 扫一行 ExchangeMeta（Search/Page/query 同款 scan）。
+func scanExchangeMeta(rows *sql.Rows) (ExchangeMeta, error) {
+	var m ExchangeMeta
+	err := rows.Scan(&m.ID, &m.TS, &m.Host, &m.Method, &m.URLTemplate, &m.URL, &m.Status, &m.ContentType, &m.RespLen, &m.Path)
+	return m, err
+}
+
 // Search returns paged exchange metadata (never bodies).
 func (t *Traffic) Search(host string, page, size int) ([]ExchangeMeta, error) {
 	if size <= 0 || size > 500 {
 		size = 100
 	}
-	q := `SELECT id,ts,host,method,url_template,url,status,content_type,resp_len,path FROM exchanges`
+	q := `SELECT ` + exchangeMetaCols + ` FROM exchanges`
 	args := []any{}
 	if host != "" {
 		q += ` WHERE host=?`
@@ -782,8 +808,8 @@ func (t *Traffic) Search(host string, page, size int) ([]ExchangeMeta, error) {
 	defer rows.Close()
 	var out []ExchangeMeta
 	for rows.Next() {
-		var m ExchangeMeta
-		if err := rows.Scan(&m.ID, &m.TS, &m.Host, &m.Method, &m.URLTemplate, &m.URL, &m.Status, &m.ContentType, &m.RespLen, &m.Path); err != nil {
+		m, err := scanExchangeMeta(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -925,7 +951,7 @@ func (t *Traffic) Page(f PageQuery, page, size int) (rows []ExchangeMeta, total 
 	}
 	// id embeds capture timestamp + sequence, so a trailing id DESC makes the order
 	// total and pagination stable even when the sort column has many ties.
-	sel := `SELECT id,ts,host,method,url_template,url,status,content_type,resp_len,path FROM exchanges` +
+	sel := `SELECT ` + exchangeMetaCols + ` FROM exchanges` +
 		where + ` ORDER BY ` + col + ` ` + dir + `, id DESC LIMIT ? OFFSET ?`
 	qargs := append(append([]any{}, args...), size, page*size)
 	rs, err := t.db.Query(sel, qargs...)
@@ -934,8 +960,8 @@ func (t *Traffic) Page(f PageQuery, page, size int) (rows []ExchangeMeta, total 
 	}
 	defer rs.Close()
 	for rs.Next() {
-		var m ExchangeMeta
-		if err := rs.Scan(&m.ID, &m.TS, &m.Host, &m.Method, &m.URLTemplate, &m.URL, &m.Status, &m.ContentType, &m.RespLen, &m.Path); err != nil {
+		m, err := scanExchangeMeta(rs)
+		if err != nil {
 			return nil, 0, err
 		}
 		rows = append(rows, m)
@@ -1028,12 +1054,14 @@ func (t *Traffic) Count() (int, error) {
 // blobs are shared across hosts and so are garbage-collected afterwards rather
 // than deleted by host. Returns rows deleted.
 func (t *Traffic) DeleteHost(host string) (int64, error) {
-	like := "%" + host + "%"
+	// The UI supplies a literal substring, not a SQL pattern. Escape LIKE's
+	// metacharacters so a host containing %, _ or \ cannot widen the deletion.
+	like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(host) + "%"
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
 	// Resolved before the rows go away: with a substring match, the index is the
 	// only record of which host directories the filter actually hit.
-	legacy, err := t.hostTrees(`host LIKE ?`, like)
+	legacy, err := t.hostTrees(`host LIKE ? ESCAPE '\'`, like)
 	if err != nil {
 		return 0, err
 	}
@@ -1042,7 +1070,7 @@ func (t *Traffic) DeleteHost(host string) (int64, error) {
 		return 0, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op once committed
-	n, err := t.deleteWhere(tx, `host LIKE ?`, like)
+	n, err := t.deleteWhere(tx, `host LIKE ? ESCAPE '\'`, like)
 	if err != nil {
 		return 0, err
 	}
@@ -1904,7 +1932,7 @@ func (t *Traffic) query(host, contains, bodyContains string, page, limit int) ([
 	if page < 0 {
 		page = 0
 	}
-	q := `SELECT id,ts,host,method,url_template,url,status,content_type,resp_len,path FROM exchanges WHERE 1=1`
+	q := `SELECT ` + exchangeMetaCols + ` FROM exchanges WHERE 1=1`
 	args := []any{}
 	if host != "" {
 		hostName, port, err := normalizeSearchHost(host)
@@ -1950,8 +1978,8 @@ func (t *Traffic) query(host, contains, bodyContains string, page, limit int) ([
 	defer rows.Close()
 	var out []ExchangeMeta
 	for rows.Next() {
-		var m ExchangeMeta
-		if err := rows.Scan(&m.ID, &m.TS, &m.Host, &m.Method, &m.URLTemplate, &m.URL, &m.Status, &m.ContentType, &m.RespLen, &m.Path); err != nil {
+		m, err := scanExchangeMeta(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, m)

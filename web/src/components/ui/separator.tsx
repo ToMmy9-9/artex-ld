@@ -1,3 +1,7 @@
+/**
+ * separator.tsx：shadcn/ui 的 Separator 分隔线组件封装。
+ * 主要组件：Separator。
+ */
 "use client"
 
 import * as React from "react"

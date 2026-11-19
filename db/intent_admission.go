@@ -1,3 +1,6 @@
+// intent_admission.go：任务准入失败时对已创建人工意图的补偿删除。
+// 主要函数/类型：
+//   - DiscardOpenIntent：任务准入被拒时补偿性删除未进入执行的意图及其关联 activity。
 package db
 
 import "fmt"
@@ -17,7 +20,7 @@ func (s *ExplorationStore) DiscardOpenIntent(id int64) error {
 		return err
 	}
 	res, err := tx.Exec(`DELETE FROM exploration_nodes
-		WHERE id=$1 AND exploration_id=$2 AND kind='intent' AND state='open'`, id, s.expID)
+		WHERE id=$1 AND exploration_id=$2 AND kind='intent' AND state IN ('open','proposed')`, id, s.expID) // 【二开·P-INTENT·D5】兼容 proposed（待审意图同样可随接纳失败回滚）
 	if err != nil {
 		return err
 	}

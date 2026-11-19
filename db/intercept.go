@@ -1,3 +1,9 @@
+// intercept.go：拦截规则（intercept_rules）与待审批请求（intercept_pending）的 CRUD 与查询。
+// 主要函数/类型：
+//   - InterceptRule / InterceptPending / InterceptApprovalRow：规则、待审批与审批联查行结构。
+//   - ListInterceptRules / CreateInterceptRule / UpdateInterceptRule / DeleteInterceptRule / ToggleInterceptRule：拦截规则的查改增删与启停。
+//   - CreateInterceptPending / CreateDecidedIntercept：写入待审批或直接落库的已裁决请求。
+//   - DecideInterceptPending / ListPendingIntercepts / GetInterceptPending：审批状态更新与待审批查询。
 package db
 
 import (

@@ -1,3 +1,8 @@
+/**
+ * finding-traffic-panel.tsx：漏洞的流量证据绑定管理面板，按角色绑定/解绑流量并预览。
+ * 主要函数/类型：
+ *   - FindingTrafficPanel：证据绑定面板组件（角色标签、绑定列表、选择器/查看器入口）
+ */
 "use client";
 
 import * as React from "react";

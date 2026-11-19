@@ -1,3 +1,10 @@
+/**
+ * search-dialog.tsx：顶栏搜索按钮与命令面板，支持快捷键 ⌘J 打开、按分组检索导航项。
+ * 主要函数/类型：
+ *   - SearchDialog：搜索弹窗组件，处理快捷键、查询过滤与页面跳转。
+ *   - searchItems / recommendations：由导航配置展开、过滤得到的搜索项与推荐项。
+ *   - getAvailableItems / groupBy / getSubItemGroup：过滤可用项、按分组聚合等辅助函数。
+ */
 "use client";
 
 import * as React from "react";

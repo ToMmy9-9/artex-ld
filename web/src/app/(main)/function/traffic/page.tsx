@@ -1,3 +1,10 @@
+/**
+ * page.tsx：流量记录页，分页浏览录制的 HTTP 交换，支持多条件筛选、排序及按主机/筛选/全部清理。
+ * 主要函数/类型：
+ *   - TrafficPage：页面主体，拉取 api.traffic 列表 / trafficHosts 主机清单 / trafficExchange 详情
+ *   - requestWithHost：为缺少 Host 头的原始请求补上主机
+ *   - MethodBadge / fmtBytes：方法徽标与字节数格式化
+ */
 "use client";
 
 import * as React from "react";
@@ -44,17 +51,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { api } from "@/lib/api";
 import { useStoredSortPreference } from "@/lib/sort-preference";
 import type { TrafficDetail, TrafficExchange, TrafficHost, TrafficResp } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
+import { cn, fmtTime, statusTone } from "@/lib/utils";
 
 function fmtBytes(n: number) {
   if (n <= 0) return "0 B";
@@ -64,14 +61,6 @@ function fmtBytes(n: number) {
   const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
   const v = n / 1024 ** i;
   return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
-}
-
-function statusTone(status: number) {
-  if (status >= 500) return "text-red-500";
-  if (status >= 400) return "text-amber-500";
-  if (status >= 300) return "text-blue-500";
-  if (status >= 200) return "text-emerald-500";
-  return "text-muted-foreground";
 }
 
 function MethodBadge({ method }: { method: string }) {

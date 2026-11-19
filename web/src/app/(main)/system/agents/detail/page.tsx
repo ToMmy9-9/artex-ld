@@ -1,3 +1,9 @@
+/**
+ * page.tsx：单个 Agent 的深度链接编辑页（复用 /system/agents 抽屉里的 AgentEditor，全宽展示）。
+ * 主要函数/类型：
+ *   - AgentDetailPage：页面出口，用 Suspense 包裹以满足静态导出要求
+ *   - AgentDetailInner：读取 URL 的 ?key= 参数并渲染 AgentEditor
+ */
 "use client";
 
 import * as React from "react";

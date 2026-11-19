@@ -1,3 +1,10 @@
+// goals.go：任务发起、并发槽准入排队、并发对账与 LLM 目标拆解。
+// 主要函数/类型：
+//   - launchTask / startTaskEngine：发起任务并启动引擎。
+//   - admitTask / admitPausedTask / admitTaskWhen：并发槽准入（含暂停恢复路径），超限时排队。
+//   - reconcileConcurrency：对账并发占用——LLM 不可用任务持久化入队并按 FIFO 提升排队任务。
+//   - createGoals：用任务同款 LLM 把任务目标拆解为可判定目标，无产出时回退原始目标。
+//   - runningTaskCount / hasReadyQueuedTask：并发占用统计与排队任务探查辅助。
 package server
 
 import (
@@ -8,8 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"artex/agent"
+	"artex/db"
 )
 
 type goalSpec struct {

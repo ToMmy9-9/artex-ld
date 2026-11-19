@@ -1,3 +1,10 @@
+/**
+ * approval-records.tsx：拦截审批记录列表与详情抽屉，含待审批决策操作、分页与响应式列。
+ * 主要函数/类型：
+ *   - ApprovalRecords：审批记录表格组件（筛选、分页、决策列）
+ *   - ApprovalDetail：单条审批详情抽屉（模型评审上下文、决定操作）
+ *   - ApprovalTable / DecisionActions：内部表格与允许/拒绝操作组件
+ */
 "use client";
 
 import * as React from "react";
@@ -34,7 +41,7 @@ import type {
   InterceptPending,
   InterceptReviewInput,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, copyText } from "@/lib/utils";
 
 function fmtTime(value?: string) {
   if (!value) return "—";
@@ -131,12 +138,9 @@ function MatchCell({ row, showReason = true }: { row: InterceptApprovalRow; show
 
 function CodeBlock({ label, text, truncated = false }: { label: string; text: string; truncated?: boolean }) {
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("已复制");
-    } catch {
-      toast.error("复制失败，请手动选择内容复制");
-    }
+    const ok = await copyText(text);
+    if (ok) toast.success("已复制");
+    else toast.error("复制失败，请手动选择内容复制");
   }
   return (
     <section className="flex min-w-0 flex-col gap-2" aria-label={label}>

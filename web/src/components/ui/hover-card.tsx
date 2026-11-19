@@ -1,3 +1,7 @@
+/**
+ * hover-card.tsx：shadcn/ui 的 HoverCard 悬浮卡片组件封装。
+ * 主要组件：HoverCard、HoverCardTrigger、HoverCardContent。
+ */
 "use client"
 
 import * as React from "react"

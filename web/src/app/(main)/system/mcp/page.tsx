@@ -1,3 +1,10 @@
+/**
+ * page.tsx：MCP 服务器管理页——服务器增删改、启停与按 Agent 授权的可见性配置。
+ * 主要函数/类型：
+ *   - MCPPage：默认导出页组件，服务器卡片 + 编辑抽屉 + 工具预览
+ *   - Transport / FormState / emptyForm：传输方式与表单状态类型
+ *   - parseEnv / envToText：环境变量文本与对象互转
+ */
 "use client";
 
 import * as React from "react";

@@ -1,9 +1,15 @@
+// wrapup.go：收尾（settlement）提示词默认值与解析——agent 因步数/超时被终止时注入，先落库再总结。
+// 主要函数/类型：
+//   - WrapupDefault / WrapupTurnsDefault：按 agentKey 解析收尾提示词与收尾轮数（支持覆盖钩子）。
+//   - TaskTimeoutWrapupDefault：整个任务超时时的最终收尾提示词。
+//   - wrapupSettlement / wrapupSettlementForTask：构造注入收尾提示与禁用工具的 settlement 配置。
+
 package agent
 
 import (
 	"strings"
 
-	"github.com/Autumn-27/norma/harness"
+	"norma/harness"
 )
 
 // 收尾提示词(wrap-up / settlement prompt):当 agent 因【步数耗尽(MaxTurns)】或

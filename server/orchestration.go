@@ -1,3 +1,10 @@
+// orchestration.go：编排与平台内置工具的注册、seed 及存量库一次性升级迁移。
+// 主要函数/类型：
+//   - orchestrationTools / hostTools：声明编排（任务操作）类内置工具集。
+//   - roTool / wrTool / objSchema / delegateToTask：构造只读/只写工具、JSON schema，并把调用委派到任务运行时的辅助。
+//   - toolSpawnTask / toolPauseTask / toolGetTaskGraph 等：spawn/pause 任务、任务图、约束、发现、worker trace 等工具实现。
+//   - seedOrchestrationTools：把内置工具与默认绑定 seed 进 DB，并串联全部一次性提示词/绑定升级迁移。
+//   - refreshBuiltinToolSchemas：按版本标记把代码里的 schema/描述变更刷入已 seed 的工具行。
 package server
 
 import (
@@ -9,10 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/norma/permission"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/agent"
+	"artex/db"
+	"artex/xlog" // 【二开·P-LOG·S8】spawn_task 四参数接收 DEBUG
+	"norma/permission"
+	actool "norma/tool"
 )
 
 // jsonResult marshals v to a JSON tool result.
@@ -66,11 +74,13 @@ func (s *Server) orchestrationTools() []actool.CoreTool {
 	return []actool.CoreTool{
 		s.toolListTasks(),
 		s.toolListLLMProfiles(),
+		s.toolCheckInternalAssetTask(),
 		s.toolSpawnTask(),
 		s.toolPauseTask(),
 		s.toolGetTaskGraph(),
 		s.toolListTaskFindings(),
 		s.toolAddHint(),
+		s.toolAppendFindingToTask(),
 		s.toolGetWorkerTrace(),
 		s.toolListWorkerTraces(),
 		s.toolSearchWorkerTraces(),
@@ -78,6 +88,8 @@ func (s *Server) orchestrationTools() []actool.CoreTool {
 		s.toolUpdateFindingReport(),
 		s.toolGetFindingTraffic(),
 		s.toolBindFindingTraffic(),
+		s.toolDispatchFindingToAgent(),
+		s.toolListTaskConstraints(), // 【二开·P-INTENT·U22】跨任务只读约束查询
 	}
 }
 
@@ -238,56 +250,167 @@ func (s *Server) toolListLLMProfiles() actool.CoreTool {
 		})
 }
 
+// resolveSpawnReview preserves an explicitly enabled parent review and otherwise
+// applies the selected scenario default. scenarioNKey is resolved for both
+// stable-nkey and legacy numeric template references before this is called.
+func (s *Server) resolveSpawnReview(inherited bool, scenarioNKey string) (bool, error) {
+	if inherited || scenarioNKey == "" {
+		return inherited, nil
+	}
+	cat, err := s.m.PG().GetTaskCategoryByNKey(scenarioNKey)
+	if err != nil {
+		return false, err
+	}
+	return cat != nil && cat.DefaultReviewEnabled, nil
+}
+
 func (s *Server) toolSpawnTask() actool.CoreTool {
 	return wrTool("spawn_task",
-		"新建一个子任务并启动探索引擎，返回 task_id。用于把一件事(如一道题/一个目标)派成独立任务。parent_ref 可选：填当前编排关联的父任务 id 做父子关联。",
+		"新建一个子任务并启动探索引擎，返回 task_id。子任务使用独立探索链路；带 finding_id 时仅复制该 Finding 的完整祖先链。parent_ref 可选，仅用于父子关联。",
 		objSchema(map[string]any{
-			"description":            strParam("任务描述(简短标题)"),
+			"finding_id":             map[string]any{"type": "integer", "description": "内网渗透派发必填：触发 Finding 的全局 id，同时用于按实际 IP/域名做跨任务去重和选择要复制的 Finding 血缘链"},
+			"target_asset":           strParam("可选：Finding 关联多个主机时选择本次主目标；必须属于该 Finding"),
+			"name":                   strParam("任务列表短名称；内网子任务由服务端统一规范为「内网渗透·<立足点 host>」"),
+			"description":            strParam("任务完整执行说明"),
 			"goal":                   strParam("任务目标(要达成什么)"),
 			"parent_ref":             strParam("可选：父任务 id(做父子关联)"),
-			"source_task_ids":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": fmt.Sprintf("可选：只读继承的来源任务 id 列表(最多 %d 个)。子任务可只读引用这些任务已探明的资产/结论作为起点；与 parent_ref 的纯父子指针不同，这是内容继承。", db.MaxTaskSourceCount)},
 			"llm_profile_id":         map[string]any{"type": "integer", "description": "可选：指定本子任务 planner/worker 用的 LLM 配置 id(见 list_llm_profiles)；留空则继承父任务、再回退全局激活配置"},
 			"timeout_seconds":        map[string]any{"type": "integer", "description": "可选：任务级超时(秒)。到点后触发优雅收尾并进入 timeout 终态；留空或 0 = 不限时"},
 			"plan_heartbeat_seconds": map[string]any{"type": "integer", "description": "可选：planner 心跳触发间隔(秒)。距上轮规划结束/任务开始满该值且期间无触发 → 触发一轮规划(兜底死锁 + 唤醒去监督飞行中的 worker)。留空或 0 = 默认 600(10min)；"},
 			"seed_first_intent":      map[string]any{"type": "boolean", "description": "可选：对于简单任务可开启，创建时直接下发一条种子意图(内容=描述+目标)让 worker 免等首轮 planner 直接开跑测试；默认 false(走标准先规划再执行)。"},
+			// 【二开·P-ORCH·S8】起
+			"pre_agent":             strParam("可选：种子意图的自定义执行器 executor_key（该 agent 须已启用、非内置、已声明 executor_key）；留空=默认 worker 执行种子意图"),
+			"planner_prompt":        strParam("可选：子任务 planner 提示词任务级覆盖【全文】（上限 32KB）。创建时原子写入 tasks.planner_prompt_override，运行中无修改入口；与 planner_template_id 同传时本字段优先"),
+			"planner_template_id":   map[string]any{"type": "integer", "description": "可选（兼容旧调用）：从 planner 模板库按数字 id 选预设模板，正文在创建时快照进 planner_prompt_override；新调用优先使用 planner_template_nkey"},
+			"planner_template_nkey": strParam("可选：从 planner 模板库按稳定规范化名 nkey 选预设模板，正文在创建时快照；与 planner_template_id 互斥，与 planner_prompt 同传时 planner_prompt 优先"),
+			"worker_count":          map[string]any{"type": "integer", "description": "可选：任务级 worker 并发数，合法区间 0~16；0 或省略=跟随全局默认"},
+			// 【二开·P-ORCH·S8】止
 		}, "description", "goal"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
+				FindingID            int64           `json:"finding_id"`
+				TargetAsset          string          `json:"target_asset"`
+				Name                 string          `json:"name"`
 				Description          string          `json:"description"`
 				Goal                 string          `json:"goal"`
 				ParentRef            string          `json:"parent_ref"`
-				SourceTaskIDs        []string        `json:"source_task_ids"`
 				LLMProfileID         json.RawMessage `json:"llm_profile_id"`
 				TimeoutSeconds       int             `json:"timeout_seconds"`
 				PlanHeartbeatSeconds int             `json:"plan_heartbeat_seconds"`
 				SeedFirstIntent      bool            `json:"seed_first_intent"`
+				// 【二开·P-ORCH·S8】起
+				PreAgent            string `json:"pre_agent"`
+				PlannerPrompt       string `json:"planner_prompt"`
+				PlannerTemplateID   int64  `json:"planner_template_id"`
+				PlannerTemplateNKey string `json:"planner_template_nkey"`
+				WorkerCount         int    `json:"worker_count"`
+				// 【二开·P-ORCH·S8】止
+				// 【二开·P-INTENT·U23】可选审核开关：只能加强不能减弱
+				ReviewEnabled *bool `json:"review_enabled"`
 			}
 			_ = json.Unmarshal(in, &a)
+			// 【二开·P-LOG·S8】起 —— 四参数接收留痕（DEBUG 级；排障：LLM 到底传了什么）
+			xlog.Debugf("[spawn] spawn_task 收到参数：pre_agent=%q planner_template_id=%d planner_template_nkey=%q worker_count=%d planner_prompt_bytes=%d", a.PreAgent, a.PlannerTemplateID, a.PlannerTemplateNKey, a.WorkerCount, len(a.PlannerPrompt))
+			// 【二开·P-LOG·S8】止
 			if strings.TrimSpace(a.Description) == "" {
 				a.Description = "未命名任务"
 			}
 			if strings.TrimSpace(a.Goal) == "" {
 				return actool.Errorf("goal 为必填"), nil
 			}
+			// 【二开·P-ORCH·S8】起 —— 四参数校验（与 00 册 S7 createTask 同款规则；工具侧失败=错误文本回 LLM）
+			if a.PreAgent != "" {
+				if err := validatePreAgent(s.m.PG(), a.PreAgent); err != nil {
+					log.Printf("[spawn] spawn_task 不予通过 ⚠ pre_agent=%q 无效（须为已启用自定义 agent 声明的 executor_key）", a.PreAgent)
+					return actool.Errorf(fmt.Sprintf("pre_agent 无效：须为已启用自定义 agent 声明的 executor_key；可用：%s", s.executorKeyList())), nil
+				}
+			}
+			if len(a.PlannerPrompt) > 32*1024 {
+				log.Printf("[spawn] spawn_task 不予通过 ⚠ planner_prompt 超长：bytes=%d（上限 32KB）", len(a.PlannerPrompt))
+				return actool.Errorf("planner_prompt 超长（上限 32KB）"), nil
+			}
+			plannerNKey := strings.TrimSpace(a.PlannerTemplateNKey)
+			if plannerNKey != "" && a.PlannerTemplateID != 0 {
+				return actool.Errorf("planner_template_id 与 planner_template_nkey 互斥，请只传一个"), nil
+			}
+			// planner_prompt 优先；模板引用只负责在创建时取正文快照，之后改/删模板不影响子任务。
+			plannerPrompt := a.PlannerPrompt
+			if plannerPrompt == "" && a.PlannerTemplateID == 0 && plannerNKey == "" {
+				// 【二开·P-TPL·S13】与 createTask 同型快照链第三级：两者皆不传 → 默认模板正文快照
+				// （子任务出生即带快照，无"先建后改"窗口期）；表为空则 ''，落 A4 运行时链兜底。
+				if body, dErr := defaultPlannerPrompt(s.m.PG()); dErr == nil {
+					plannerPrompt = body
+				}
+			}
+			if plannerPrompt == "" && (a.PlannerTemplateID > 0 || plannerNKey != "") {
+				var tpl *db.PlannerTemplate
+				var tplErr error
+				reference := fmt.Sprintf("planner_template_id #%d", a.PlannerTemplateID)
+				if plannerNKey != "" {
+					tpl, tplErr = s.m.PG().GetPlannerTemplateByNKey(plannerNKey)
+					reference = fmt.Sprintf("planner_template_nkey %q", plannerNKey)
+				} else {
+					tpl, tplErr = s.m.PG().GetPlannerTemplate(a.PlannerTemplateID)
+				}
+				if tplErr != nil {
+					return actool.Errorf(fmt.Sprintf("读取 planner 模板失败：%v", tplErr)), nil
+				}
+				if tpl == nil {
+					log.Printf("[spawn] spawn_task 不予通过 ⚠ %s 不存在", reference)
+					return actool.Errorf(fmt.Sprintf("%s 不存在；可用模板：%s", reference, s.plannerTemplateList())), nil
+				}
+				if err := validatePlannerTemplateBody(tpl.Body); err != nil {
+					log.Printf("[spawn] spawn_task 不予通过 ⚠ 模板 #%d 渲染校验不通过：%v", tpl.ID, err)
+					return actool.Errorf(fmt.Sprintf("模板 #%d 渲染校验失败：%s", tpl.ID, err.Error())), nil
+				}
+				plannerPrompt = tpl.Body
+			}
+			// 子任务按 Planner 场景选择同 nkey 分类，并快照该分类的 Worker 模板。
+			scenarioNKey := plannerNKey
+			if scenarioNKey == "" && a.PlannerTemplateID > 0 {
+				if tpl, tplErr := s.m.PG().GetPlannerTemplate(a.PlannerTemplateID); tplErr != nil {
+					return actool.Errorf(fmt.Sprintf("读取 planner 模板失败：%v", tplErr)), nil
+				} else if tpl != nil {
+					scenarioNKey = tpl.NKey
+				}
+			}
+			var categoryID *int64
+			workerPrompt := ""
+			if scenarioNKey != "" {
+				cat, catErr := s.m.PG().GetTaskCategoryByNKey(scenarioNKey)
+				if catErr != nil {
+					return actool.Errorf(fmt.Sprintf("读取 Worker 场景失败：%v", catErr)), nil
+				}
+				if cat != nil {
+					categoryID = &cat.ID
+					if cat.DefaultWorkerTemplateID > 0 {
+						tpl, tplErr := s.m.PG().GetWorkerTemplate(cat.DefaultWorkerTemplateID)
+						if tplErr != nil {
+							return actool.Errorf(fmt.Sprintf("读取 Worker 模板失败：%v", tplErr)), nil
+						}
+						if tpl == nil {
+							return actool.Errorf(fmt.Sprintf("场景 %q 的 Worker 模板 #%d 不存在", scenarioNKey, cat.DefaultWorkerTemplateID)), nil
+						}
+						workerPrompt = tpl.Body
+					}
+				}
+			}
+			if workerPrompt == "" {
+				body, bodyErr := defaultWorkerPrompt(s.m.PG())
+				if bodyErr != nil {
+					return actool.Errorf(fmt.Sprintf("读取默认 Worker 模板失败：%v", bodyErr)), nil
+				}
+				workerPrompt = body
+			}
+			if err := validateWorkerTemplateBody(workerPrompt); err != nil {
+				return actool.Errorf("Worker 模板渲染校验失败：" + err.Error()), nil
+			}
+			if err := validateWorkerCount(a.WorkerCount); err != nil {
+				log.Printf("[spawn] spawn_task 不予通过 ⚠ worker_count=%d 越界（合法 0~16）", a.WorkerCount)
+				return actool.Errorf("worker_count 合法区间 0~16（0=跟随全局）"), nil
+			}
 			if a.TimeoutSeconds < 0 {
 				a.TimeoutSeconds = 0
-			}
-			// 只读继承来源任务：数量上限 + 每个 id 有效/去重/存在，校验规则与 HTTP 建任务一致。
-			if len(a.SourceTaskIDs) > db.MaxTaskSourceCount {
-				return actool.Errorf(fmt.Sprintf("关联任务最多选择 %d 个", db.MaxTaskSourceCount)), nil
-			}
-			sourceIDs := make([]int64, 0, len(a.SourceTaskIDs))
-			seenSources := map[int64]bool{}
-			for _, raw := range a.SourceTaskIDs {
-				id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-				if err != nil || id <= 0 || seenSources[id] {
-					return actool.Errorf("关联任务 id 无效或重复"), nil
-				}
-				if _, ok := s.m.Task(strconv.FormatInt(id, 10)); !ok {
-					return actool.Errorf(fmt.Sprintf("关联任务 #%d 不存在", id)), nil
-				}
-				seenSources[id] = true
-				sourceIDs = append(sourceIDs, id)
 			}
 			// LLM profile resolution: explicit id > inherit parent's pin > active(nil).
 			var pin *int64
@@ -301,19 +424,62 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 					pin = pt.LLMProfileID
 				}
 			}
+			// 【二开·P-DISPATCH·阶段0①】ReviewEnabled 继承父任务（04 册 §5.1①：spawn_task 不透传
+			// 会让 vuln_dispatcher 派出的内网子任务绕过审核闸门）。无 parent_ref 时保持默认关。
+			// ①b 修订（用户拍板 2026-10-25，m00799「父任务不需要开启审核」）：父任务关审 ≠
+			// 子任务连坐——父关时按 planner 模板 nkey 反查同 nkey 分类的 default_review_enabled
+			// 兑底（内网渗透/权限提升/漏洞利用分类默认 t）。父开仍强制开（只能加强不能减弱）。
+			// dispatcher 依旧无发言权：review_enabled 参数不下放，值只来自人设定的两级默认。
+			reviewEnabled := false
+			if a.ParentRef != "" {
+				if pt, ok := s.m.Task(a.ParentRef); ok {
+					reviewEnabled = pt.ReviewEnabled
+				}
+			}
+			inheritedReview := reviewEnabled
+			resolvedReview, reviewErr := s.resolveSpawnReview(inheritedReview, scenarioNKey)
+			if reviewErr != nil {
+				return actool.Errorf("读取 Review 场景默认失败：" + reviewErr.Error()), nil
+			}
+			reviewEnabled = resolvedReview
+			if !inheritedReview && reviewEnabled {
+				xlog.Infof("[spawn] spawn_task 审核开关按分类默认开启：场景 %s default_review_enabled=t", scenarioNKey)
+			}
+			var dispatchAssetKeys []string
+			if scenarioNKey == "内网渗透" {
+				var keyErr error
+				dispatchAssetKeys, keyErr = s.findingDispatchAssetKeys(a.FindingID, a.TargetAsset)
+				if keyErr != nil {
+					return actool.Errorf(keyErr.Error()), nil
+				}
+			}
 			var llmIDs []int64
 			if pin != nil {
 				llmIDs = []int64{*pin}
 			}
 			t, err := s.m.CreateTaskWithOptions(a.Description, a.Goal, db.TaskCreateOptions{
-				SourceTaskIDs:        sourceIDs,
+				Name:                 resolveSpawnTaskName(scenarioNKey, a.Name, dispatchAssetKeys),
+				CategoryID:           categoryID,
+				WorkerPrompt:         workerPrompt,
+				CopyFindingChain:     a.FindingID > 0,
 				LLMProfileIDs:        llmIDs,
 				TimeoutSeconds:       a.TimeoutSeconds,
 				PlanHeartbeatSeconds: a.PlanHeartbeatSeconds,
+				// 【二开·P-ORCH·S8】起
+				PreAgent:      a.PreAgent,    // 一次性透传（不落 tasks 列；01 册 S10 seedFirstIntent 消费）
+				PlannerPrompt: plannerPrompt, // 模板快照/手改全文已归一（K22 prompt 优先）
+				WorkerCount:   a.WorkerCount, // 0=跟随全局；03 册 S12 Engine.Run 读列
+				// 【二开·P-ORCH·S8】止
+				ReviewEnabled:     reviewEnabled, // 【二开·P-DISPATCH·阶段0①】硬继承父任务审核总开关（人定，无参数）
+				DispatchAssetKeys: dispatchAssetKeys,
+				DispatchFindingID: a.FindingID,
 			})
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
+			// 【二开·P-LOG·S8】起 —— 子任务出生（INFO 级；编排链终点锚点）
+			log.Printf("[spawn] spawn_task 子任务出生：task_id=%s name=%q parent_ref=%q pre_agent=%q worker_count=%d prompt_snapshot_bytes=%d", t.ID, t.Name, a.ParentRef, a.PreAgent, a.WorkerCount, len(plannerPrompt))
+			// 【二开·P-LOG·S8】止
 			if a.ParentRef != "" {
 				t.ParentRef = a.ParentRef
 				if id, e := strconv.ParseInt(t.ID, 10, 64); e == nil {
@@ -348,10 +514,43 @@ func (s *Server) toolPauseTask() actool.CoreTool {
 }
 
 func (s *Server) toolGetTaskGraph() actool.CoreTool {
-	return roTool("get_task_graph", "读指定任务的探索图总览(同 graph_overview：资产计数/frontier/发现/覆盖等)，用 task_id 指定任务。",
+	return roTool("get_task_graph", "读指定任务的探索图总览(同 graph_overview：资产计数/frontier/发现/覆盖等)，并附带该任务已派生的子任务列表(child_tasks：派发去重的依据)，用 task_id 指定任务。",
 		objSchema(map[string]any{"task_id": strParam("任务 id")}, "task_id"),
 		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
-			return s.delegateToTask(ctx, in, (*agent.ToolSet).GraphOverviewTool)
+			res, err := s.delegateToTask(ctx, in, (*agent.ToolSet).GraphOverviewTool)
+			if err != nil {
+				return res, err
+			}
+			// 附带已派生子任务列表：探索图本身不含任务派生关系，v5 派发去重纪律
+			//（同资产已有子任务则不派）此前无数据可查，导致重复派生（task 207 实测踩中）。
+			var head struct {
+				TaskID string `json:"task_id"`
+			}
+			_ = json.Unmarshal(in, &head)
+			pid, perr := strconv.ParseInt(strings.TrimSpace(head.TaskID), 10, 64)
+			if perr != nil {
+				return res, nil
+			}
+			children, cerr := s.m.pg.ChildTasksByParentRef(pid)
+			if cerr != nil {
+				return res, nil
+			}
+			txt := res.Flatten()
+			var obj map[string]any
+			if json.Unmarshal([]byte(txt), &obj) != nil {
+				return res, nil
+			}
+			obj["child_tasks"] = children
+			merged, _ := json.Marshal(obj)
+			return actool.Text(string(merged)), nil
+		})
+}
+
+func (s *Server) toolListTaskConstraints() actool.CoreTool {
+	return roTool("list_task_constraints", "只读列出指定任务的操作约束（allow/deny 列表，含来源 origin）。派生子任务前先读父任务约束：约束明确禁止的方向不得派生。用 task_id 指定任务。",
+		objSchema(map[string]any{"task_id": strParam("任务 id")}, "task_id"),
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			return s.delegateToTask(ctx, in, (*agent.ToolSet).ListConstraintsTool)
 		})
 }
 
@@ -477,8 +676,11 @@ func (s *Server) seedOrchestrationTools() {
 	for _, t := range s.orchestrationTools() {
 		schema, _ := json.Marshal(t.InputSchema())
 		bindings := autoAgents
-		if t.Name() == "bind_finding_traffic" {
+		switch t.Name() {
+		case "bind_finding_traffic":
 			bindings = json.RawMessage(`["reporter"]`)
+		case "dispatch_finding_to_agent":
+			bindings = json.RawMessage(`["planner"]`)
 		}
 		_ = s.m.PG().SeedTool(t.Name(), t.Description(), schema, bindings)
 	}
@@ -499,7 +701,18 @@ func (s *Server) seedOrchestrationTools() {
 	s.reseedMainAgentPrompt()         // mainagent 提示词加入「目标达成后 add_intent 反问是否建目标」(一次性)
 	s.reseedPlannerPrompt()           // planner 提示词:重写「0 意图」正当理由 + 加量化验收核对(一次性)
 	s.reseedWorkerPrompt()            // worker 提示词:加否定结论证据门槛(一次性)
+	s.upgradeExternalFindingPrompts() // 外网内置 Planner/Worker 提示词加入 Finding 证据与显式派发规则
 	s.seedReporterAgent()             // 预置「报告撰写」agent + 工具绑定 + finding 触发器(一次性)
+	s.seedVulnDispatcherAgent()       // 【二开·P-DISPATCH】预置「漏洞派发」agent + finding 触发器(一次性)
+	if err := s.seedTraceCleanerAgent(); err != nil {
+		log.Printf("[trace_cleaner] seed: %v", err)
+	}
+	s.upgradeVulnDispatcherV2()            // 【二开·P-INTENT·U22】存量库升级：约束工具绑定+提示词/触发消息迁移(一次性；提示词现为 v4：审核由人决定)
+	s.upgradeVulnDispatcherV5()            // 【二开·P-DISPATCH·阶段0②】存量库升级：提示词 v5 同资产去重强化(一次性，血统未改才覆盖)
+	s.upgradeVulnDispatcherNKey()          // v6：场景模板改用稳定 nkey，清除跨环境失效数字 ID
+	s.upgradeVulnDispatcherFindingPrompt() // 默认血统改为 Planner 显式派发入口
+	s.upgradeVulnDispatcherIndependentGraph()
+	s.upgradePlannerFindingDispatch() // 关闭 dispatcher/cleaner 旧全局 Finding 入口
 	s.upgradeReporterTriggerMessage() // 老库补迁移:让 reporter 回传 evidence_version(一次性)
 	s.seedFindingTrafficTools()       // 增加可选证据参数及只读证据工具，保留用户配置
 	s.seedFindingWorkflowTools()
@@ -514,7 +727,7 @@ func (s *Server) seedOrchestrationTools() {
 // reaches an old DB otherwise. Preserves each tool's agent binding + enabled flag.
 // Bump the flag whenever these tools' schemas/descriptions change in code.
 func (s *Server) refreshBuiltinToolSchemas() {
-	const flag = "tool_schema_refresh_v7_list_facts_paging"
+	const flag = "tool_schema_refresh_v14_independent_spawn" // v14：spawn_task 使用独立探索链并按 finding_id 选择性复制血缘
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}
@@ -532,7 +745,7 @@ func (s *Server) refreshBuiltinToolSchemas() {
 	//     SeedTool 首插入only，旧库已 seed 的 schema 否则收不到这个新参数。
 	//   - list_facts：改为分页，新增 limit/before/q 入参；旧库已 seed 的空 schema 否则
 	//     在工具管理页显示「无参数」，模型也拿不到这几个参数说明。
-	refreshBuiltin := map[string]bool{"goal_met": true, "insert_assets": true, "list_facts": true}
+	refreshBuiltin := map[string]bool{"goal_met": true, "insert_assets": true, "list_facts": true, "report_finding": true} // 【二开·P-ORCH·§4.2.8】report_finding：vulnclass 词表描述（m03215 九类两档，触发条件=乱写率>20%，101 实测约 90% 已命中）
 	for _, sd := range agent.BuiltinToolSeeds() {
 		if !refreshBuiltin[sd.Key] {
 			continue
@@ -654,13 +867,13 @@ func (s *Server) reseedPlannerPrompt() {
 	log.Printf("[prompts] planner 提示词已追加新默认版本(精简重构+克制降级去重+深度优先+否定复核上界,一次性)")
 }
 
-// reseedWorkerPrompt 把 worker 提示词刷成【当前代码默认】——默认正文 record_fact 段删掉了「否定类结论
-// 写观察+试探性读法」整句、并把 confidence(observed/inferred)与「是否穷尽本意图手段」解耦(这些易误导规划者),
-// 同时把 facts 数组分条收紧为「彼此完全独立、无法归并」的极少数例外。bump flag 至 v3 让存量旧库再刷一次。
+// reseedWorkerPrompt 把 worker 提示词刷成【当前代码默认】——v6 在 v5（中性化重写）基础上
+// 给 report_finding 补 vulnclass 归类规范（九类定义+严重档「已执行/已控制」证据门槛）：vulnclass
+// 影响 Planner 后续显式派发，随手写 other 会让严重漏洞漏派。bump flag 让存量旧库再刷一次。
 // SeedPromptIfEmpty 首插入only,旧库已有版本收不到,故用版本管理【追加一个新版本】并切过去,旧版本仍保留在历史里可找回。
 // settings flag 守卫 → 只做一次。全新库无需处理。与 reseedGoalsPrompt 完全同构。
 func (s *Server) reseedWorkerPrompt() {
-	const flag = "worker_prompt_compact_v4"
+	const flag = "worker_prompt_vulnclass_v6"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}
@@ -681,7 +894,7 @@ func (s *Server) reseedWorkerPrompt() {
 		log.Printf("[prompts] worker 提示词重刷为新默认失败: %v", err)
 		return
 	}
-	log.Printf("[prompts] worker 提示词已追加新默认版本(查上下文段收敛为 list_assets/list_findings,去掉 list_facts/node_detail/asset_neighbors,一次性)")
+	log.Printf("[prompts] worker 提示词已追加新默认版本(v6:vulnclass 归类规范+严重档证据门槛,一次性)")
 }
 
 // reporterToolCallMessage 必须无条件要求先读一次 get_finding_traffic 再写报告。
@@ -726,6 +939,196 @@ func (s *Server) upgradeReporterTriggerMessage() {
 		}
 		log.Printf("[reporter] 触发消息已升级为读取并回传 evidence_version")
 	}
+}
+
+const vulnDispatcherDescription = "由 planner 确认 finding 满足当前 execution mode 的处置前提后显式调用：执行约束检查、资产去重，并按漏洞类型派发或追加内网渗透子任务。"
+
+const vulnDispatcherDescriptionV1 = "严重档立足点漏洞(getshell/rce/file_upload/deserialization × critical/high)自动派发深度子任务：finding 触发→约束检查→判定→去重→按 vulnclass/漏洞描述选场景模板 spawn_task。"
+
+// vulnDispatcherFindingMessage 保存显式派发时使用的消息模板；OnFinding 已默认关闭。
+const vulnDispatcherFindingMessage = "Planner 已确认以下 finding 需要评估后续处置：[vulnclass=__VULNCLASS__/severity=__SEVERITY__] __SUMMARY__。先读显式派发上下文的 execution_mode：" +
+	"foothold 或缺失时，仅 vulnclass ∈ {getshell,webshell,reverse_shell} 且 severity ∈ {critical,high}，并有 WebShell 可连接、交互命令回显或 C2/反弹会话上线证据才评估派发；" +
+	"vulnerability_only 时，vulnclass ∈ {rce,file_upload,deserialization,privesc,获取目标权限} 且 severity ∈ {critical,high}、已有可复现确认证据，可评估派发内网渗透子任务，不要求立足点。" +
+	"其他漏洞档不派。派发前按提示词查父任务图去重。"
+
+const vulnDispatcherFindingMessageV2 = "新漏洞：[vulnclass=__VULNCLASS__/severity=__SEVERITY__] __SUMMARY__。先读触发上下文的 execution_mode：" +
+	"foothold 或缺失时，仅 vulnclass ∈ {getshell,webshell,reverse_shell} 且 severity ∈ {critical,high}，并有 WebShell 可连接、交互命令回显或 C2/反弹会话上线证据才评估派发；" +
+	"vulnerability_only 时，vulnclass ∈ {rce,file_upload,deserialization,privesc,获取目标权限} 且 severity ∈ {critical,high}、已有可复现确认证据，可评估派发内网渗透子任务，不要求立足点。" +
+	"其他漏洞档不派。派发前按提示词查父任务图去重。"
+
+// vulnDispatcherFindingMessageV1 旧版触发消息（仅「内网渗透」单场景）。只有仍与它逐字相同的
+// 触发器记录才会被 upgradeVulnDispatcherV2 迁移覆盖，用户改过的保持原样。
+const vulnDispatcherFindingMessageV1 = "上面刚有漏洞被 report_finding 登记（上下文给了 [vulnclass/severity] 与摘要）。按你的判定纪律处理：" +
+	"仅严重档(getshell/rce/file_upload/deserialization)且 critical/high 才允许派发内网渗透子任务，派发前必须做同立足点去重；其余一律不派，直接结束。"
+
+// seedVulnDispatcherAgent 预置「漏洞派发」自定义 agent：Planner 确认 execution mode
+// 证据前提后显式派发，Dispatcher 检查约束、按资产去重并新建或追加内网渗透子任务。
+// 工具面收窄：只读工具 + spawn_task + 同血缘运行中子任务 Finding 追加。serial + by_task：同任务突发 finding 合并成
+// 一次运行且串行执行，从调度层面缓解重复派发（阶段 1 的 L1 代码判定层落地前的事实上去抖）。
+// 一次性(settings flag 守卫)：用户删掉后不再重建。
+func (s *Server) seedVulnDispatcherAgent() {
+	const flag = "vuln_dispatcher_seed_v1"
+	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	defer func() { _ = s.m.pg.SetSetting(flag, "true") }() // 无论成功与否只尝试一次
+
+	if exist, _ := s.m.pg.GetAgentByKey("vuln_dispatcher"); exist != nil {
+		return // key 已被占用(用户手建过)——不覆盖
+	}
+	a, err := s.m.pg.CreateAgent("vuln_dispatcher", "漏洞派发", vulnDispatcherDescription)
+	if err != nil {
+		log.Printf("[vuln_dispatcher] 创建 agent 失败: %v", err)
+		return
+	}
+	prompt := s.resolveVulnDispatcherPrompt(agent.VulnDispatcherDefaultPrompt)
+	if err := s.m.pg.SeedPromptIfEmpty(a.ID, prompt); err != nil {
+		log.Printf("[vuln_dispatcher] seed prompt 失败: %v", err)
+	}
+	if err := s.m.pg.SetAgentTriggerBehavior("vuln_dispatcher", "serial", "by_task", 0); err != nil {
+		log.Printf("[vuln_dispatcher] 设置触发运行策略失败: %v", err)
+	}
+	// 最小工具面：只读 + 新建子任务 + 向同血缘运行中内网子任务补充 Finding。
+	if err := s.m.pg.AddAgentToToolBinding("vuln_dispatcher", []string{
+		"spawn_task", "check_internal_asset_task", "append_finding_to_task", "list_llm_profiles", "get_task_node_detail", "list_task_findings", "get_task_graph", "list_task_constraints",
+	}); err != nil {
+		log.Printf("[vuln_dispatcher] 绑定工具失败: %v", err)
+	}
+	if _, err := s.m.pg.CreateTrigger(&db.AgentTrigger{
+		AgentKey:       "vuln_dispatcher",
+		Enabled:        true,
+		OnFinding:      false,
+		FindingMessage: vulnDispatcherFindingMessage,
+	}); err != nil {
+		log.Printf("[vuln_dispatcher] 创建触发器失败: %v", err)
+	}
+	log.Printf("[vuln_dispatcher] 已预置「漏洞派发」agent + finding 触发器")
+}
+
+// vulnDispatcherLegacyTemplateRefs 只用于兼容旧默认提示词；新提示词直接保存稳定 nkey。
+var vulnDispatcherLegacyTemplateRefs = map[string]string{
+	"内网渗透": "【TPL_ID_内网渗透】",
+	"权限提升": "【TPL_ID_权限提升】",
+	"漏洞利用": "【TPL_ID_漏洞利用】",
+	"漏洞挖掘": "【TPL_ID_漏洞挖掘】",
+	"代码审计": "【TPL_ID_代码审计】",
+}
+
+func (s *Server) resolveVulnDispatcherPrompt(tmpl string) string {
+	prompt := tmpl
+	for key, placeholder := range vulnDispatcherLegacyTemplateRefs {
+		prompt = strings.ReplaceAll(prompt, "planner_template_id="+placeholder, "planner_template_nkey="+key)
+	}
+	return prompt
+}
+
+// upgradeVulnDispatcherV2 存量库一次性升级（【二开·P-INTENT·U22】）：
+//  1. 给 vuln_dispatcher 绑定 list_task_constraints（幂等）；
+//  2. 提示词升级到 v3（约束检查+场景映射+审核建议），仅当当前提示词仍是旧血统（含特征句且无「审核建议」章节）
+//     才替换，用户改过的版本不动（日志提示可手动「恢复默认」）；
+//  3. finding 触发消息 v1→v2（仍与 v1 逐字相同才覆盖）。
+func (s *Server) upgradeVulnDispatcherV2() {
+	// 工具绑定必须独立于一次性提示词升级 flag：存量库即使早已完成 V4，
+	// 仍需获得后续新增的运行中子任务 Finding 追加能力。
+	if err := s.m.pg.AddAgentToToolBinding("vuln_dispatcher", []string{"list_task_constraints", "check_internal_asset_task", "append_finding_to_task"}); err != nil {
+		log.Printf("[vuln_dispatcher] 绑定只读约束/Finding 追加工具失败: %v", err)
+	}
+	const flag = "vuln_dispatcher_v4_review_by_human"
+	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	defer func() { _ = s.m.pg.SetSetting(flag, "true") }() // 只尝试一次
+	a, err := s.m.pg.GetAgentByKey("vuln_dispatcher")
+	if err != nil || a == nil {
+		return // 未启用该 agent，无活可干
+	}
+	if cur, cerr := s.m.pg.CurrentPrompt(a.ID); cerr == nil {
+		switch {
+		case strings.Contains(cur, "审核开关由人决定"):
+			// 已是 v4 血统（审核由人决定版）
+		case strings.Contains(cur, "漏洞派发 agent"):
+			if _, uerr := s.m.pg.ResetPromptToDefault(a.ID, s.resolveVulnDispatcherPrompt(agent.VulnDispatcherDefaultPrompt)); uerr != nil {
+				log.Printf("[vuln_dispatcher] 提示词升级 v3 失败: %v", uerr)
+			} else {
+				log.Printf("[vuln_dispatcher] 提示词已升级 v4（操作约束检查 + 五场景模板映射；审核开关由人决定=纯继承，一次性）")
+			}
+		default:
+			log.Printf("[vuln_dispatcher] 提示词被用户修改过，跳过 v2 升级（可在 agent 页手动「恢复默认」）")
+		}
+	}
+	if triggers, terr := s.m.pg.ListTriggersFor("vuln_dispatcher"); terr == nil {
+		for _, tg := range triggers {
+			if !tg.OnFinding || tg.FindingMessage != vulnDispatcherFindingMessageV1 {
+				continue // 用户改过或不是 finding 触发器，不动
+			}
+			tg.FindingMessage = vulnDispatcherFindingMessage
+			if uerr := s.m.pg.UpdateTrigger(tg); uerr != nil {
+				log.Printf("[vuln_dispatcher] 升级触发消息失败: %v", uerr)
+			} else {
+				log.Printf("[vuln_dispatcher] 触发消息已升级 v2")
+			}
+		}
+	}
+}
+
+// 【二开·P-INTENT·U22】止
+
+// 【二开·P-DISPATCH·阶段0②】upgradeVulnDispatcherV5 存量库一次性升级：同资产去重强化（用户反馈 m00837：
+// 多个 finding 指向同一资产时派了多个内网渗透子任务）。仅当当前提示词仍是 v4 默认血统（含「审核开关由人决定」
+// 且不含 v5 特征句「去重的键是」）才整段覆盖；用户改过的版本不动。
+func (s *Server) upgradeVulnDispatcherV5() {
+	const flag = "vuln_dispatcher_v5_asset_dedup"
+	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	defer func() { _ = s.m.pg.SetSetting(flag, "true") }() // 只尝试一次
+	a, err := s.m.pg.GetAgentByKey("vuln_dispatcher")
+	if err != nil || a == nil {
+		return // 未启用该 agent，无活可干
+	}
+	cur, cerr := s.m.pg.CurrentPrompt(a.ID)
+	if cerr != nil {
+		return
+	}
+	switch {
+	case strings.Contains(cur, "去重的键是"):
+		// 已是 v5 血统
+	case strings.Contains(cur, "审核开关由人决定"):
+		if _, uerr := s.m.pg.ResetPromptToDefault(a.ID, s.resolveVulnDispatcherPrompt(agent.VulnDispatcherDefaultPrompt)); uerr != nil {
+			log.Printf("[vuln_dispatcher] 提示词升级 v5 失败: %v", uerr)
+		} else {
+			log.Printf("[vuln_dispatcher] 提示词已升级 v5（同资产去重强化：资产为键、跨运行查任务图、同资产 finding 合并派发）")
+		}
+	default:
+		log.Printf("[vuln_dispatcher] 提示词被用户修改过，跳过 v5 升级（可在 agent 页手动「恢复默认」）")
+	}
+}
+
+// upgradeVulnDispatcherNKey 将默认血统的存量提示词迁移到稳定 nkey。
+// 自定义血统不覆盖；旧 spawn_task 数字 ID 调用仍由工具层兼容。
+func (s *Server) upgradeVulnDispatcherNKey() {
+	const flag = "vuln_dispatcher_v6_template_nkey"
+	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	defer func() { _ = s.m.pg.SetSetting(flag, "true") }()
+	a, err := s.m.pg.GetAgentByKey("vuln_dispatcher")
+	if err != nil || a == nil {
+		return
+	}
+	cur, err := s.m.pg.CurrentPrompt(a.ID)
+	if err != nil || (!strings.Contains(cur, "planner_template_id") && !strings.Contains(cur, "【TPL_ID_")) {
+		return
+	}
+	if !strings.Contains(cur, "漏洞派发 agent") || !strings.Contains(cur, "审核开关由人决定") || !strings.Contains(cur, "去重的键是") {
+		log.Printf("[vuln_dispatcher] 提示词含自定义修改，跳过 nkey 自动迁移")
+		return
+	}
+	if _, err := s.m.pg.ResetPromptToDefault(a.ID, agent.VulnDispatcherDefaultPrompt); err != nil {
+		log.Printf("[vuln_dispatcher] nkey 提示词迁移失败: %v", err)
+		return
+	}
+	log.Printf("[vuln_dispatcher] 场景模板已迁移到稳定 nkey")
 }
 
 // seedReporterAgent 预置一个「报告撰写」自定义 agent(builtin=false，可在 UI 编辑/删除)：
@@ -907,6 +1310,9 @@ func (s *Server) seedAutoDefaultBindings() {
 	}
 	keys := make([]string, 0, len(platformToolKeys)+12)
 	for _, t := range s.orchestrationTools() {
+		if t.Name() == "dispatch_finding_to_agent" {
+			continue
+		}
 		keys = append(keys, t.Name())
 	}
 	keys = append(keys, platformToolKeys...)
@@ -918,3 +1324,44 @@ func (s *Server) seedAutoDefaultBindings() {
 	}
 	_ = s.m.pg.SetSetting(flag, "true")
 }
+
+// ═══ ARTEX 二开 · [P-ORCH·S8 spawn_task 四参数配套 helper] ═══
+// 功能介绍：matchForbiddenRule 约束轻校验 + executorKeyList/plannerTemplateList 可用清单
+//           （校验失败时回给 LLM 自重试）。
+// 二开日期：2026-10-21
+
+// executorKeyList 列出可用的 executor_key（已启用、非内置、已声明），供校验失败文案。
+func (s *Server) executorKeyList() string {
+	agents, err := s.m.PG().ListAgents()
+	if err != nil {
+		return "(清单读取失败)"
+	}
+	var keys []string
+	for _, a := range agents {
+		if a.ExecutorKey != "" && a.Enabled && !a.Builtin {
+			keys = append(keys, a.ExecutorKey)
+		}
+	}
+	if len(keys) == 0 {
+		return "(无；请先在 agents 页给自定义 agent 声明 executor_key)"
+	}
+	return strings.Join(keys, ", ")
+}
+
+// plannerTemplateList 列出可用模板（id=名称），供校验失败文案。
+func (s *Server) plannerTemplateList() string {
+	tpls, err := s.m.PG().ListPlannerTemplates()
+	if err != nil {
+		return "(清单读取失败)"
+	}
+	if len(tpls) == 0 {
+		return "(模板库为空)"
+	}
+	var items []string
+	for _, t := range tpls {
+		items = append(items, fmt.Sprintf("#%d=%s", t.ID, t.Name))
+	}
+	return strings.Join(items, ", ")
+}
+
+// 【二开·P-ORCH·S8】止

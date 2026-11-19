@@ -1,3 +1,9 @@
+/**
+ * theme.ts：主题模式与主题预设的选项常量及取值类型定义。
+ * 主要函数/类型：
+ *   - THEME_MODE_OPTIONS / ThemeMode / ResolvedThemeMode：浅色/深色/跟随系统选项
+ *   - THEME_PRESET_OPTIONS / ThemePreset：主题预设列表（generated 区块维护）
+ */
 export const THEME_MODE_OPTIONS = [
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" },

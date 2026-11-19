@@ -1,3 +1,9 @@
+// findings.go：漏洞发现的导出与格式化（Markdown 汇总/单条报告、CSV、导出文件名）。
+// 主要函数/类型：
+//   - FindingsMarkdown：生成漏洞发现汇总 Markdown 报告（按严重等级排序并统计）。
+//   - SingleFindingMarkdown：生成单个漏洞发现的 Markdown 详情报告。
+//   - FindingsCSV：将全部发现导出为 CSV 字节流。
+//   - FindingFilename / findingTrafficIDs / findingTrafficMarkdown：生成导出文件名并整理关联流量证据。
 package report
 
 import (
@@ -10,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // 发现页「导出」用的渲染:把一批 findings 表行渲染成汇总 Markdown、单条 Markdown、

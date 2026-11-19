@@ -1,3 +1,10 @@
+/**
+ * sessions-tab.tsx：会话面板，按主 Agent/规划/Worker 分组展示任务活动流水，支持历史分页与直播窗口。
+ * 主要函数/类型：
+ *   - SessionsTab：会话面板主组件（分组、审核开关、滚动加载）。
+ *   - SessionState / SessionStore：会话内存状态结构。
+ *   - TokenMetrics / statusIcon / fmtDuration：令牌徽标、状态图标与时长格式化。
+ */
 "use client";
 
 import * as React from "react";
@@ -18,6 +25,7 @@ import {
   RadioIcon,
   RotateCwIcon,
   ShieldAlertIcon,
+  ShieldCheckIcon, // 【二开·P-INTENT·U3】审核会话图标
   SquareIcon,
   Trash2Icon,
   UserIcon,
@@ -32,6 +40,7 @@ import { MentionTextarea } from "@/components/mention-textarea";
 import { SideQuestionButton, SideQuestionWorkspace } from "@/components/side-question-workspace";
 import { TodoPopover } from "@/components/todo-popover";
 import { Transcript } from "@/components/transcript";
+import { ReviewPanel } from "./review-panel"; // 【二开·P-INTENT·U3】审核会话面板
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,20 +77,13 @@ import type {
   TaskNode,
   TokenTotal,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, fmtBytes, fmtTokens } from "@/lib/utils";
 
 // resolutionLabel names the LLM a session runs on. The badge shows this alone and
 // keeps the model id in its tooltip. Env-backed configs can arrive without a name,
 // so fall back to the model id rather than rendering an empty badge.
 function resolutionLabel(r: TaskLLMResolution): string {
   return r.name || r.model || "未命名配置";
-}
-
-// fmtBytes renders a human file size for attachment chips (mirrors transcript.tsx).
-function fmtBytes(n: number): string {
-  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
-  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
-  return `${n} B`;
 }
 
 // ── Reliability model (see docs/task-session-history-sse-remediation.md) ──────────
@@ -186,13 +188,6 @@ function statusIcon(status: SessionStatus) {
   }
 }
 
-// fmtTokens renders a compact token count (1234 → 1.2k, 2_000_000 → 2M).
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
-}
-
 const TokenMetrics = React.forwardRef<
   HTMLSpanElement,
   React.ComponentPropsWithoutRef<"span"> & {
@@ -236,6 +231,9 @@ function fmtDuration(ms: number): string {
 const roleMeta = {
   mainagent: { label: "主 Agent", icon: UserIcon },
   planner: { label: "规划 Planner", icon: BrainIcon },
+  // 【二开·P-INTENT·U3】起 —— 审核会话角色（会话列表独立分组）
+  review: { label: "审核 Review", icon: ShieldCheckIcon },
+  // 【二开·P-INTENT·U3】止
   worker: { label: "Workers", icon: RadioIcon },
   system: { label: "系统审计", icon: HistoryIcon },
 } as const;
@@ -288,10 +286,24 @@ const SYSTEM_SESSION: Session = {
   last_activity: "",
 };
 
+// ═══ ARTEX 二开 · [P-INTENT·U3 审核会话常量] ═══
+// 功能介绍：REVIEW_SESSION——审核会话常驻会话列表（与 PLANNER_SESSION 同款虚拟会话模式；live 由活动流近 30s 判定）
+// 二开日期：2026-10-21
+const REVIEW_ID = "s-review";
+const REVIEW_SESSION: Session = {
+  id: REVIEW_ID,
+  role: "review",
+  title: "审核 Review · 意图把关",
+  status: "running",
+  live: false,
+  last_activity: "",
+};
+
 // keyForSession maps a UI Session → its stable store key (main:<seg> | plan | intent:<id>).
 function keyForSession(s: Session): string {
   if (s.role === "mainagent") return `main:${s.seg ?? 0}`;
   if (s.role === "planner") return "plan";
+  if (s.role === "review") return "review"; // 【二开·P-INTENT·U3】审核会话独立 key
   if (s.role === "system") return "system";
   return `intent:${s.intent_id}`;
 }
@@ -342,6 +354,7 @@ function SessionItem({
   displayTitle,
   hasPending,
   unread,
+  pendingReview,
   onClick,
   onCancel,
   controlling,
@@ -352,6 +365,7 @@ function SessionItem({
   displayTitle: string;
   hasPending?: boolean;
   unread?: number;
+  pendingReview?: number; // 待审意图计数（审核 tab 蓝点）
   onClick: () => void;
   onCancel?: () => void;
   controlling?: boolean;
@@ -405,6 +419,11 @@ function SessionItem({
           </Badge>
         )}
         {hasPending && <ShieldAlertIcon className="size-3.5 shrink-0 text-amber-500" />}
+        {pendingReview ? (
+          <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-blue-500/15 px-1 text-[10px] font-medium tabular-nums text-blue-600 dark:text-blue-400">
+            {pendingReview > 99 ? "99+" : pendingReview}
+          </span>
+        ) : null}
         {!active && unread ? (
           <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-blue-500/15 px-1 text-[10px] font-medium tabular-nums text-blue-600 dark:text-blue-400">
             {unread > 99 ? "99+" : unread}
@@ -480,6 +499,24 @@ function WorkerAssetBadge({ assets }: { assets: IntentAsset[] }) {
 
 export function SessionsTab({ taskId }: { taskId: string }) {
   const approvalFocus = useApprovalFocus({ taskId });
+  // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934）：review_enabled=false 的任务不挂审核 tab
+  const [reviewEnabled, setReviewEnabled] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    api.task(taskId).then((t) => { if (alive) setReviewEnabled(t.review_enabled === true); }).catch(() => {});
+    return () => { alive = false; };
+  }, [taskId]);
+  // 【二开·P-REVIEW·待审蓝点】待审意图计数轮询：>0 时审核 tab 旁弹蓝色计数徽标。
+  // 仅在开启审核的任务上轮询（未开启的 review 端点 409，无意义）。
+  const [reviewPendingCount, setReviewPendingCount] = React.useState(0);
+  React.useEffect(() => {
+    if (!reviewEnabled) { setReviewPendingCount(0); return; }
+    let alive = true;
+    const load = () => api.reviewProposed(taskId).then((l) => { if (alive) setReviewPendingCount(Array.isArray(l) ? l.length : 0); }).catch(() => {});
+    load();
+    const t = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(t); };
+  }, [taskId, reviewEnabled]);
   const [selectedSessionId, setActiveId] = React.useState(MAIN_ID);
   const focusSession = React.useMemo<Session | undefined>(() => {
     const source = approvalFocus.state?.source;
@@ -640,6 +677,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   const [llmResolutions, setLLMResolutions] = React.useState<TaskLLMResolutions | null>(null);
   // Pending intercept requests for this task — used to show warning icons on sessions.
   const [pendingIntercepts, setPendingIntercepts] = React.useState<InterceptApprovalRow[]>([]);
+  const [pendingInterceptsHasMore, setPendingInterceptsHasMore] = React.useState(false);
 
   // Refs backing SSE/loading without re-render churn.
   const snapshotRef = React.useRef(0); // task-level snapshot cursor → SSE since=
@@ -847,9 +885,12 @@ export function SessionsTab({ taskId }: { taskId: string }) {
     let alive = true;
     const load = () =>
       api
-        .interceptTask(taskId)
-        .then((rows) => {
-          if (alive) setPendingIntercepts(rows.filter((r) => r.status === "pending"));
+        .interceptTaskPage(taskId, 1, 100, { status: "pending" })
+        .then((page) => {
+          if (alive) {
+            setPendingIntercepts(page.items);
+            setPendingInterceptsHasMore(page.total > page.items.length);
+          }
         })
         .catch(() => {
           // Polling is best-effort; the next interval retries automatically.
@@ -1182,6 +1223,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
       if (!pendingIntercepts.length) return false;
       if (s.role === "mainagent") return pendingIntercepts.some((r) => r.agent_name === "mainagent");
       if (s.role === "planner") return pendingIntercepts.some((r) => r.agent_name === "planner");
+      if (s.role === "review") return pendingIntercepts.some((r) => r.agent_name === "review");
       // Worker: extract intent ID from "work#N · #<intentID>"
       return pendingIntercepts.some((r) => {
         const m = r.agent_name.match(/·\s*#(\d+)$/);
@@ -1203,6 +1245,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   );
   const currentMainKey = mainSessionKey(currentSeg);
   const plannerLive = recentLive("plan");
+  const reviewLive = recentLive("review"); // 【二开·P-INTENT·U3】审核会话活跃判定（近 30s 内有 review 活动即亮灯）
 
   // Which main segment is streaming RIGHT NOW. A main turn is serialized per task, so at
   // most one segment is live. Gate on the real running flag (sending / mainChatRunning)
@@ -1245,15 +1288,17 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   );
 
   const sessions = React.useMemo(() => {
-    const items = [...mainSessions, { ...PLANNER_SESSION, live: plannerLive }, ...workerSessions, SYSTEM_SESSION];
+    // 【二开·P-INTENT·U3】REVIEW_SESSION 并入（紧随 PLANNER_SESSION）
+    const items = [...mainSessions, { ...PLANNER_SESSION, live: plannerLive }, { ...REVIEW_SESSION, live: reviewLive }, ...workerSessions, SYSTEM_SESSION]; // 【二开·P-REVIEW·常驻】审核 tab 常驻：未开启审核的任务面板内显示空态
     const located = focusSession ?? retainedSession;
     if (located && !items.some((s) => s.id === located.id)) items.push(located);
     return items;
-  }, [mainSessions, workerSessions, plannerLive, focusSession, retainedSession]);
+  }, [mainSessions, workerSessions, plannerLive, reviewLive, reviewEnabled, focusSession, retainedSession]); // 【二开·P-INTENT·U3】依赖加 reviewLive【二开·P-REVIEW·D2c】加 reviewEnabled
 
   const grouped = {
     mainagent: sessions.filter((s) => s.role === "mainagent"),
     planner: sessions.filter((s) => s.role === "planner"),
+    review: sessions.filter((s) => s.role === "review"), // 【二开·P-INTENT·U3】审核组
     worker: sessions.filter((s) => s.role === "worker"),
     system: sessions.filter((s) => s.role === "system"),
   };
@@ -1268,6 +1313,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   );
   const isMain = active.role === "mainagent";
   const isPlanner = active.role === "planner";
+  const isReview = active.role === "review"; // 【二开·P-INTENT·U3】审核会话布尔判定
   const isSystem = active.role === "system";
   const activeKey = keyForSession(active);
   const activeState = store[activeKey];
@@ -1588,6 +1634,14 @@ export function SessionsTab({ taskId }: { taskId: string }) {
                   className={cn("size-3.5 shrink-0 transition-transform lg:hidden", !listOpen && "-rotate-90")}
                 />
                 <span className="shrink-0">会话列表</span>
+                {pendingInterceptsHasMore && (
+                  <span
+                    className="shrink-0 text-amber-700 dark:text-amber-400"
+                    title="待确认请求超过 100 条，会话提醒仅基于第一页；请先处理已显示的请求"
+                  >
+                    待确认 100+
+                  </span>
+                )}
                 {!listOpen && (
                   <>
                     <span className="min-w-0 truncate text-foreground lg:hidden" title={activeDisplayTitle}>
@@ -1653,7 +1707,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
             )}
           >
             <div className="flex w-full flex-col gap-3 p-2">
-              {(["mainagent", "planner", "system", "worker"] as const).map((role) => {
+              {(["mainagent", "planner", "review", "system", "worker"] as const).map((role) => { // 【二开·P-INTENT·U3】审核插在规划之后
                 const items = grouped[role];
                 if (!items.length) return null;
                 const Meta = roleMeta[role];
@@ -1689,6 +1743,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
                           active={s.id === activeId}
                           displayTitle={meta?.title ?? s.title}
                           hasPending={hasPendingForSession(s)}
+                          pendingReview={s.role === "review" ? reviewPendingCount : undefined}
                           unread={store[keyForSession(s)]?.unread}
                           onClick={() => {
                             approvalFocus.close();
@@ -1735,7 +1790,12 @@ export function SessionsTab({ taskId }: { taskId: string }) {
           side={side}
           label={active.role === "worker" ? `Worker #${active.intent_id} · ${activeDisplayTitle}` : activeDisplayTitle}
         >
-          <div className="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+            {/* 【二开·P-INTENT·U3】起 —— 审核会话内容区整体由 ReviewPanel 接管（消息流+确认卡+composer 全在面板内） */}
+            {isReview ? (
+              <ReviewPanel taskId={taskId} />
+            ) : (
+            <div className="flex min-h-0 min-w-0 flex-col">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-2 sm:px-4 sm:py-2.5">
               {(() => {
                 const isWorker = active.role === "worker";
@@ -2100,6 +2160,9 @@ export function SessionsTab({ taskId }: { taskId: string }) {
                 />
               </div>
             )}
+            </div>
+            )}
+            {/* 【二开·P-INTENT·U3】止 */}
           </div>
         </SideQuestionWorkspace>
         <AlertDialog

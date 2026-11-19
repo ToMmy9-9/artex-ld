@@ -1,6 +1,10 @@
 // Mock 路由：把 (method, path) 映射到 lib/mock/data 的静态数据。
 // 未命中的一律返回安全默认（[] / {} / {ok:true}），保证任何页面都不崩。
 // 只在 NEXT_PUBLIC_MOCK=1 时经由 api.ts 的 http() 短路进入这里。
+/**
+ * 主要函数/类型：
+ *   - mockHandle：按 (method, path) 匹配 mock/data 的静态数据并返回，未命中返回安全默认（[] / {} / {ok:true}）
+ */
 
 import {
   classifyCompanyScopeLine,
@@ -46,6 +50,12 @@ const mockTasks = structuredClone(D.tasks);
 const mockFindings = structuredClone(D.findings);
 const mockLLMRecords = structuredClone(D.llmRecords);
 const mockTaskTemplates = structuredClone(D.taskTemplates);
+// 【二开·P-TPL·U6】起 —— planner 模板 mock 样例（内置默认 + 一条自定义）
+const mockPlannerTemplates = [
+  { id: 1, name: "内置默认", body: "你是 planner……{{.Goal}}", is_default: true, builtin: true, created_at: "2026-10-21T00:00:00Z", updated_at: "2026-10-21T00:00:00Z" },
+  { id: 2, name: "CTF 速攻", body: "CTF 模式：直奔 flag。目标：{{.Goal}}", is_default: false, builtin: false, created_at: "2026-10-21T01:00:00Z", updated_at: "2026-10-21T01:00:00Z" },
+];
+// 【二开·P-TPL·U6】止
 const mockTaskCategories = structuredClone(D.taskCategories);
 const mockConversations = structuredClone(D.conversations);
 const mockRetests: FindingRetest[] = [];
@@ -1204,6 +1214,8 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       llm_failover_state: profileIDs.length ? "ready" : "default",
       source_task_ids: sourceTaskIDs,
       company_ids: companyIDs,
+      review_enabled: b.review_enabled === true, // 【二开·P-REVIEW·D2c】
+      asset_mode: typeof b.asset_mode === "string" && b.asset_mode ? b.asset_mode : "pentest", // 【二开·P-REVIEW·D12】
     };
     const numericTaskID = nextMockTaskAssetID++;
     mockTaskAssetIDs.set(id, numericTaskID);
@@ -1235,6 +1247,9 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       id: mockTaskCategories.reduce((maximum, item) => Math.max(maximum, item.id), 0) + 1,
       name,
       task_count: 0,
+      default_review_enabled: false, // 【二开·P-REVIEW·D12】分类预设包
+      default_planner_template_id: 0,
+      asset_mode: "pentest",
       created_at: now,
       updated_at: now,
     };
@@ -1244,16 +1259,23 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (seg[0] === "task-categories" && seg.length === 2 && m === "PATCH") {
     const category = mockTaskCategories.find((item) => item.id === Number(seg[1]));
     if (!category) throw new Error("任务分类不存在");
-    const name = normalizedTemplateName(b.name);
-    if (!name) throw new Error("分类名称不能为空");
-    if (mockTaskCategories.some((item) => item.id !== category.id && item.name.toLowerCase() === name.toLowerCase())) {
-      throw new Error("分类名称已存在");
+    // 【二开·P-REVIEW·D12】name 与预设包可同时/单独更新
+    if (b.name !== undefined) {
+      const name = normalizedTemplateName(b.name);
+      if (!name) throw new Error("分类名称不能为空");
+      if (mockTaskCategories.some((item) => item.id !== category.id && item.name.toLowerCase() === name.toLowerCase())) {
+        throw new Error("分类名称已存在");
+      }
+      category.name = name;
+      for (const task of mockTasks) {
+        if (task.category_id === category.id) task.category_name = name;
+      }
     }
-    category.name = name;
+    if (b.default_review_enabled !== undefined) category.default_review_enabled = b.default_review_enabled === true;
+    if (typeof b.default_planner_template_id === "number") category.default_planner_template_id = b.default_planner_template_id;
+    if (typeof b.asset_mode === "string" && b.asset_mode) category.asset_mode = b.asset_mode;
+    if (typeof b.default_description === "string") category.default_description = b.default_description;
     category.updated_at = new Date().toISOString();
-    for (const task of mockTasks) {
-      if (task.category_id === category.id) task.category_name = name;
-    }
     return { ...category, task_count: mockTasks.filter((task) => task.category_id === category.id).length };
   }
   if (seg[0] === "task-categories" && seg.length === 2 && m === "DELETE") {
@@ -1348,6 +1370,74 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     if (index >= 0) mockTaskTemplates.splice(index, 1);
     return { deleted: id };
   }
+  // 【二开·P-TPL·U6】起 —— planner 模板六端点 mock（03 册 S11）
+  if (path === "/planner-templates" && m === "GET") return { templates: mockPlannerTemplates };
+  if (path === "/planner-templates" && m === "POST") {
+    const now = new Date().toISOString();
+    const name = String(b.name ?? "").trim();
+    const body = String(b.body ?? "").trim();
+    if (!name || !body) throw new Error("请填写模板名称与提示词正文");
+    const nextID = mockPlannerTemplates.reduce((max, t) => Math.max(max, t.id), 0) + 1;
+    const created = { id: nextID, name, body, is_default: false, builtin: false, created_at: now, updated_at: now };
+    mockPlannerTemplates.push(created);
+    return created;
+  }
+  if (seg[0] === "planner-templates" && seg[1] === "validate" && m === "POST") {
+    const body = String(b.body ?? "").trim();
+    if (!body) throw new Error("模板正文不能为空");
+    return { ok: true };
+  }
+  if (seg[0] === "planner-templates" && seg.length === 3 && seg[2] === "default" && m === "POST") {
+    const id = Number(seg[1]);
+    const tpl = mockPlannerTemplates.find((t) => t.id === id);
+    if (!tpl) throw new Error("planner template not found");
+    mockPlannerTemplates.forEach((t) => { t.is_default = t.id === id; });
+    return tpl;
+  }
+  if (seg[0] === "planner-templates" && seg.length === 2 && m === "PATCH") {
+    const id = Number(seg[1]);
+    const tpl = mockPlannerTemplates.find((t) => t.id === id);
+    if (!tpl) throw new Error("planner template not found");
+    if (tpl.builtin) throw new Error("内置模板为只读：可「另存为新模板」后修改，不能直接改/删");
+    if (b.name !== undefined) tpl.name = String(b.name).trim();
+    if (b.body !== undefined) tpl.body = String(b.body).trim();
+    tpl.updated_at = new Date().toISOString();
+    return tpl;
+  }
+  if (seg[0] === "planner-templates" && seg.length === 2 && m === "DELETE") {
+    const id = Number(seg[1]);
+    const tpl = mockPlannerTemplates.find((t) => t.id === id);
+    if (tpl?.builtin) throw new Error("内置模板为只读，不可删除");
+    if (tpl?.is_default) throw new Error("默认模板不能删除，请先把默认让给别的模板");
+    const index = mockPlannerTemplates.findIndex((t) => t.id === id);
+    if (index >= 0) mockPlannerTemplates.splice(index, 1);
+    return { deleted: id };
+  }
+  // 【二开·P-TPL·U6】止
+  // 【二开·P-INTENT·U6】起 —— 审核五端点 mock（00 册 U6；样例数据带预审摘要/预选执行器/替代血缘）
+  if (seg[0] === "tasks" && seg[2] === "review" && seg[3] === "proposed" && m === "GET") {
+    return { intents: [
+      { id: 501, summary: "对 10.0.0.0/8 做内网渗透：拿域控", priority: 8, origin: "review", pending_executor: "intranet_agent", review_note: "与任务目标相关；横向移动高风险，建议限定边界", replaces: null, created_at: Math.floor(Date.now()/1000)-300 },
+      { id: 502, summary: "对已发现的 3 台 webshell 主机批量验证权限", priority: 6, origin: "review", pending_executor: null, review_note: "与 finding #12 呼应；先验证再决定是否深入", replaces: 499, created_at: Math.floor(Date.now()/1000)-180 },
+    ] };
+  }
+  if (seg[0] === "tasks" && seg[2] === "review" && seg[4] === "approve" && m === "POST") {
+    return { ok: true };
+  }
+  if (seg[0] === "tasks" && seg[2] === "review" && seg[4] === "reject" && m === "POST") {
+    if (!(b.reason as string)?.trim()) throw new Error("驳回理由必填");
+    return { ok: true };
+  }
+  if (seg[0] === "tasks" && seg[2] === "review" && seg[3] === "chat" && m === "POST") {
+    return { accepted: true };
+  }
+  if (seg[0] === "tasks" && seg[2] === "review" && seg[3] === "messages" && m === "GET") {
+    return { messages: [
+      { id: 1, kind: "text", summary: "【预审完成】2 条待审意图已出预审意见", created_at: Math.floor(Date.now()/1000)-240 },
+      { id: 2, kind: "text", summary: "【人工】#501 的内网渗透先别动，等我确认范围", created_at: Math.floor(Date.now()/1000)-120 },
+    ] };
+  }
+  // 【二开·P-INTENT·U6】止
   if (seg[0] === "tasks" && seg.length === 2 && m === "GET") {
     const task = mockTasks.find((item) => item.id === seg[1]);
     if (!task) throw new Error("任务不存在");

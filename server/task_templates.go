@@ -1,3 +1,8 @@
+// task_templates.go：任务模板的增删改查 HTTP 端点与请求解码校验。
+// 主要函数/类型：
+//   - taskTemplateRequest / decodeTaskTemplateRequest：模板请求体解码并返回 JSON 键集（PATCH 置空检测）。
+//   - validateTaskTemplateRequest / stringValue：模板字段长度校验与取值辅助。
+//   - pgListTaskTemplates / pgCreateTaskTemplate / pgUpdateTaskTemplate / pgDeleteTaskTemplate：模板的查/建/改/删。
 package server
 
 import (
@@ -9,7 +14,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 const maxTaskTemplateRequestBytes = 512 << 10

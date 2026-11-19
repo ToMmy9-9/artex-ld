@@ -1,3 +1,9 @@
+// chatupload.go：聊天附件上传、落盘与用户消息附件清单组装。
+// 主要函数/类型：
+//   - chatUpload：按 task/session/staging 作用域接收并保存上传文件。
+//   - uniqueUploadPath：同名文件自动加序号，避免覆盖已有附件。
+//   - composeAgentMessage：把附件绝对路径清单追加到用户消息，供 agent 读取。
+//   - userActivityWithAttachments：构造带附件明细的持久化用户活动。
 package server
 
 import (
@@ -9,7 +15,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"artex/db"
 )
 
 // maxChatUpload caps a single chat-attachment upload request (memory + spill).

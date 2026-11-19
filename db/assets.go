@@ -1,3 +1,11 @@
+// assets.go：资产实体（根域名/IP/子域名/应用/HTTP 服务）的 upsert 与归一化存储。
+// 主要函数/类型：
+//   - AssetStore：资产存储入口（DB.Assets() 构造），含公司归属自动解析。
+//   - Asset：资产行结构（含认证、参数、端口服务列表）。
+//   - UpsertRootDomain / UpsertIP / UpsertSubdomain / UpsertApp / UpsertHTTPService：各类资产的 upsert。
+//   - ValidateAssetIP：资产 IP 合法性校验（ErrAssetIPInvalid）。
+//   - AppendIPPort / AppendIPBoundDomain：向已有 IP 资产追加端口服务或绑定域名。
+
 package db
 
 import (

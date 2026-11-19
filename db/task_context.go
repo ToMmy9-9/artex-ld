@@ -1,3 +1,11 @@
+// task_context.go：任务上下文（来源、LLM 配置）的装载与 LLM 配额阻断管理。
+// 主要函数/类型：
+//   - TaskLLMProfile / TaskSource / TaskLLMTransition：任务 LLM 配置、来源与配置切换记录。
+//   - hydrateTaskContext / hydrateTasksContext：为任务（批量）填充 LLM 与来源上下文。
+//   - TaskSources / TaskLLMProfiles / ReplaceTaskLLMProfiles：查询与替换任务的来源、LLM 配置。
+//   - MarkTaskLLMProfileQuotaExhausted：标记 LLM 配置配额耗尽并切换配置。
+//   - SetIntentBlockedReason / ReopenIntentsByBlockedReason：按阻断原因标记/重开意图。
+
 package db
 
 import (

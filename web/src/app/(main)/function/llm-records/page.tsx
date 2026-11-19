@@ -1,3 +1,10 @@
+/**
+ * page.tsx：LLM 请求记录页，分页浏览模型调用记录，支持归一化/原文双视图、录制开关与按任务清理。
+ * 主要函数/类型：
+ *   - LLMRecordsPage：页面主体，拉取 api.llmRecords / llmRecordDetail / llmTasks
+ *   - fmtLatency / fmtTokens / tryFormatJSON：时延、token 数与 JSON 美化辅助
+ *   - CopyButton：复制当前框文本的小按钮
+ */
 "use client";
 
 import * as React from "react";
@@ -44,19 +51,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn, copyText, fmtTime } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { LLMRecordItem, LLMRecordDetail, LLMTask } from "@/lib/types";
-
-function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
 
 function fmtLatency(ms: number) {
   if (ms < 1000) return `${ms}ms`;
@@ -83,21 +80,11 @@ function CopyButton({ text }: { text: string }) {
   React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const disabled = !text;
+  // copyText 内置 navigator.clipboard → execCommand 降级；本按钮保持无 toast、仅对勾
+  // 反馈的语义（区别于 components/copy-button.tsx 的文案按钮）。
   const copy = async () => {
     if (disabled) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // navigator.clipboard 在非安全上下文(如 http 局域网)不可用，回退到 execCommand。
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand("copy"); } catch { /* 忽略：不支持则静默 */ }
-      document.body.removeChild(ta);
-    }
+    await copyText(text);
     setCopied(true);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopied(false), 1500);

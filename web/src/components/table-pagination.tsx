@@ -1,3 +1,9 @@
+/**
+ * table-pagination.tsx：表格分页工具条，含页码窗口省略与每页条数选择。
+ * 主要函数/类型：
+ *   - TablePagination：分页条组件（page/pageSize/total 受控）
+ *   - pageWindows：页码序列（含省略号）计算
+ */
 "use client";
 
 import { useEffect, useRef } from "react";

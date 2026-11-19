@@ -1,3 +1,10 @@
+// company_scope.go：公司范围规则行的解析与归一化（ICP/关键字/IP/主机名）。
+// 主要函数/类型：
+//   - ParseScopeInput / ParseScopeLine / ParseAutoScopeLine：把输入或单行文本解析为范围规则。
+//   - ParsedScope / ScopeInput：解析结果与范围输入结构。
+//   - NormalizeICP：ICP 备案号归一化。
+//   - scopeHostname：主机名规范化与合法性校验。
+
 package db
 
 import (

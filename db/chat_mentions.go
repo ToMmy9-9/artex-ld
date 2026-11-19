@@ -1,3 +1,9 @@
+// chat_mentions.go：聊天 @ 引用搜索，跨 findings/companies/assets 三表做关键词与精确 ID 匹配。
+// 主要函数/类型：
+//   - SearchChatMentions / SearchChatMentionsPage：按类型与关键词搜索引用，游标分页。
+//   - ChatMention / ChatMentionPage：引用条目与分页结果结构。
+//   - ValidChatMentionKind：引用类型合法性校验。
+
 package db
 
 import (

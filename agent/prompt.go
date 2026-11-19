@@ -1,3 +1,10 @@
+// prompt.go：渲染各 agent 的系统提示词模板，并提供按 agentKey 覆盖默认提示词的钩子。
+// 主要函数/类型：
+//   - PromptOverride（钩子变量）：按 agentKey 返回库中存储的提示词模板。
+//   - PlannerDefaultTemplateBodyFn / WorkerDefaultTemplateBodyFn：默认模板正文兜底函数。
+//   - PlannerVars / WorkerVars / MainVars / GoalsVars：各 agent 模板的运行期变量集。
+//   - renderSystem / renderTmpl：按 agentKey 选择覆盖模板或内置默认并渲染。
+
 package agent
 
 import (
@@ -11,6 +18,16 @@ import (
 // When nil or no override exists, agents use their built-in default prompt — so
 // behavior is identical until a user edits a prompt in the UI.
 var PromptOverride func(agentKey string) (string, bool)
+
+// 【二开·P-TPL·A4】起 —— PlannerDefaultTemplateBodyFn 是 planner 提示词四级链第③级
+// （planner_templates 默认模板正文）的运行时来源；server 启动时接线到 pg.DefaultPlannerTemplateBody。
+// nil 或返回 "" → 落第④级内置默认（plannerDefaultTmpl）。
+var PlannerDefaultTemplateBodyFn func() string
+
+// WorkerDefaultTemplateBodyFn 是 Worker 四级提示词链的模板库默认值。
+var WorkerDefaultTemplateBodyFn func() string
+
+// 【二开·P-TPL·A4】止
 
 // Prompt-variable structs — fields mirror each agent's catalog (docs §5a) so a
 // user template referencing a catalog variable renders; referencing anything else

@@ -1,3 +1,10 @@
+/**
+ * approval-execution-focus.tsx：从 URL 定位 persisted 审批调用并在转录中回填历史，渲染聚焦横幅。
+ * 主要函数/类型：
+ *   - useApprovalFocus：解析 ?approval= 参数并加载对应的拦截执行记录
+ *   - useApprovalHistory：向前翻页填充转录直至找到该次工具调用
+ *   - ApprovalExecutionFocus：聚焦提示横幅组件
+ */
 "use client";
 
 import * as React from "react";

@@ -1,3 +1,8 @@
+/**
+ * activity-merge.ts：合并历史与实时活动流，按 seq 去重并保持顺序。
+ * 主要函数/类型：
+ *   - mergeActivities：按 seq 去重合并两段 Activity 并按 seq 排序
+ */
 import type { Activity } from "./types";
 
 // History and live responses can overlap or arrive out of order. A persisted

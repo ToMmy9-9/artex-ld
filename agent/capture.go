@@ -1,3 +1,9 @@
+// capture.go：统一执行观测层——驱动 agent 会话并把每个执行步骤合并为活动记录。
+// 主要函数/类型：
+//   - captureRun / captureRunSession：跑一次 agent 会话到结束，流式增量合并后发射活动记录。
+//   - activityWithUsage：把 LLM usage 附加进活动记录。
+//   - firstLine / blocksText：活动摘要截断与工具结果文本提取。
+//   - approvalHistory：从历史消息构造有界的审批/审计上下文。
 package agent
 
 import (
@@ -6,12 +12,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/sidequestion"
-	"github.com/Autumn-27/norma/agentcore"
-	"github.com/Autumn-27/norma/harness"
-	"github.com/Autumn-27/norma/llm"
+	"artex/db"
+	"artex/intercept"
+	"artex/sidequestion"
+	"norma/agentcore"
+	"norma/harness"
+	"norma/llm"
 )
 
 // captureRun drives one agent turn-to-completion over Session.Prompt and emits a

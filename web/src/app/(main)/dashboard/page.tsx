@@ -1,3 +1,11 @@
+/**
+ * page.tsx：仪表盘页，轮询展示任务、发现、统计、Token 用量、流量交换与 LLM 配置等多面板。
+ * 主要函数/类型：
+ *   - DashboardPage：仪表盘页面（默认导出），分通道轮询各数据源
+ *   - fmtRel / fmtTokens：相对时间与 Token 数格式化
+ *   - statusColor / statusBg / ASSET_TYPE_LABELS / ASSET_COLORS：状态与资产类型的样式映射
+ *   - LiveDot / SectionTitle：在线圆点与区块标题小组件
+ */
 "use client";
 
 import * as React from "react";
@@ -14,28 +22,23 @@ import {
   TargetIcon,
   ZapIcon,
 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
 import type {
   Activity,
-  Agent,
   ConvTokenSummary,
   Finding,
   InterceptPending,
   LLMProfile,
-  MCPServer,
   Settings,
-  SkillItem,
   Stats,
   Task,
-  TokenTotal,
-  Tool,
   TrafficExchange,
   UsageStats,
 } from "@/lib/types";
@@ -137,15 +140,10 @@ export default function DashboardPage() {
   const [settings, setSettings] = React.useState<Settings | null>(null);
   const [pending, setPending] = React.useState<InterceptPending[]>([]);
   const [activity, setActivity] = React.useState<Activity[]>([]);
-  const [tokens, setTokens] = React.useState<TokenTotal | null>(null);
   const [convTokens, setConvTokens] = React.useState<ConvTokenSummary[]>([]);
   const [usageStats, setUsageStats] = React.useState<UsageStats | null>(null);
   const [assetCounts, setAssetCounts] = React.useState<Record<string, number>>({});
   const [traffic, setTraffic] = React.useState<TrafficExchange[]>([]);
-  const [agents, setAgents] = React.useState<Agent[]>([]);
-  const [mcpServers, setMcpServers] = React.useState<MCPServer[]>([]);
-  const [skills, setSkills] = React.useState<SkillItem[]>([]);
-  const [tools, setTools] = React.useState<Tool[]>([]);
   const [llmProfiles, setLLMProfiles] = React.useState<LLMProfile[]>([]);
 
   // The task list is the most expensive dashboard source. Poll it independently
@@ -187,13 +185,12 @@ export default function DashboardPage() {
       if (loading) return;
       loading = true;
       try {
-        const [findings, stats, settings, pending, activity, tokens, conversationTokens] = await Promise.all([
+        const [findings, stats, settings, pending, activity, conversationTokens] = await Promise.all([
           api.findings(),
           api.stats(),
           api.settings(),
           api.interceptPending(),
           api.activity(undefined, { limit: 30 }),
-          api.tokenStats(),
           api.conversationTokens(),
         ]);
         if (!alive) return;
@@ -202,7 +199,6 @@ export default function DashboardPage() {
         setSettings(settings);
         setPending(pending);
         setActivity(activity.items);
-        setTokens(tokens.total ?? null);
         setConvTokens(conversationTokens);
       } catch {
         // Preserve stale data and retry on the next interval.
@@ -223,23 +219,15 @@ export default function DashboardPage() {
     let alive = true;
     const load = async () => {
       try {
-        const [traf, counts, agentList, mcpList, skillList, toolList, profileList, usage] = await Promise.all([
+        const [traf, counts, profileList, usage] = await Promise.all([
           api.traffic(0, 50),
           api.assetCounts(),
-          api.agents(),
-          api.mcpServers(),
-          api.skills(),
-          api.tools(),
           api.llmProfiles(),
           api.usageStats(365),
         ]);
         if (!alive) return;
         setTraffic(traf.exchanges ?? []);
         setAssetCounts(counts ?? {});
-        setAgents(agentList);
-        setMcpServers(mcpList);
-        setSkills(skillList);
-        setTools(toolList);
         setLLMProfiles(profileList);
         setUsageStats(usage);
       } catch {
@@ -321,7 +309,6 @@ export default function DashboardPage() {
 
   // system
   const activeProfile = llmProfiles.find((p) => p.is_default);
-  const enabledTools = tools.filter((t) => t.enabled);
   const pendingCount = pending.length;
 
   // ── token stats per LLM profile ──────────────────────────────────────────
@@ -475,12 +462,6 @@ export default function DashboardPage() {
     if (a.kind === "tool_use") return a.tool ?? "tool_use";
     if (a.kind === "tool_result") return "tool_result";
     return a.kind;
-  }
-
-  function workerColor(w: string): string {
-    if (w === "planner") return "text-violet-400";
-    if (w === "mainagent") return "text-cyan-400";
-    return "text-blue-400";
   }
 
   function workerBg(w: string): string {

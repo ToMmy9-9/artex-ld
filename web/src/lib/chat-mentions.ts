@@ -1,3 +1,9 @@
+/**
+ * chat-mentions.ts：会话输入框 @ 提及（漏洞/资产等）的解析与候选搜索。
+ * 主要函数/类型：
+ *   - mentionKinds / MentionKind / ChatMention：提及类型注册表及相关类型
+ *   - activeMention / mentionSearch / mentionToken / selectedMentions：光标处提及检测、候选过滤、令牌生成与已选提及解析
+ */
 export const mentionKinds = [
   { kind: "finding", label: "漏洞", alias: "finding" },
   { kind: "asset", label: "资产", alias: "asset" },

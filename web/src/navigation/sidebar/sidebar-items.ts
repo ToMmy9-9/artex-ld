@@ -1,3 +1,9 @@
+/**
+ * sidebar-items.ts：侧边栏导航的分组与条目定义。
+ * 主要函数/类型：
+ *   - NavBadge / NavSubItem / NavMainLinkItem / NavMainParentItem / NavMainItem / NavGroup：导航条目类型层级
+ *   - sidebarItems：侧边栏导航分组数据
+ */
 import {
   Activity,
   Ban,

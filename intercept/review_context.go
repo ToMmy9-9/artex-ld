@@ -1,3 +1,9 @@
+// review_context.go：构造送交 LLM 裁判的审查输入，显式绑定工作目录与允许的用户背景。
+// 主要函数/类型：
+//   - ReviewInput / ReviewBackground：审查输入结构与显式选取的用户消息背景。
+//   - WithReviewContext / WithReviewWorkingDirectory：把允许的背景与工作目录写入上下文。
+//   - BuildReviewInput：从上下文组装最终送审输入（参数校验、背景截断）。
+
 package intercept
 
 import (

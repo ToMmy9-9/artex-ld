@@ -1,4 +1,7 @@
 /**
+ * 职责：扫描 styles/presets 下的主题 CSS，提取元数据并回写 lib/preferences/theme.ts 的生成区块。
+ * 主要函数/类型：
+ *   - main：编排扫描、提取与回写流程（生成文件的 THEME_PRESET_OPTIONS 等由其输出）
  * Script: generate-theme-presets.ts
  *
  * This script scans the /styles/presets directory for CSS files containing theme definitions.

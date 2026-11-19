@@ -1,3 +1,9 @@
+// http.go：渠道出站 HTTP 基础设施——拨号时拦截内网地址的 Transport、统一 JSON 请求与凭据脱敏。
+// 主要函数/类型：
+//   - doJSON：各渠道共用的 JSON 请求，按状态码区分瞬时/永久失败并截断响应体。
+//   - notifyTransport / httpClient：带拨号拦截与超时设置的共享 HTTP 客户端。
+//   - blockInternalDial / isBlockedDialIP：连接建立时拒绝环回、链路本地等敏感地址段。
+//   - redactRequestTarget / redactTransportError / redactURLsInText：错误信息中的 URL/凭据脱敏。
 package notify
 
 import (

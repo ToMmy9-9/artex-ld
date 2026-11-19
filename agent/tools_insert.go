@@ -1,3 +1,10 @@
+// tools_insert.go：资产写入与范围工具——insert_assets 及其拦截候选提取，加上公司/任务范围与未测资产查询、工具列表组装。
+// 主要函数/类型：
+//   - insertAssets：资产录入工具，落库并按候选自动扩展范围。
+//   - addCompanyScope / addTaskScope：公司级与任务级范围登记工具。
+//   - listUntestedAssets / listAssets / listCompanies：未测资产、资产列表、公司列表查询工具。
+//   - WorkerTools / MainAgentTools / AllDomainTools：按 agent 组装工具子集。
+
 package agent
 
 import (
@@ -9,8 +16,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
-	actool "github.com/Autumn-27/norma/tool"
+	"artex/db"
+	actool "norma/tool"
 )
 
 // assetInterceptCandidates 提取一条待插入资产输入项的 域名/IP/URL 候选串，用于资产拦截匹配。
@@ -431,7 +438,7 @@ func (t *ToolSet) addCompanyScope() actool.CoreTool {
 func (t *ToolSet) addTaskScope() actool.CoreTool {
 	return writeTool(
 		"add_task_scope",
-		"把测试范围加入【本任务】——这是本任务的授权边界，也是资产测试覆盖度的分母。\n"+
+		"把资产加入【本任务】——用于资产测试覆盖度统计，不构成网络执行限制。\n"+
 			"kind 支持：company(整个公司名下资产) / root_domain(整个根域，含所有子域) / subdomain(单个精确子域) / ip / cidr / icp / keyword。\n"+
 			"说明：worker 逐个碰到的主机会被系统【自动】加进范围(精确子域)；本工具用于【主动扩大】——把整个根域/整个公司纳入，或补充指定某子域/IP。\n"+
 			"value：company 传公司名或 id(公司须已存在)；root_domain/subdomain 传域名；ip/cidr 传 IP 或网段；icp/keyword 传备案号或企业关键词。\n"+
@@ -664,8 +671,11 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 	return []actool.CoreTool{
 		t.graphOverview(), t.listFindings(), t.listFacts(), t.nodeDetail(),
+		t.listIntents(),  // 【二开·LIST-INTENTS·A3】mainagent 默认绑定
 		t.expandDigest(), // cold-digest §6.1
 		t.getWorkerOutput(), t.getWorkerTrace(), t.searchAllWorkerTraces(), t.addHint(), t.addIntent(),
+		// update_intent/cancel_intent：人可修订/取消 open 意图（驳回稿修订权在 planner，§5.4）。
+		t.updateIntent(), t.cancelIntent(),
 		// steer_work：人可对某条正在运行的意图(work)实时注入纠偏指令（不打断、不丢进展）。
 		t.steerWorkTool(),
 		// set_goals：人可在运行时给本任务补一个新的最终目标（规划者据此重判是否达成）。

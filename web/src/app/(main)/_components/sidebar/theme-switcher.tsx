@@ -1,3 +1,9 @@
+/**
+ * theme-switcher.tsx：顶栏主题切换按钮，点击在 light/dark/system 之间循环。
+ * 主要函数/类型：
+ *   - ThemeSwitcher：循环切换主题模式并持久化的图标按钮。
+ *   - THEME_CYCLE：主题模式循环顺序。
+ */
 "use client";
 
 import { Monitor, Moon, Sun } from "lucide-react";
