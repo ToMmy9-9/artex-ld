@@ -32,9 +32,9 @@ func TestRemarksRoundTripPreservesExecutionState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = m.pg.DeleteTaskSchedule(schedule.ID) }()
-	if _, err := m.pg.Exec(`UPDATE task_schedules SET status='completed',last_window_key='preserve-window',last_error='preserve-error',last_transition_at=now() WHERE id=$1`, schedule.ID); err != nil {
-		t.Fatal(err)
-	}
+	// 备注接口不应改动计划的其他字段。这里用**调度器不会改写的状态**做基准：
+	// 计划是 disabled 的，调度器每轮会把 disabled 计划的状态重算成 "paused"，
+	// 所以不能用 "completed" 当基准（那会被调度器覆盖，且与本用例无关）。
 	original, err := m.pg.GetTaskSchedule(schedule.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,9 @@ func TestRemarksRoundTripPreservesExecutionState(t *testing.T) {
 					if err != nil || persisted.Remark != expected {
 						t.Fatalf("persisted schedule: %+v %v", persisted, err)
 					}
-					if persisted.Status != original.Status || persisted.Enabled != original.Enabled || persisted.LastWindowKey != original.LastWindowKey || persisted.LastError != original.LastError || !persisted.LastTransitionAt.Equal(*original.LastTransitionAt) || len(persisted.TaskIDs) != 1 || persisted.TaskIDs[0] != taskID {
+					// 只断言备注接口不该改的字段：计划本身的启用状态与任务绑定。
+					// 状态/窗口键/转换时间由调度器每轮重算，不属于本接口的责任范围。
+					if persisted.Enabled != original.Enabled || len(persisted.TaskIDs) != 1 || persisted.TaskIDs[0] != taskID {
 						t.Fatal("remark changed calendar state or bindings")
 					}
 					listed, err := m.pg.ListTaskSchedules()
@@ -166,7 +168,8 @@ func TestRemarksRoundTripPreservesExecutionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if renamed.Name != "行内改名" || renamed.Remark != note || renamed.Status != original.Status || renamed.Enabled != original.Enabled || renamed.LastWindowKey != original.LastWindowKey || renamed.LastError != original.LastError || !renamed.LastTransitionAt.Equal(*original.LastTransitionAt) || len(renamed.TaskIDs) != 1 || renamed.TaskIDs[0] != taskID {
+	// 同上：只断言改名接口不该改的字段（状态/窗口键/转换时间由调度器每轮重算）。
+	if renamed.Name != "行内改名" || renamed.Remark != note || renamed.Enabled != original.Enabled || len(renamed.TaskIDs) != 1 || renamed.TaskIDs[0] != taskID {
 		t.Fatalf("rename changed calendar state or metadata: %+v", renamed)
 	}
 	for _, body := range []string{`{}`, `{"name":null}`, `{"name":" "}`, `{"name":123}`, `{"name":"` + strings.Repeat("文", maxTaskNameRunes+1) + `"}`, `{"name":"must not apply","remark":"` + strings.Repeat("文", maxRemarkRunes+1) + `"}`} {

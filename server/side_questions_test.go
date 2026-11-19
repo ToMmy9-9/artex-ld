@@ -415,14 +415,21 @@ func TestSideTaskContextModelUnavailableIsDistinct(t *testing.T) {
 	}
 	id, _ := strconv.ParseInt(task.ID, 10, 64)
 	t.Cleanup(func() { _ = f.m.pg.DeleteTask(id) })
-	var profileID int64
-	var originalAPIKey string
-	if err := f.m.pg.QueryRow(`SELECT id, COALESCE(api_key, '') FROM llm_profiles WHERE is_default=true ORDER BY id LIMIT 1`).Scan(&profileID, &originalAPIKey); err != nil {
+	// 本测试需要一个「已激活」的 LLM 配置，但库里是否存在默认 profile 取决于
+	// 同包其它测试的执行顺序（有的测试会清空 profile 表）。这里自建一个并保证
+	// 清理，让本用例不再依赖测试顺序。
+	profileID, err := f.m.pg.SaveProfile(&db.LLMProfile{Name: "side-ctx-profile", Format: "openai", Model: "side-ctx", APIKey: "sk-side-ctx"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = f.m.pg.Exec(`UPDATE llm_profiles SET api_key=$1 WHERE id=$2`, originalAPIKey, profileID)
+		_, _ = f.m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1`, profileID)
+		_ = f.m.pg.DeleteProfile(profileID)
 	})
+	if err := f.m.pg.SetActiveProfile(profileID); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := f.m.pg.Exec(`UPDATE llm_profiles SET api_key='' WHERE id=$1`, profileID); err != nil {
 		t.Fatal(err)
 	}
