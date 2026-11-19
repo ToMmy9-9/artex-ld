@@ -1057,7 +1057,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/exploration/findings/{id}/evidence/{file}", s.serveFindingEvidence)
 	mux.HandleFunc("PUT /api/exploration/findings/{id}/evidence/{eid}", s.updateFindingEvidence)
 	mux.HandleFunc("DELETE /api/exploration/findings/{id}/evidence/{eid}", s.deleteFindingEvidence)
-	mux.HandleFunc("POST /api/exploration/findings/{id}/traffic", s.linkFindingTraffic)
 	mux.HandleFunc("GET /api/exploration/findings/{id}/lineage", s.findingLineage)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/deepen", s.deepenFinding)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/generate-report", s.generateFindingReport)
