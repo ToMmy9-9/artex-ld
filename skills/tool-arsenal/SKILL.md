@@ -80,17 +80,20 @@ description: "外部工具库选型与调用指南。当需要批量资产侦察
 ## 三、通用调用约定
 
 1. **绝对路径调用**：工具不在 PATH 里，必须用工具目录根拼出的完整路径。
-   Windows 下路径用反斜杠，调用时建议用 PowerShell 的调用运算符：
-   `& 'D:\PTS\tools\util\jq\jq.exe' --version`
-2. **注意实际 shell**：本平台的 Bash 工具在 Windows 上底层是 **PowerShell**
+   Windows 下用反斜杠路径，直接写全路径 + 参数：
+   `D:\PTS\tools\util\jq\jq.exe --version`
+2. **注意实际 shell**：本平台的 Bash 工具在 Windows 上底层是 **pwsh**
    （`powershell -NoProfile -NonInteractive -Command`），不是 bash。
    不要写 `ls -la`、`&&` 串联、`/dev/null` 这类 bash 语法；改用
    `Get-ChildItem`、`;`、`$null`。Linux 部署上才是真正的 bash。
-3. **结果落文件再处理**：这类工具普遍输出一大堆行，先重定向到文件，再用
+3. **Windows 上不要用 `&` 开头调用 exe**：部分模型生成 tool_use 参数时会把
+   以 `&` 开头的命令整个丢掉（报 "missing required property command"）。
+   需要切目录时用 `cd <dir>; .\jq.exe --version`。
+4. **结果落文件再处理**：这类工具普遍输出一大堆行，先重定向到文件，再用
    `anew` 去重、`httprobe` 过滤存活，不要把原始输出灌进上下文。
-4. **字典按技术栈选**：JSP / PHP / ASPX / Spring 各有专用字典，别拿通用字典硬打。
-5. **速率控制**：批量扫描一律加 `-rl` / `-c` / `-t` 之类的限速参数，避免打挂目标或触发防护。
-6. **工具自身失败不等于漏洞**：工具报错只说明工具没跑通，要换路径或换工具重试，
+5. **字典按技术栈选**：JSP / PHP / ASPX / Spring 各有专用字典，别拿通用字典硬打。
+6. **速率控制**：批量扫描一律加 `-rl` / `-c` / `-t` 之类的限速参数，避免打挂目标或触发防护。
+7. **工具自身失败不等于漏洞**：工具报错只说明工具没跑通，要换路径或换工具重试，
    不要直接下结论。
 
 ---

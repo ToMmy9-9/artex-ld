@@ -304,6 +304,11 @@ func TestRenderShellHintStatesRealShell(t *testing.T) {
 		if !strings.Contains(out, "PowerShell") {
 			t.Errorf("windows hint must say PowerShell, got:\n%s", out)
 		}
+		// 实测：以 & 开头的 tool_use 参数会被部分模型丢成 {}，提示必须给出
+		// 不以 & 开头的稳妥写法。
+		if !strings.Contains(out, "不要以 & 开头") {
+			t.Errorf("windows hint must warn against a leading &, got:\n%s", out)
+		}
 	} else if !strings.Contains(out, "bash -c") {
 		t.Errorf("posix hint must say bash -c, got:\n%s", out)
 	}

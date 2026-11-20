@@ -261,6 +261,12 @@ func scanAndRender(spec shellHintSpec, fallbackDesc string) string {
 		b.WriteString("bash -c")
 	}
 	b.WriteString("]\n")
+	if runtime.GOOS == "windows" {
+		// 实测：部分模型在生成以 '&' 开头的 tool_use 参数时会把整个
+		// input 丢成 {}（表现为 "missing required property command"）。
+		// 给出等价的稳妥写法，模型照抄就不会踩。
+		b.WriteString("    [调用写法: 直接写完整路径 + 参数，例如 D:\\PTS\\tools\\util\\jq\\jq.exe --version；不要以 & 开头]\n")
+	}
 
 	// 按一级子目录分组，组内按路径排序。
 	groups := map[string][]string{}
