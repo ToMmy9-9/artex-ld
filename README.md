@@ -34,7 +34,7 @@
 ```bash
 # 1. 新建目录并下载 Release 部署包
 mkdir artex && cd artex
-wget https://github.com/steveopen1/artex-ld/releases/download/0.2.0/artex-0.2.0-linux-amd64.deploy.tar.gz
+wget https://github.com/steveopen1/artex-ld/releases/download/v0.2.0/artex-0.2.0-linux-amd64.deploy.tar.gz
 
 # 2. 解压并一键安装（自动注册 systemd 服务、初始化数据库）
 tar xzf artex-0.2.0-linux-amd64.deploy.tar.gz
