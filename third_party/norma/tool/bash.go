@@ -157,7 +157,7 @@ func runBashSync(ctx context.Context, tc *ToolContext, command string, timeout t
 	defer cancel()
 
 	shell, flags := shellCmd()
-	cmd := exec.CommandContext(cctx, shell, append(flags, command)...)
+	cmd := exec.CommandContext(cctx, shell, append(flags, withConsoleUTF8(command))...)
 	if tc != nil {
 		cmd.Dir = tc.WorkingDir
 		if env := withEnv(tc.Env); env != nil {

@@ -228,7 +228,7 @@ func (m *Manager) Spawn(spec SpawnSpec) (*Task, error) {
 		kind = KindBash
 	}
 	shell, flags := shellCmd()
-	cmd := exec.CommandContext(m.rootCtx, shell, append(flags, spec.Command)...)
+	cmd := exec.CommandContext(m.rootCtx, shell, append(flags, withConsoleUTF8(spec.Command))...)
 	cmd.Dir = spec.WorkingDir
 	if env := withEnv(spec.Env); env != nil {
 		cmd.Env = env

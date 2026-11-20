@@ -161,9 +161,17 @@ func (s *logSinkT) add(l LogLine) {
 		s.ring = s.ring[len(s.ring)-s.cap:]
 	}
 	ch := s.dbCh
-	subs := make([]chan LogLine, 0, len(s.subs))
+	// 广播必须在锁内完成：unsub 会先持锁 delete 再 close(ch)。此前这里只持锁
+	// 复制快照、解锁后才发送，T1 拿到快照后被调度走 → T2 删除并 close → T1 恢复
+	// 执行 `sub <- l` 就 panic: send on closed channel；logSink.Write 是标准库
+	// logger 的 io.Writer，这个 panic 能打在任意 log.Printf 的 goroutine 上，直接
+	// 杀掉整个进程。同文件 broadcast.Publish / updateHub.fanout 都是锁内广播。
+	// 发送用 select+default 非阻塞，持锁时间恒定，不会拖慢日志写入。
 	for sub := range s.subs {
-		subs = append(subs, sub)
+		select {
+		case sub <- l:
+		default:
+		}
 	}
 	s.mu.Unlock()
 
@@ -177,13 +185,6 @@ func (s *logSinkT) add(l LogLine) {
 			if n := s.dropped.Add(1); n%100 == 1 {
 				log.Printf("[WARN] [logsink] db writer behind: dropped %d log lines", n)
 			}
-		}
-	}
-
-	for _, sub := range subs {
-		select {
-		case sub <- l:
-		default:
 		}
 	}
 }

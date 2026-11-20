@@ -4,12 +4,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
 )
 
 const defaultMaxOutput = 30000
+
+// withConsoleUTF8 让 Windows/PowerShell 把 stdout/stderr 写成 UTF-8。
+// 真实任务里 worker 执行 Invoke-WebRequest 时，中文报错经 GBK 字节流回到 Go，
+// 落库前又被 utf8Clean/ToValidUTF8 替换成 U+FFFD，activity 里只剩
+// "Invoke-WebRequest : Ӳ..." 这种不可读的乱码，模型据此误判工具失败原因。
+// 在命令开头统一切编码即可从源头消除；非 Windows（bash）原样返回。
+func withConsoleUTF8(command string) string {
+	if runtime.GOOS != "windows" {
+		return command
+	}
+	return "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new();$OutputEncoding=[Console]::OutputEncoding;" + command
+}
 
 func maxOut(tc *ToolContext) int {
 	if tc != nil && tc.MaxOutputChars > 0 {
