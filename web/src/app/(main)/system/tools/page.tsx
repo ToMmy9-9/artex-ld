@@ -34,6 +34,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ToolAssetsPanel } from "./tool-assets-panel";
 import {
   Sheet,
   SheetContent,
@@ -410,7 +411,9 @@ export default function ToolsPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">工具</h1>
-          <p className="text-muted-foreground text-sm">系统工具的描述/绑定，以及自定义工具(command/script/http)</p>
+          <p className="text-muted-foreground text-sm">
+            系统工具的描述/绑定，自定义工具(command/script/http)，以及上传的外部攻防二进制
+          </p>
         </div>
         <div className="relative w-64">
           <SearchIcon className="text-muted-foreground absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2" />
@@ -427,6 +430,7 @@ export default function ToolsPage() {
         <TabsList>
           <TabsTrigger value="system">系统工具</TabsTrigger>
           <TabsTrigger value="custom">自定义工具</TabsTrigger>
+          <TabsTrigger value="assets">外部工具</TabsTrigger>
         </TabsList>
 
         <TabsContent value="system">
@@ -453,6 +457,10 @@ export default function ToolsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="assets">
+          <ToolAssetsPanel />
         </TabsContent>
 
         <TabsContent value="custom">

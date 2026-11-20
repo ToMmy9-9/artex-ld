@@ -8,6 +8,7 @@ import { http, openSSE, sseUrl } from "@/lib/api/http";
 import { type InterceptApi, interceptApi } from "@/lib/api/intercept";
 import { type LlmAgentsApi, llmAgentsApi } from "@/lib/api/llm-agents";
 import { type MiscApi, miscApi } from "@/lib/api/misc";
+import { type ToolAssetsApi, toolAssetsApi } from "@/lib/api/tool-assets";
 import { type TasksApi, tasksApi } from "@/lib/api/tasks";
 
 export const api = {
@@ -15,7 +16,8 @@ export const api = {
   ...llmAgentsApi,
   ...interceptApi,
   ...miscApi,
-} satisfies TasksApi & LlmAgentsApi & InterceptApi & MiscApi;
+  ...toolAssetsApi,
+} satisfies TasksApi & LlmAgentsApi & InterceptApi & MiscApi & ToolAssetsApi;
 
 export type Api = typeof api;
 
@@ -392,7 +394,14 @@ const API_KEYS = [
   "updateKnowledgeDoc",
   "updateReportTemplate",
   "uploadKnowledgeDoc",
-  "uploadReportLogo"
+  "uploadReportLogo",
+  // 外部工具资产
+  "toolAssets",
+  "uploadToolAssets",
+  "deleteToolAsset",
+  "setToolAssetState",
+  "setToolAssetLimits",
+  "toolAssetRuns",
 ] as const satisfies readonly (keyof typeof api)[];
 type ExpectNever<T extends never> = T;
 type _AllApiKeysDocumented = ExpectNever<Exclude<keyof typeof api, (typeof API_KEYS)[number]>>;

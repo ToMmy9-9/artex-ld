@@ -2329,3 +2329,71 @@ export interface FindingEvidence {
   sort_order: number;
   created_at: string;
 }
+
+// ── 外部工具资产（上传的攻防二进制）────────────────────────────────
+// 与 Tool（平台能调用什么的抽象）不同：ToolAsset 是磁盘上真实存在的
+// 第三方二进制及其受管权限契约。
+
+export interface ToolAssetParam {
+  flag: string;
+  required?: boolean;
+  allowed?: string[];
+  pattern?: string;
+  risk?: string;
+  note?: string;
+  deny?: boolean;
+}
+
+export interface ToolAssetTarget {
+  kind: string;
+  pattern?: string;
+  require_scope?: boolean;
+  max_targets?: number;
+}
+
+export interface ToolAssetContract {
+  params?: ToolAssetParam[];
+  target?: ToolAssetTarget;
+  allow_targets_in_scope_only?: boolean;
+  deny_args?: string[];
+  passthrough?: string[];
+  max_targets?: number;
+  timeout_seconds?: number;
+}
+
+export interface ToolAsset {
+  id: number;
+  name: string;
+  display_name: string;
+  version: string;
+  sha256: string;
+  size_bytes: number;
+  platform: string;
+  rel_path: string;
+  category: string;
+  risk_level: string;
+  summary: string;
+  usage_example: string;
+  contract_limits: ToolAssetContract;
+  contract: ToolAssetContract;
+  probe_output: string;
+  // uploaded=待认领 | managed=已认领 | rejected=已驳回 | quarantined=已隔离
+  state: "uploaded" | "probing" | "managed" | "rejected" | "quarantined";
+  managed_by: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ToolAssetRun {
+  id: number;
+  asset_id: number;
+  task_id: number;
+  agent_key: string;
+  tool_name: string;
+  argv: string[];
+  targets: string[];
+  exit_code: number;
+  duration_ms: number;
+  created_at: string;
+}
