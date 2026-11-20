@@ -60,6 +60,9 @@ type Server struct {
 	lastCPUAt  time.Time
 
 	skillDir  string // root directory for skill subdirectories
+	baseDir   string // install root (exe dir, or CWD under `go run`); the managed
+	//             external-tool library lives at baseDir/tools, NEXT TO dataDir
+	//             so backing up data/ never drags third-party binaries along.
 	jwtKey    []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
 	basicAuth basicAuthGate
 
@@ -199,7 +202,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	if err != nil {
 		log.Fatalf("[auth] JWT key: %v", err)
 	}
-	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, dataDir: dataDir, jwtKey: key, chatBusy: map[string]bool{}, enrichJobs: map[int64]*enrichJob{}, reportJobs: map[string]*reportJob{}, loginLimiter: newLoginLimiter(),
+	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, baseDir: keyDir, dataDir: dataDir, jwtKey: key, chatBusy: map[string]bool{}, enrichJobs: map[int64]*enrichJob{}, reportJobs: map[string]*reportJob{}, loginLimiter: newLoginLimiter(),
 		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{}, proxyPoolWake: make(chan struct{}, 1), proxyPoolProbeSem: make(chan struct{}, proxyPoolMaxProbeConcurrency),
 		profChatAgents: map[int64]*agent.ChatAgent{},
@@ -313,6 +316,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			return a.TaskTimeoutWrapupMaxTurns, true
 		}
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
+		s.toolKeeperSeedAll() // 内置工具管理员（认领用户上传的外部工具）
 		domainReg := buildDomainReg(m.Assets())
 		wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
@@ -1229,6 +1233,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/agents/{key}/visibility", s.pgSetAgentVisibility)
 	// 内置工具目录（描述/参数默认值可改、按 agent 绑定；key 与 handler 在代码层）
 	mux.HandleFunc("GET /api/tools", s.pgListTools)
+
+	// 外部工具资产（上传的攻防二进制）+ 受管认领。
+	mux.HandleFunc("GET /api/tool-assets", s.toolAssetList)
+	mux.HandleFunc("POST /api/tool-assets/upload", s.toolAssetUpload)
+	mux.HandleFunc("DELETE /api/tool-assets/{id}", s.toolAssetDelete)
+	mux.HandleFunc("POST /api/tool-assets/{id}/state", s.toolAssetSetState)
+	mux.HandleFunc("POST /api/tool-assets/{id}/claim", s.toolAssetClaim)
+	mux.HandleFunc("POST /api/tool-assets/{id}/limits", s.toolAssetSetLimits)
+	mux.HandleFunc("GET /api/tool-assets/{id}/runs", s.toolAssetRuns)
 	mux.HandleFunc("PUT /api/tools/{key}", s.pgUpdateTool)
 	mux.HandleFunc("POST /api/tools/custom", s.pgCreateCustomTool)
 	mux.HandleFunc("POST /api/tools/custom/test", s.pgTestCustomTool)

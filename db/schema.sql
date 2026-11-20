@@ -2003,3 +2003,66 @@ DROP TRIGGER IF EXISTS trg_knowledge_docs_updated ON knowledge_docs;
 CREATE TRIGGER trg_knowledge_docs_updated BEFORE UPDATE ON knowledge_docs
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 INSERT INTO knowledge_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================================
+-- 外部工具资产（tool_assets）
+-- 用户上传的攻防二进制（gogo/fscan/nuclei 等）。与 tools 表的关系：
+--   tools      —— 平台"能调用什么"的抽象（shell/mcp/http 等 kind）
+--   tool_assets—— 磁盘上真实存在的外部二进制及其受管契约
+-- 一个上传的工具会同时产生一条 tool_assets 记录；平台把它放进受管目录
+-- tools/，再由内置 tool_keeper agent 认领（生成契约）。
+--
+-- 权限模型（关键）：平台在 contract_limits 里定义每个 flag 的"最大权限"，
+-- agent 只能在 limit 之内收紧（contract 是 limit 的子集），永远不能放宽。
+-- 这样即使 agent 产出不可信，平台强制的部分依然守得住。
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS tool_assets (
+    id            BIGSERIAL PRIMARY KEY,
+    name          TEXT NOT NULL,                    -- 工具名(gogo/fscan/...)，全小写
+    display_name  TEXT NOT NULL DEFAULT '',
+    version       TEXT NOT NULL DEFAULT '',
+    sha256        TEXT NOT NULL DEFAULT '',
+    size_bytes    BIGINT NOT NULL DEFAULT 0,
+    platform      TEXT NOT NULL DEFAULT '',         -- windows|linux|darwin|unknown
+    rel_path      TEXT NOT NULL,                    -- 相对受管目录的路径
+    -- 能力分类（agent 认领时填）：scanner|brute|poc|proxy|recon|crawler|utility
+    category      TEXT NOT NULL DEFAULT '',
+    -- 风险等级（agent 认领时填，平台另有独立上限）：low|medium|high|critical
+    risk_level    TEXT NOT NULL DEFAULT '',
+    summary       TEXT NOT NULL DEFAULT '',         -- 给模型看的一句话说明
+    usage_example TEXT NOT NULL DEFAULT '',         -- 给模型看的调用示例
+    -- 平台定义的最大权限（平台代码/管理员写，agent 不可改）
+    contract_limits JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- agent 认领产出的实际契约（必须是 contract_limits 的子集）
+    contract      JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- agent 探测的原始输出（--help 等），供人工复核
+    probe_output  TEXT NOT NULL DEFAULT '',
+    -- uploaded → probing → managed（已认领）| rejected（人工驳回）| quarantined（隔离，未启用）
+    state         TEXT NOT NULL DEFAULT 'uploaded'
+                  CHECK (state IN ('uploaded','probing','managed','rejected','quarantined')),
+    managed_by    TEXT NOT NULL DEFAULT '',          -- 认领的 agent key
+    note          TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (name, platform)
+);
+CREATE INDEX IF NOT EXISTS idx_tool_assets_state ON tool_assets(state);
+DROP TRIGGER IF EXISTS trg_tool_assets_upd ON tool_assets;
+CREATE TRIGGER trg_tool_assets_upd BEFORE UPDATE ON tool_assets
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- 外部工具执行审计。每次受管调用一行，用于溯源与交付取证。
+CREATE TABLE IF NOT EXISTS tool_asset_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    asset_id    BIGINT NOT NULL REFERENCES tool_assets(id) ON DELETE CASCADE,
+    task_id     BIGINT,
+    agent_key   TEXT NOT NULL DEFAULT '',
+    tool_name   TEXT NOT NULL DEFAULT '',
+    argv        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    targets     JSONB NOT NULL DEFAULT '[]'::jsonb,
+    exit_code   INT NOT NULL DEFAULT 0,
+    duration_ms INT NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tool_asset_runs_asset ON tool_asset_runs(asset_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_asset_runs_task ON tool_asset_runs(task_id, created_at DESC);

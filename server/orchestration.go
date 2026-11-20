@@ -49,6 +49,9 @@ func (s *Server) hostTools() ([]actool.CoreTool, map[string][]string) {
 	tools := append(s.m.HostTools(), s.orchestrationTools()...)
 	tools = append(tools, s.findingRetestTools()...)
 	tools = append(tools, s.platformTools()...) // 平台操作工具(建改 skill/工具/MCP，给 Auto 用)
+	// 工具管理员专用工具（探/认领）。它们在 tools 表里只绑定 tool_keeper，
+	// 所以别的 agent 看不到——ToolResolve 按绑定过滤。
+	tools = append(tools, s.toolKeeperTools()...)
 	custom, err := s.customTools()
 	if err != nil {
 		log.Printf("[custom-tool] 加载失败: %v", err)

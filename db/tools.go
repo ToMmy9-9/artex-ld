@@ -238,3 +238,34 @@ UPDATE tools SET description=$2, schema=$3, agents=$4, enabled=$5 WHERE key=$1`,
 		key, desc, schema, agents, enabled)
 	return err
 }
+
+// UpsertSystemToolExclusive inserts or refreshes a system tool whose agent
+// binding is EXACTLY the given list (no other agent keeps access).
+//
+// Distinct from UpsertToolForce: that one replaces `agents` wholesale too, but
+// it is used for code-default refreshes where the binding is code-defined.
+// This variant exists for the internal tool-keeper tools, whose binding is a
+// security boundary: if a stale row still carried another agent, that agent
+// could probe and claim uploaded binaries. So we replace the array outright
+// rather than merging.
+func (d *DB) UpsertSystemToolExclusive(key, desc string, schema json.RawMessage, agents []string) error {
+	if len(schema) == 0 {
+		schema = json.RawMessage(`{}`)
+	}
+	if len(agents) == 0 {
+		agents = []string{}
+	}
+	raw, err := json.Marshal(agents)
+	if err != nil {
+		return err
+	}
+	_, err = d.Exec(`
+INSERT INTO tools(key, system, description, schema, agents, enabled)
+VALUES ($1, true, $2, $3, $4, true)
+ON CONFLICT (key) DO UPDATE
+  SET description = EXCLUDED.description,
+      schema      = EXCLUDED.schema,
+      agents      = EXCLUDED.agents,
+      enabled     = true`, key, desc, schema, raw)
+	return err
+}
