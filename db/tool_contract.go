@@ -20,6 +20,17 @@ import (
 	"strings"
 )
 
+// Scope enforcement modes for a tool contract.
+const (
+	// ScopeEnforced: out-of-scope targets are refused; the process never runs.
+	ScopeEnforced = "enforced"
+	// ScopeAdvisory: the tool bypasses the platform's traffic layer, so
+	// out-of-scope targets are warned about and audited instead of refused.
+	ScopeAdvisory = "advisory"
+	// ScopeNone: the tool does not act on network targets at all.
+	ScopeNone = "none"
+)
+
 // ParamLimit 是单个 flag 的权限上限。
 //
 //	Value 形态二选一：
@@ -67,6 +78,21 @@ type ToolContract struct {
 	// AllowTargetsInScopeOnly 强制目标必须在授权范围内（等价于 Target.RequireScope，
 	// 保留独立字段是为了让"平台强制项"和"agent 产出项"在存储上可区分）。
 	AllowTargetsInScopeOnly bool `json:"allow_targets_in_scope_only,omitempty"`
+	// ScopeEnforcement 决定范围约束怎么落地。
+	//
+	// 为什么需要这个维度：平台的范围管控建立在 HTTP 代理上（流量录制 +
+	// 资产拦截 + 授权范围）。原生 socket 的工具（Go 写的 gogo/fscan 等）
+	// **根本不读 HTTP_PROXY**，它们的出站流量平台看不见——范围约束对这类
+	// 工具在物理上无法强制。
+	//
+	// 与其让管控"看起来在、实际不生效"，不如把这件事显式化：
+	//   - enforced（默认）：越界目标直接拒绝，进程不执行。
+	//   - advisory：该工具不受平台流量管控，越界目标只警告+审计后放行。
+	//     必须在契约、审计、UI 上都标明，避免有人误以为它受管控。
+	//   - none：该工具不作用于网络目标（如本地文本处理器），无范围概念。
+	//
+	// 默认必须是 enforced：让降级成为显式动作，而不是新工具的默认状态。
+	ScopeEnforcement string `json:"scope_enforcement,omitempty"`
 	// DenyArgs 是整条命令级别的禁止片段（如 "--script"、"-exec"）。
 	DenyArgs []string `json:"deny_args,omitempty"`
 	// Passthrough 列出"允许透传但不做取值校验"的 flag（如 nuclei 的 -u/-l、
@@ -141,18 +167,17 @@ func ValidateContractAgainstLimits(contract, limits *ToolContract) error {
 		}
 	}
 
-	// 范围要求只能加严不能取消。
+		// 范围要求只能加严不能取消。
 	//
 	// 注意：平台强制的项**不要求 agent 重复声明**——agent 的契约里没有写
 	// require_scope，不等于它想取消这个约束，而是它压根没提这件事。
 	// 平台在最终执行时用的是「平台上限 ∩ agent 契约」，所以平台强制的
 	// 部分永远生效。这里只在 agent **显式声明了相反意图**时才拒绝：
 	// 即 agent 写了 require_scope=false 而平台要求 true。
-	if limits.Target != nil && limits.Target.RequireScope {
-		if contract.Target != nil && !contract.Target.RequireScope {
-			return fmt.Errorf("平台要求目标必须在授权范围内，契约不能取消该约束")
-		}
-	}
+	//
+	// scope_enforcement 同理：把范围管控从"强制"降级为"提示"是**放宽**，
+	// 属于放宽权限的行为，agent 无权自行降级。降级只能由平台（管理员）
+	// 在 contract_limits 里声明——那是一次明确的、知情的决定。
 	if limits.AllowTargetsInScopeOnly && contract.Target != nil &&
 		!contract.Target.RequireScope {
 		return fmt.Errorf("平台要求目标必须在授权范围内，契约不能取消该约束")
@@ -161,6 +186,12 @@ func ValidateContractAgainstLimits(contract, limits *ToolContract) error {
 	// 目标数上限只能收紧。agent 不声明 = 沿用平台上限（不是取消上限）。
 	if limits.MaxTargets > 0 && contract.MaxTargets > limits.MaxTargets {
 		return fmt.Errorf("单次目标数上限不能超过平台的 %d", limits.MaxTargets)
+	}
+
+	// agent 不能把范围管控降级（enforced → advisory/none）。
+	if limits.ScopeEnforcement == ScopeEnforced &&
+		contract.ScopeEnforcement != "" && contract.ScopeEnforcement != ScopeEnforced {
+		return fmt.Errorf("把范围管控从强制降级为 %q 属于放宽权限，只能由平台管理员设置", contract.ScopeEnforcement)
 	}
 
 	// 平台禁止的片段由平台自己强制执行，agent 不必重复声明；
@@ -449,6 +480,10 @@ func MergeContracts(contract, limits *ToolContract) *ToolContract {
 	out.AllowTargetsInScopeOnly = out.AllowTargetsInScopeOnly ||
 		(out.Target != nil && out.Target.RequireScope) || contract.AllowTargetsInScopeOnly
 
+	// scope_enforcement：取更严的一方。enforced 最严，none 最松。
+	// 平台的声明优先（agent 不能降级，校验层已挡住）。
+	out.ScopeEnforcement = stricterScopeEnforcement(out.ScopeEnforcement, contract.ScopeEnforcement)
+
 	// max targets / timeout: the smaller wins.
 	if contract.MaxTargets > 0 && (out.MaxTargets == 0 || contract.MaxTargets < out.MaxTargets) {
 		out.MaxTargets = contract.MaxTargets
@@ -457,4 +492,34 @@ func MergeContracts(contract, limits *ToolContract) *ToolContract {
 		out.TimeoutSeconds = contract.TimeoutSeconds
 	}
 	return out
+}
+
+// scopeEnforcementRank orders the enforcement modes from strict to loose.
+func scopeEnforcementRank(mode string) int {
+	switch mode {
+	case ScopeEnforced:
+		return 0
+	case ScopeAdvisory:
+		return 1
+	case ScopeNone:
+		return 2
+	default:
+		// Unknown / unset → treat as the strictest, so an unrecognized value
+		// never silently loosens the guard.
+		return 0
+	}
+}
+
+// stricterScopeEnforcement returns the stricter of two modes.
+func stricterScopeEnforcement(a, b string) string {
+	if a == "" {
+		a = ScopeEnforced
+	}
+	if b == "" {
+		b = ScopeEnforced
+	}
+	if scopeEnforcementRank(a) <= scopeEnforcementRank(b) {
+		return a
+	}
+	return b
 }

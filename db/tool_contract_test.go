@@ -16,11 +16,11 @@ func testLimits() *ToolContract {
 			{Flag: "script", Deny: true, Risk: "dangerous"},
 			{Flag: "exec", Deny: true, Risk: "dangerous"},
 		},
-		Target:                &TargetSpec{Kind: "host", RequireScope: true, MaxTargets: 20},
+		Target:                  &TargetSpec{Kind: "host", RequireScope: true, MaxTargets: 20},
 		AllowTargetsInScopeOnly: true,
-		DenyArgs:              []string{"--script", "-exec"},
-		MaxTargets:            20,
-		TimeoutSeconds:        300,
+		DenyArgs:                []string{"--script", "-exec"},
+		MaxTargets:              20,
+		TimeoutSeconds:          300,
 	}
 }
 
@@ -102,7 +102,7 @@ func TestContractNeedNotRepeatPlatformDenyArgs(t *testing.T) {
 func TestContractCannotNarrowScopeToNoScope(t *testing.T) {
 	limits := testLimits()
 	bad := &ToolContract{
-		Target:                &TargetSpec{Kind: "host", RequireScope: false},
+		Target:                  &TargetSpec{Kind: "host", RequireScope: false},
 		AllowTargetsInScopeOnly: false,
 	}
 	if err := ValidateContractAgainstLimits(bad, limits); err == nil {
@@ -126,11 +126,11 @@ func TestContractMayTighten(t *testing.T) {
 			{Flag: "p", Allowed: []string{"1-1024"}}, // 更窄的白名单
 			{Flag: "t", Pattern: `^[a-z0-9_-]+$`},
 		},
-		Target:                   &TargetSpec{Kind: "host", RequireScope: true, MaxTargets: 5},
-		AllowTargetsInScopeOnly:  true,
-		MaxTargets:               5, // 更小的目标数
-		DenyArgs:                 []string{"--script", "-exec"},
-		TimeoutSeconds:           60, // 更短的超时
+		Target:                  &TargetSpec{Kind: "host", RequireScope: true, MaxTargets: 5},
+		AllowTargetsInScopeOnly: true,
+		MaxTargets:              5, // 更小的目标数
+		DenyArgs:                []string{"--script", "-exec"},
+		TimeoutSeconds:          60, // 更短的超时
 	}
 	if err := ValidateContractAgainstLimits(ok, limits); err != nil {
 		t.Fatalf("a strictly tighter contract was rejected: %v", err)
@@ -175,5 +175,46 @@ func TestCheckArgvRequiredParam(t *testing.T) {
 	c := &ToolContract{Params: []ParamLimit{{Flag: "u", Required: true}}}
 	if got := c.CheckArgv([]string{"nuclei", "-t", "x"}); got == "" {
 		t.Fatal("missing required param was accepted")
+	}
+}
+
+// TestContractCannotDowngradeScopeEnforcement — the agent may narrow the
+// permission ceiling but must never turn "the platform blocks out-of-scope
+// targets" into "the platform only warns". That downgrade is a decision an
+// administrator makes on purpose, not something an agent may do for itself.
+func TestContractCannotDowngradeScopeEnforcement(t *testing.T) {
+	limits := &ToolContract{
+		Params:                  []ParamLimit{{Flag: "p"}},
+		AllowTargetsInScopeOnly: true,
+		Target:                  &TargetSpec{Kind: "host", RequireScope: true},
+		ScopeEnforcement:        ScopeEnforced,
+	}
+	downgrade := &ToolContract{
+		Params:                  []ParamLimit{{Flag: "p"}},
+		AllowTargetsInScopeOnly: true,
+		Target:                  &TargetSpec{Kind: "host", RequireScope: true},
+		ScopeEnforcement:        ScopeAdvisory,
+	}
+	if err := ValidateContractAgainstLimits(downgrade, limits); err == nil {
+		t.Fatal("agent downgraded scope enforcement from enforced to advisory; that must be rejected")
+	}
+}
+
+// TestScopeEnforcementMergeTakesStricter — merging must never loosen the
+// enforcement mode, whatever the two sides say.
+func TestScopeEnforcementMergeTakesStricter(t *testing.T) {
+	cases := []struct{ a, b, want string }{
+		{ScopeEnforced, ScopeAdvisory, ScopeEnforced},
+		{ScopeAdvisory, ScopeEnforced, ScopeEnforced},
+		{ScopeAdvisory, ScopeNone, ScopeAdvisory},
+		{ScopeNone, ScopeAdvisory, ScopeAdvisory},
+		{"", ScopeAdvisory, ScopeEnforced}, // unset = strictest
+		{ScopeAdvisory, "", ScopeEnforced},
+	}
+	for _, c := range cases {
+		got := MergeContracts(&ToolContract{ScopeEnforcement: c.a}, &ToolContract{ScopeEnforcement: c.b})
+		if got.ScopeEnforcement != c.want {
+			t.Errorf("merge(%q, %q) = %q, want %q", c.a, c.b, got.ScopeEnforcement, c.want)
+		}
 	}
 }

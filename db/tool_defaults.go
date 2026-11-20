@@ -24,6 +24,10 @@ func DefaultContractForCategory(category string) *ToolContract {
 	switch category {
 	case "scanner":
 		return &ToolContract{
+			// 默认强制范围管控。原生 socket 工具（gogo/fscan）平台无法强制
+			// 拦截，需要管理员显式降级为 advisory —— 降级必须是一个知情
+			// 的决定，不能是默认状态。
+			ScopeEnforcement: ScopeEnforced,
 			Params: []ParamLimit{
 				{Flag: "p", Note: "端口或端口范围", Risk: "caution"},
 				{Flag: "n", Note: "并发数", Risk: "caution"},
@@ -42,6 +46,10 @@ func DefaultContractForCategory(category string) *ToolContract {
 		}
 	case "brute":
 		return &ToolContract{
+			// 默认强制范围管控。原生 socket 工具（gogo/fscan）平台无法强制
+			// 拦截，需要管理员显式降级为 advisory —— 降级必须是一个知情
+			// 的决定，不能是默认状态。
+			ScopeEnforcement: ScopeEnforced,
 			Params: []ParamLimit{
 				{Flag: "u", Note: "目标 URL", Risk: "caution"},
 				{Flag: "p", Note: "端口", Risk: "caution"},
@@ -59,6 +67,10 @@ func DefaultContractForCategory(category string) *ToolContract {
 		}
 	case "poc":
 		return &ToolContract{
+			// 默认强制范围管控。原生 socket 工具（gogo/fscan）平台无法强制
+			// 拦截，需要管理员显式降级为 advisory —— 降级必须是一个知情
+			// 的决定，不能是默认状态。
+			ScopeEnforcement: ScopeEnforced,
 			Params: []ParamLimit{
 				// 模板名只允许已知模板标识，不允许路径 —— 否则模板可以指向
 				// 本地任意文件并把它作为请求体发出去（数据外泄路径）。
@@ -77,6 +89,10 @@ func DefaultContractForCategory(category string) *ToolContract {
 		}
 	case "proxy":
 		return &ToolContract{
+			// 默认强制范围管控。原生 socket 工具（gogo/fscan）平台无法强制
+			// 拦截，需要管理员显式降级为 advisory —— 降级必须是一个知情
+			// 的决定，不能是默认状态。
+			ScopeEnforcement: ScopeEnforced,
 			Params: []ParamLimit{
 				{Flag: "p", Note: "监听端口", Risk: "caution"},
 				{Flag: "l", Note: "上游代理地址", Risk: "caution"},
@@ -106,6 +122,8 @@ func DefaultContractForCategory(category string) *ToolContract {
 		}
 	default: // utility
 		return &ToolContract{
+			// 通用小工具（jq 这类）不作用于网络目标，没有范围概念。
+			ScopeEnforcement: ScopeNone,
 			Params: []ParamLimit{
 				{Flag: "f", Pattern: `^[A-Za-z0-9_./\\-]+$`, Note: "输入文件（限制为普通文件名，不允许任意路径）", Risk: "caution"},
 				{Flag: "r", Note: "原始输出", Risk: "benign"},
@@ -131,4 +149,31 @@ func DefaultContractJSON(category string) json.RawMessage {
 		return json.RawMessage(`{}`)
 	}
 	return raw
+}
+
+// NativeSocketCategories are the tool categories whose implementations
+// typically bypass the platform's HTTP proxy (Go programs opening raw
+// sockets). For these, scope enforcement CANNOT be done by the platform — the
+// traffic never passes through it.
+//
+// This list exists so the UI can tell the administrator which tools should
+// probably be downgraded to advisory, rather than leaving them to guess.
+var NativeSocketCategories = map[string]bool{
+	"scanner": true,
+	"brute":   true,
+}
+
+// SuggestScopeEnforcement returns the enforcement mode that suits a tool of
+// the given category and whether the category is a known native-socket one.
+//
+// The first return value is only a suggestion: the platform's default stays
+// "enforced" because a silent downgrade would be a fake guarantee.
+func SuggestScopeEnforcement(category string) (mode string, nativeSocket bool) {
+	if category == "utility" {
+		return ScopeNone, false
+	}
+	if NativeSocketCategories[category] {
+		return ScopeAdvisory, true
+	}
+	return ScopeEnforced, false
 }

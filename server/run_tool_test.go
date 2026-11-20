@@ -303,3 +303,91 @@ func shortRand() string {
 	}
 	return hex.EncodeToString(b)
 }
+
+// TestRunToolAdvisoryModeAllowsButAuditsOutOfScope covers the explicit
+// downgrade path for tools the platform cannot constrain (native sockets).
+//
+// The contract here says scope_enforcement=advisory, i.e. the platform KNOWS
+// it cannot stop this tool from reaching out-of-scope targets. In that mode
+// the call must proceed — but the audit must record the bypass, and the agent
+// must be told.
+func TestRunToolAdvisoryModeAllowsButAuditsOutOfScope(t *testing.T) {
+	s, pg := newTestServer(t)
+
+	limits := &db.ToolContract{
+		Params:                []db.ParamLimit{{Flag: "p", Allowed: []string{"80"}}},
+		AllowTargetsInScopeOnly: true,
+		Target:                &db.TargetSpec{Kind: "host", RequireScope: true, MaxTargets: 10},
+		ScopeEnforcement:      db.ScopeAdvisory,
+		MaxTargets:            10,
+		TimeoutSeconds:        30,
+	}
+	contract := &db.ToolContract{
+		Params:                []db.ParamLimit{{Flag: "p", Allowed: []string{"80"}}},
+		AllowTargetsInScopeOnly: true,
+		Target:                &db.TargetSpec{Kind: "host", RequireScope: true, MaxTargets: 10},
+		ScopeEnforcement:      db.ScopeAdvisory,
+		MaxTargets:            10,
+		TimeoutSeconds:        30,
+	}
+	asset := newTestToolAsset(t, s, "testtoolAdv", echoShim, limits, contract)
+
+	out, err := callRunTool(t, s, map[string]any{
+		"tool":    asset.Name,
+		"args":    map[string]string{"p": "80"},
+		"targets": []string{"8.8.8.8"},
+	})
+	if err != nil {
+		t.Fatalf("run_tool: %v", err)
+	}
+	// The call must proceed in advisory mode.
+	if !strings.Contains(out, "exit=0") {
+		t.Errorf("advisory mode should let the call proceed, got: %s", out)
+	}
+	// And the agent must be told the target was out of scope.
+	if !strings.Contains(out, "越界目标已放行") {
+		t.Errorf("advisory mode must warn the agent about the bypass, got: %s", out)
+	}
+	// The audit must be marked as a scope bypass.
+	runs, _ := pg.ListToolAssetRuns(asset.ID, 10)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 audit row, got %d", len(runs))
+	}
+	if !strings.Contains(string(runs[0].Argv), "scope_bypass") {
+		t.Errorf("the audit row should be marked as a scope bypass: %s", runs[0].Argv)
+	}
+}
+
+// TestRunToolEnforcedStillRefusesWhenScopeIsEmpty guards the default: a tool
+// that has NOT been explicitly downgraded must still refuse out-of-scope
+// targets even when the contract says nothing about enforcement.
+func TestRunToolEnforcedStillRefusesWhenScopeIsEmpty(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	limits := &db.ToolContract{
+		Params:                []db.ParamLimit{{Flag: "p", Allowed: []string{"80"}}},
+		AllowTargetsInScopeOnly: true,
+		Target:                &db.TargetSpec{Kind: "host", RequireScope: true, MaxTargets: 10},
+		MaxTargets:            10,
+		TimeoutSeconds:        30,
+	}
+	asset := newTestToolAsset(t, s, "testtoolEnf", echoShim, limits, &db.ToolContract{
+		Params:                []db.ParamLimit{{Flag: "p", Allowed: []string{"80"}}},
+		AllowTargetsInScopeOnly: true,
+		Target:                &db.TargetSpec{Kind: "host", RequireScope: true, MaxTargets: 10},
+		MaxTargets:            10,
+		TimeoutSeconds:        30,
+	})
+
+	out, err := callRunTool(t, s, map[string]any{
+		"tool":    asset.Name,
+		"args":    map[string]string{"p": "80"},
+		"targets": []string{"8.8.8.8"},
+	})
+	if err != nil {
+		t.Fatalf("run_tool: %v", err)
+	}
+	if !strings.Contains(out, "授权范围") {
+		t.Errorf("the default (enforced) must refuse out-of-scope targets, got: %s", out)
+	}
+}

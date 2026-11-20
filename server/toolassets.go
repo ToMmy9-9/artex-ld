@@ -262,7 +262,22 @@ func (s *Server) toolAssetList(w http.ResponseWriter, r *http.Request) {
 	if assets == nil {
 		assets = []*db.ToolAsset{}
 	}
-	writeJSON(w, 200, map[string]any{"assets": assets, "dir": s.toolAssetDir()})
+	// 每个资产带上"实际生效的范围执行模式"和"是否建议降级"，让 UI 能
+	// 明确告诉用户：这个工具的范围管控是强制的、提示式的，还是不适用。
+	// 缺了这些信息，一个 advisory 的工具看起来和 enforced 一样受管控。
+	type item struct {
+		*db.ToolAsset
+		ScopeEnforcement string `json:"scope_enforcement"`
+		ScopeSuggest     string `json:"scope_suggestion"`
+		NativeSocket     bool   `json:"native_socket"`
+	}
+	out := make([]item, 0, len(assets))
+	for _, a := range assets {
+		mode := effectiveScopeEnforcement(a)
+		suggest, native := db.SuggestScopeEnforcement(a.Category)
+		out = append(out, item{ToolAsset: a, ScopeEnforcement: mode, ScopeSuggest: suggest, NativeSocket: native})
+	}
+	writeJSON(w, 200, map[string]any{"assets": out, "dir": s.toolAssetDir()})
 }
 
 // DELETE /api/tool-assets/{id} — remove an asset and its binary.
@@ -525,6 +540,15 @@ func (s *Server) toolAssetClaim(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "risk_level 只能是 low/medium/high/critical")
 		return
 	}
+	// 认领时若给出了类别，平台按该类别重算一份更贴合的上限（认领前是通用
+	// 的 utility 版）。这条逻辑必须与 agent 侧的 claim_tool 保持一致——
+	// 两条路径的行为不同会让"重新认领"的结果取决于走了哪个入口。
+	if req.Category != "" {
+		fresh := db.DefaultContractJSON(req.Category)
+		if err := pg.SetToolAssetLimits(id, fresh); err == nil {
+			asset.Limits = fresh
+		}
+	}
 	if req.Contract != nil {
 		limits, lerr := db.ParseContract(asset.Limits)
 		if lerr != nil {
@@ -626,4 +650,30 @@ func toolAssetHostPlatform() string {
 		return "windows"
 	}
 	return runtime.GOOS
+}
+
+// effectiveScopeEnforcement returns the scope-enforcement mode that actually
+// applies to an asset.
+//
+// Precedence:
+//  1. an explicit scope_enforcement in the platform's limits — an
+//     administrator's deliberate choice always wins;
+//  2. otherwise, the mode implied by the asset's category.
+//
+// The fallback matters for assets uploaded before this dimension existed: their
+// limits carry no scope_enforcement, so without a fallback they would all
+// report "enforced" even when the tool plainly does not act on network
+// targets (a local text processor, say).
+func effectiveScopeEnforcement(asset *db.ToolAsset) string {
+	if asset == nil {
+		return db.ScopeEnforced
+	}
+	if lim, err := db.ParseContract(asset.Limits); err == nil && lim.ScopeEnforcement != "" {
+		return lim.ScopeEnforcement
+	}
+	if asset.Category != "" {
+		mode, _ := db.SuggestScopeEnforcement(asset.Category)
+		return mode
+	}
+	return db.ScopeEnforced
 }

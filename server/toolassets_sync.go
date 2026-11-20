@@ -26,13 +26,18 @@ import (
 // extToolAgents are the agents that get access to uploaded external tools.
 //
 // worker and pentest mirror the existing arsenal binding: they are the
-// agents that actually run tools. `auto` is the chat-page agent, so a human
-// can drive an uploaded tool by hand from the conversation view. The planner
-// deliberately does NOT get them — it dispatches intent, it does not execute.
-var extToolAgents = []string{"worker", "pentest", "auto"}
+// agents that actually run tools. `auto` and `mainagent` cover the
+// conversational surfaces, so a human can drive an uploaded tool by hand from
+// the chat view or the task page. The planner deliberately does NOT get them
+// — it dispatches intent, it does not execute.
+var extToolAgents = []string{"worker", "pentest", "auto", "mainagent"}
 
 // extToolKey builds the tools-table key for an external asset.
 func extToolKey(name string) string { return "ext_" + name }
+
+// extToolCatalogKey is the single shared entry that scans the managed
+// directory and lists the binaries in it.
+const extToolCatalogKey = "ext_catalog"
 
 // syncToolAssetsToCatalog mirrors the managed-tool state into the tools
 // catalog so agents can see and use the uploaded binaries.
@@ -71,11 +76,40 @@ func (s *Server) syncToolAssetsToCatalog() {
 		desc = desc + risk + usage +
 			"\n\n这是已上传的外部工具。优先用 run_tool 以受管方式调用" +
 			"（平台会校验参数与目标范围）；确需直接执行时用 Bash，并遵守上述示例。"
-		exec, _ := json.Marshal(map[string]any{"dir": s.toolAssetDir()})
-		if err := pg.UpsertSystemToolExclusive(extToolKey(a.Name), desc, json.RawMessage("{}"), exec, extToolAgents); err != nil {
+
+		// 范围执行模式必须让 agent 看见：advisory 的工具平台拦不住越界目标，
+		// 如果不告诉 agent，它会以为调用完全受管控而放心地扩大扫描范围。
+		mode := effectiveScopeEnforcement(a)
+		switch mode {
+		case db.ScopeAdvisory:
+			desc += "\n\n⚠ 范围管控说明：该工具不经过平台流量代理，**平台无法拦截它访问授权范围之外的目标**。" +
+				"调用它扫描目标时必须自己严格限定在任务授权范围内；越界不会被阻止，只会记入审计。"
+		case db.ScopeNone:
+			desc += "\n\n范围管控说明：该工具不作用于网络目标，无授权范围概念。"
+		default:
+			desc += "\n\n范围管控说明：平台会强制校验目标是否在任务授权范围内，越界将被拒绝。"
+		}
+		// Each asset gets its own catalogue entry carrying ITS description.
+		// The exec.dir directory scan lives on a single shared entry (see
+		// extToolCatalogKey) — pointing every entry at the same directory
+		// would repeat the whole listing once per tool in the Bash prompt.
+		if err := pg.UpsertSystemToolExclusive(extToolKey(a.Name), desc, json.RawMessage("{}"),
+			nil, "shell", extToolAgents); err != nil {
 			log.Printf("[tool-assets] 同步工具 %s 失败: %v", a.Name, err)
 		}
 	}
+	// One shared directory-scan entry: it tells the model which binaries the
+	// managed directory holds, so a freshly dropped file is visible without
+	// touching the DB.
+	catDesc := fmt.Sprintf("受管外部工具目录：%s（其中的可执行文件可直接用 Bash 调用；"+
+		"但外部工具应优先用 run_tool 以受管方式执行）", s.toolAssetDir())
+	catExec, _ := json.Marshal(map[string]any{"dir": s.toolAssetDir()})
+	if err := pg.UpsertSystemToolExclusive(extToolCatalogKey, catDesc, json.RawMessage("{}"),
+		catExec, "shell", extToolAgents); err != nil {
+		log.Printf("[tool-assets] 同步工具目录清单失败: %v", err)
+	}
+	live[extToolCatalogKey] = true
+
 	// Drop catalog entries for assets that are no longer managed (deleted,
 	// quarantined, or reset to uploaded) so the catalogue never advertises a
 	// tool that cannot be called.
@@ -101,8 +135,11 @@ func (s *Server) ensureRunToolRegistered() {
 		log.Printf("[tool-assets] run_tool schema 序列化失败: %v", err)
 		return
 	}
+	// run_tool is a callable platform tool, NOT a shell hint: its kind must be
+	// builtin, otherwise it would also be appended to the Bash description as
+	// if it were an installed command-line program.
 	if err := pg.UpsertSystemToolExclusive("run_tool", t.Description(), schema,
-		nil, extToolAgents); err != nil {
+		nil, "builtin", extToolAgents); err != nil {
 		log.Printf("[tool-assets] 注册 run_tool 失败: %v", err)
 	}
 }

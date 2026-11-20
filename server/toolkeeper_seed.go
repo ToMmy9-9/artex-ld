@@ -132,7 +132,7 @@ func (s *Server) seedToolKeeperTools() {
 			log.Printf("[tool-keeper] 工具 %s schema 取值失败: %v", key, err)
 			continue
 		}
-		if err := pg.UpsertSystemToolExclusive(key, t.Description(), schema, nil,
+		if err := pg.UpsertSystemToolExclusive(key, t.Description(), schema, nil, "builtin",
 			[]string{toolKeeperAgentKey}); err != nil {
 			log.Printf("[tool-keeper] 工具 %s 入库失败: %v", key, err)
 		}

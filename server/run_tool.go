@@ -157,7 +157,25 @@ func (s *Server) runToolExec(ctx context.Context, in json.RawMessage, tc *actool
 			fmt.Sprintf("目标数量超过上限 %d", maxToolTargets))
 		return actool.Errorf(fmt.Sprintf("目标数量超过上限 %d", maxToolTargets)), nil
 	}
-	if eff.AllowTargetsInScopeOnly || (eff.Target != nil && eff.Target.RequireScope) {
+	//
+	// 范围执行有三种模式（见 db.ToolContract.ScopeEnforcement）：
+	//   enforced（默认）—— 越界目标直接拒绝，进程不执行。
+	//   advisory          —— 该工具是原生 socket 的，平台流量层看不见它，
+	//                        越界目标只警告 + 审计后放行。放行时必须明确
+	//                        告知 agent，否则它会以为一切都在管控内。
+	//   none              —— 该工具不作用于网络目标，无范围概念。
+	var outOfScope []string
+	scopeMode := eff.ScopeEnforcement
+	if scopeMode == "" {
+		// The contract says nothing: fall back to the asset's category so an
+		// asset uploaded before this dimension existed still behaves sanely.
+		scopeMode = effectiveScopeEnforcement(asset)
+	}
+	if scopeMode == "" {
+		scopeMode = db.ScopeEnforced
+	}
+	scopeApplies := eff.AllowTargetsInScopeOnly || (eff.Target != nil && eff.Target.RequireScope)
+	if scopeApplies && scopeMode == db.ScopeEnforced {
 		matcher, merr := s.taskScopeMatcher(taskID)
 		if merr != nil {
 			s.auditToolRejection(pg, asset, req, argv, taskID, agentKey,
@@ -169,6 +187,16 @@ func (s *Server) runToolExec(ctx context.Context, in json.RawMessage, tc *actool
 				reason := fmt.Sprintf("目标 %q 不在本任务的授权范围内，已拒绝执行", t)
 				s.auditToolRejection(pg, asset, req, argv, taskID, agentKey, reason)
 				return actool.Errorf(reason), nil
+			}
+		}
+	} else if scopeApplies && scopeMode == db.ScopeAdvisory {
+		// 平台无法强制（原生 socket 工具不经过流量代理），所以这里只能
+		// 尽力而为：算出越界目标、记录审计、并明确告知调用方。
+		if matcher, merr := s.taskScopeMatcher(taskID); merr == nil {
+			for _, t := range targets {
+				if !matcher.InScope(t) {
+					outOfScope = append(outOfScope, t)
+				}
 			}
 		}
 	}
@@ -198,11 +226,21 @@ func (s *Server) runToolExec(ctx context.Context, in json.RawMessage, tc *actool
 		Targets:  targetsJSON,
 		ExitCode: exitCode,
 	})
+	if len(outOfScope) > 0 {
+		// 放行了越界目标 —— 这条记录必须在审计里能被一眼看出来。
+		s.markScopeBypass(pg, asset.ID, outOfScope)
+	}
 
 	if runErr != nil {
 		return actool.Errorf(fmt.Sprintf("执行失败（exit=%d）：%v\n输出：%s", exitCode, runErr, out)), nil
 	}
 	msg := fmt.Sprintf("[%s] exit=%d\n%s", strings.Join(argv, " "), exitCode, out)
+	if len(outOfScope) > 0 {
+		// 明确告知：这些目标超出了授权范围，且平台无法拦截（该工具不走
+		// 流量代理）。不给 agent 这句话，它会以为调用完全受管控。
+		msg = fmt.Sprintf("⚠ 越界目标已放行（%s 不受平台流量管控，平台无法拦截）：%s\n%s",
+			asset.Name, strings.Join(outOfScope, ", "), msg)
+	}
 	return actool.Result{Content: []llm.ContentBlock{llm.TextBlock(msg)}}, nil
 }
 
@@ -418,4 +456,19 @@ func (s *Server) auditToolRejection(pg *db.DB, asset *db.ToolAsset, req runToolA
 	_, _ = pg.Exec(`UPDATE tool_asset_runs SET argv = argv || $2::jsonb
 		WHERE id = (SELECT max(id) FROM tool_asset_runs WHERE asset_id=$1)`,
 		asset.ID, []byte(`["__rejected__:`+reason+`"]`))
+}
+
+// markScopeBypass flags the latest audit row of an asset as having run
+// against out-of-scope targets that the platform could not stop.
+func (s *Server) markScopeBypass(pg *db.DB, assetID int64, targets []string) {
+	if pg == nil {
+		return
+	}
+	marker, _ := json.Marshal(map[string]any{
+		"scope_bypass": true,
+		"out_of_scope": targets,
+	})
+	_, _ = pg.Exec(`UPDATE tool_asset_runs SET argv = argv || $2::jsonb
+		WHERE id = (SELECT max(id) FROM tool_asset_runs WHERE asset_id=$1)`,
+		assetID, marker)
 }

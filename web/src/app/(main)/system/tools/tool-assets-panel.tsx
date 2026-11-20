@@ -67,6 +67,18 @@ const RISK_CLASS: Record<string, string> = {
   critical: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
 };
 
+const SCOPE_MODE_LABEL: Record<string, string> = {
+  enforced: "范围强制",
+  advisory: "范围仅提示",
+  none: "不涉网络",
+};
+
+const SCOPE_MODE_CLASS: Record<string, string> = {
+  enforced: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  advisory: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  none: "border-zinc-500/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
+};
+
 const CATEGORY_LABEL: Record<string, string> = {
   scanner: "扫描器",
   brute: "爆破器",
@@ -305,6 +317,21 @@ export function ToolAssetsPanel() {
                             </Badge>
                           ) : null}
                           <Badge variant="outline">{a.platform}</Badge>
+                          {a.scope_enforcement ? (
+                            <Badge
+                              variant="outline"
+                              className={SCOPE_MODE_CLASS[a.scope_enforcement] ?? ""}
+                              title={
+                                a.scope_enforcement === "advisory"
+                                  ? "该工具不经过平台流量代理，平台无法拦截越界目标：越界只会警告并记入审计，不会阻止执行。"
+                                  : a.scope_enforcement === "none"
+                                    ? "该工具不作用于网络目标，无范围概念。"
+                                    : "越界目标会被平台直接拒绝，工具不执行。"
+                              }
+                            >
+                              {SCOPE_MODE_LABEL[a.scope_enforcement] ?? a.scope_enforcement}
+                            </Badge>
+                          ) : null}
                         </div>
                         {a.summary ? (
                           <div className="text-muted-foreground mt-1 text-xs">{a.summary}</div>
@@ -397,6 +424,17 @@ export function ToolAssetsPanel() {
                           <div className="text-muted-foreground mt-1.5 text-[11px]">
                             工具管理员只能在此范围内收紧，无法放宽。
                           </div>
+                          {a.scope_enforcement === "advisory" ? (
+                            <div className="mt-2 flex items-start gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+                              <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                              <span>
+                                该工具不经过平台流量代理（原生 socket），
+                                <strong>平台无法拦截它访问越界目标</strong>。
+                                越界只会警告并记入审计，不会阻止执行。
+                                {a.scope_suggestion === "advisory" ? "（平台建议此类别降级为「范围仅提示」）" : ""}
+                              </span>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 

@@ -248,7 +248,7 @@ UPDATE tools SET description=$2, schema=$3, agents=$4, enabled=$5 WHERE key=$1`,
 // security boundary: if a stale row still carried another agent, that agent
 // could probe and claim uploaded binaries. So we replace the array outright
 // rather than merging.
-func (d *DB) UpsertSystemToolExclusive(key, desc string, schema json.RawMessage, exec json.RawMessage, agents []string) error {
+func (d *DB) UpsertSystemToolExclusive(key, desc string, schema json.RawMessage, exec json.RawMessage, kind string, agents []string) error {
 	if len(schema) == 0 {
 		schema = json.RawMessage(`{}`)
 	}
@@ -262,15 +262,19 @@ func (d *DB) UpsertSystemToolExclusive(key, desc string, schema json.RawMessage,
 	if err != nil {
 		return err
 	}
+	if kind == "" {
+		kind = "builtin"
+	}
 	_, err = d.Exec(`
 INSERT INTO tools(key, system, description, schema, agents, enabled, kind, exec)
-VALUES ($1, true, $2, $3, $4, true, 'shell', $5)
+VALUES ($1, true, $2, $3, $4, true, $5, $6)
 ON CONFLICT (key) DO UPDATE
   SET description = EXCLUDED.description,
       schema      = EXCLUDED.schema,
       agents      = EXCLUDED.agents,
       enabled     = true,
-      exec        = EXCLUDED.exec`, key, desc, schema, raw, exec)
+      kind        = EXCLUDED.kind,
+      exec        = EXCLUDED.exec`, key, desc, schema, raw, kind, exec)
 	return err
 }
 

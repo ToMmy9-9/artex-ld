@@ -126,7 +126,7 @@ INSERT INTO tool_assets(name,display_name,version,sha256,size_bytes,platform,rel
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 RETURNING id`,
 		a.Name, a.DisplayName, a.Version, a.SHA256, a.SizeBytes, a.Platform, a.RelPath, a.State,
-		nullJSON(a.Limits), nullJSON(a.Contract)).Scan(&id)
+		emptyJSONObject(a.Limits), emptyJSONObject(a.Contract)).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -235,10 +235,14 @@ WHERE id=$1`,
 	return err
 }
 
-// nullJSON maps an empty blob to SQL NULL so the column default applies.
-func nullJSON(raw json.RawMessage) json.RawMessage {
+// emptyJSONObject maps an empty blob to an empty JSON object.
+//
+// NOT NULL: the contract columns carry a default of '{}', but a NULL insert
+// violates the constraint instead of falling back to the default. So an empty
+// blob becomes '{}' explicitly.
+func emptyJSONObject(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
-		return nil
+		return json.RawMessage(`{}`)
 	}
 	return raw
 }

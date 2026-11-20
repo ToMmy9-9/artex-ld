@@ -2363,6 +2363,13 @@ export interface ToolAssetContract {
 
 export interface ToolAsset {
   id: number;
+  // scope_enforcement: enforced=平台强制拦截越界目标 | advisory=该工具不走流量
+  // 代理，平台无法拦截（越界只警告+审计）| none=不作用于网络目标
+  scope_enforcement?: "enforced" | "advisory" | "none";
+  // 平台建议的执行模式（原生 socket 类工具建议 advisory）
+  scope_suggestion?: "enforced" | "advisory" | "none";
+  // 该工具是否属于原生 socket 类（平台无法强制管控其出站流量）
+  native_socket?: boolean;
   name: string;
   display_name: string;
   version: string;
