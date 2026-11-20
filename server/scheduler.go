@@ -7,6 +7,9 @@
 package server
 
 import (
+	"artex/agent"
+	"artex/db"
+	"artex/xlog" // 【P-LOG·M1】step 吞错修复
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,9 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"artex/agent"
-	"artex/db"
-	"artex/xlog" // 【P-LOG·M1】step 吞错修复
 )
 
 // Scheduler drives P3 triggers: on each tick it fires due interval triggers and

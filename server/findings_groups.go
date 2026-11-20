@@ -7,6 +7,7 @@
 package server
 
 import (
+	"artex/db"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
-	"artex/db"
 )
 
 const maxFindingFollowUpRunes = 4000

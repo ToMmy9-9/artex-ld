@@ -257,16 +257,16 @@ func (s *Server) buildReportInput(t *Task, q map[string][]string) *reportx.GenIn
 		ProjectName:   defaultStrSrv(get("project"), project),
 		Scope:         strings.TrimSpace(t.Description), // 完整目标系统清单/范围→喂 AI 叙述,不上封面
 
-		ReportTitle:   get("title"), // empty → BuildDoc applies locale-aware "<project> <报告词>"
-		Version:       defaultStrSrv(get("version"), "V1.0"),
-		Locale:        defaultStrSrv(locale, "zh-CN"),
-		CVSSVersion:   cvss,
-		LogoPath:      logoPath,
-		Personnel:     personnel,
-		Findings:      findings,
-		AssetCounts:   counts,
-		SkillDir:      s.skillDir,
-		DataDir:       s.dataDir, // 用于客户报告脱敏内部 scratch 路径
+		ReportTitle: get("title"), // empty → BuildDoc applies locale-aware "<project> <报告词>"
+		Version:     defaultStrSrv(get("version"), "V1.0"),
+		Locale:      defaultStrSrv(locale, "zh-CN"),
+		CVSSVersion: cvss,
+		LogoPath:    logoPath,
+		Personnel:   personnel,
+		Findings:    findings,
+		AssetCounts: counts,
+		SkillDir:    s.skillDir,
+		DataDir:     s.dataDir, // 用于客户报告脱敏内部 scratch 路径
 	}
 }
 

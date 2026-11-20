@@ -4,12 +4,12 @@
 package server
 
 import (
+	"artex/db"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"unicode/utf8"
-	"artex/db"
 )
 
 const (
@@ -30,8 +30,8 @@ func (s *Server) updateTaskMetadata(w http.ResponseWriter, r *http.Request) {
 		Remark            *string `json:"remark"`
 		Pinned            *bool   `json:"pinned"`
 		ShareGlobalAssets *bool   `json:"share_global_assets"`
-		ReviewAuto    *bool   `json:"review_auto"`    // 【二开·P-REVIEW·D2b】自动审核开关
-		ReviewEnabled *bool   `json:"review_enabled"` // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934）
+		ReviewAuto        *bool   `json:"review_auto"`    // 【二开·P-REVIEW·D2b】自动审核开关
+		ReviewEnabled     *bool   `json:"review_enabled"` // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934）
 	}
 	if err := decode(r, &request); err != nil {
 		var tooLarge *http.MaxBytesError

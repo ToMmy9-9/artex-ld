@@ -6,10 +6,10 @@ package db
 // 二开日期：2026-10-25
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
-	"encoding/json"
 )
 
 // setupReviewFlowExploration 建一个专用 exploration 并注册清理。

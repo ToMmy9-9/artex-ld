@@ -9,23 +9,23 @@
 package server
 
 import (
+	"artex/agent"
+	"artex/db"
+	"artex/intercept"
+	"artex/xlog" // 【二开·P-LOG】S1/S12 等点位 DEBUG/INFO 开关
 	"context"
 	"encoding/json" // 【二开·P-EXEC·S1】pickExecutor payload.executor 解析
 	"errors"
 	"fmt"
 	"log"
+	"norma/harness"
+	"norma/llm"
 	"runtime/debug" // 【P-LOG·M1】panic 栈
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"artex/agent"
-	"artex/db"
-	"artex/intercept"
-	"artex/xlog" // 【二开·P-LOG】S1/S12 等点位 DEBUG/INFO 开关
-	"norma/harness"
-	"norma/llm"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )

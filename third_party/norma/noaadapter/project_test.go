@@ -296,8 +296,8 @@ func TestStripRefTag(t *testing.T) {
 		// Only the trailing form is ever produced, so only it is stripped; a
 		// leading one is left alone rather than risk eating user content that
 		// opens with tag-shaped text.
-		"<noa-ref id=\"m00001\" tokens=\"5\"/>\nbody":                 "<noa-ref id=\"m00001\" tokens=\"5\"/>\nbody",
-		"body with no tag":                                            "body with no tag",
+		"<noa-ref id=\"m00001\" tokens=\"5\"/>\nbody": "<noa-ref id=\"m00001\" tokens=\"5\"/>\nbody",
+		"body with no tag": "body with no tag",
 		"body\n<noa-ref id=\"m00042\" tokens=\"1.2K\" src=\"Read\"/>": "body",
 	}
 	for in, want := range cases {

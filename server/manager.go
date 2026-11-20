@@ -8,12 +8,19 @@
 package server
 
 import (
+	"artex/agent"
+	pgdb "artex/db"
+	"artex/enrich"
+	"artex/guard"
+	"artex/intercept"
+	"artex/traffic"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	actool "norma/tool"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,40 +29,33 @@ import (
 	"sync"
 	"sync/atomic" // 【二开·P-REVIEW·S6】reviewBusy
 	"time"
-	"artex/agent"
-	pgdb "artex/db"
-	"artex/enrich"
-	"artex/guard"
-	"artex/intercept"
-	"artex/traffic"
-	actool "norma/tool"
 )
 
 // Task is one engagement: a description + goal + its own exploration store,
 // sharing the process-wide asset store. ID is the PG task id as a string; ExpID
 // is the exploration the task owns.
 type Task struct {
-	ID           string `json:"id"`
-	ExpID        int64  `json:"exploration_id"`
-	Remark       string `json:"remark"`
-	Name         string `json:"name"` // 可选任务名称;空=未命名
-	CategoryID   *int64 `json:"category_id,omitempty"`
-	CategoryName string `json:"category_name,omitempty"`
-	CategoryNKey string `json:"category_nkey,omitempty"`
-	PinnedAt     int64  `json:"pinned_at,omitempty"`
-	Description  string `json:"description"`
-	Goal         string `json:"goal"`
-	CreatedAt    int64  `json:"created_at"`
-	CompletedAt  int64  `json:"completed_at,omitempty"` // 进入终态的 unix 秒;0=未完成
-	Paused       bool   `json:"paused"`
-	PauseReason  string `json:"pause_reason,omitempty"`
+	ID                  string `json:"id"`
+	ExpID               int64  `json:"exploration_id"`
+	Remark              string `json:"remark"`
+	Name                string `json:"name"` // 可选任务名称;空=未命名
+	CategoryID          *int64 `json:"category_id,omitempty"`
+	CategoryName        string `json:"category_name,omitempty"`
+	CategoryNKey        string `json:"category_nkey,omitempty"`
+	PinnedAt            int64  `json:"pinned_at,omitempty"`
+	Description         string `json:"description"`
+	Goal                string `json:"goal"`
+	CreatedAt           int64  `json:"created_at"`
+	CompletedAt         int64  `json:"completed_at,omitempty"` // 进入终态的 unix 秒;0=未完成
+	Paused              bool   `json:"paused"`
+	PauseReason         string `json:"pause_reason,omitempty"`
 	ReconnectAttempt    int    `json:"-"`
 	ReconnectMax        int    `json:"-"`
 	ReconnectNextAt     int64  `json:"-"`
 	ReconnectExhausted  bool   `json:"-"`
 	ReconnectLastError  string `json:"-"`
 	ReconnectGeneration uint64 `json:"-"`
-	Queued       bool   `json:"queued"` // 因并发上限被挂起、等待空位自动启动;true=尚未开跑
+	Queued              bool   `json:"queued"` // 因并发上限被挂起、等待空位自动启动;true=尚未开跑
 	// QueuedAt is an internal Unix-nanosecond ordering key. It is deliberately
 	// finer than CreatedAt so several tasks enqueued in the same second retain
 	// their real FIFO order.
@@ -85,13 +85,13 @@ type Task struct {
 	ReviewEnabled         bool   `json:"review_enabled"`                    // 【二开·P-REVIEW·D2c】任务级审核总开关（m03934）
 	AssetMode             string `json:"asset_mode"`                        // 【二开·P-REVIEW·D12】资产图模式标签（m04039）
 	// 【二开·P-INTENT·D7】止
-	FirstRunAt           int64 `json:"first_run_at,omitempty"`
-	DeadlineAt           int64 `json:"deadline_at,omitempty"`
-	ActiveRunSeconds     int64 `json:"active_run_seconds"`
-	RunSegmentStartedAt  int64 `json:"run_segment_started_at,omitempty"`
-	Store      *pgdb.ExplorationStore `json:"-"`
-	Guard      *guard.Guard           `json:"-"`
-	notify     chan struct{}
+	FirstRunAt          int64                  `json:"first_run_at,omitempty"`
+	DeadlineAt          int64                  `json:"deadline_at,omitempty"`
+	ActiveRunSeconds    int64                  `json:"active_run_seconds"`
+	RunSegmentStartedAt int64                  `json:"run_segment_started_at,omitempty"`
+	Store               *pgdb.ExplorationStore `json:"-"`
+	Guard               *guard.Guard           `json:"-"`
+	notify              chan struct{}
 	// 【二开·P-REVIEW·S6】reviewBusy：review 会话单飞门（同任务同刻只允许一个 review 对话在跑）
 	reviewBusy   atomic.Bool
 	reviewMu     sync.Mutex
@@ -1210,7 +1210,7 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		ReviewAuto:            pt.ReviewAuto,
 		ReviewEnabled:         pt.ReviewEnabled,
 		AssetMode:             pt.AssetMode,
-		FirstRunAt: unixOrZero(pt.FirstRunAt), DeadlineAt: unixOrZero(pt.DeadlineAt),
+		FirstRunAt:            unixOrZero(pt.FirstRunAt), DeadlineAt: unixOrZero(pt.DeadlineAt),
 		ActiveRunSeconds: pt.ActiveRunSeconds, RunSegmentStartedAt: unixOrZero(pt.RunSegmentStartedAt),
 		Store: store, Guard: guard.NewWithInterceptor(ic), notify: make(chan struct{}, 1),
 	}

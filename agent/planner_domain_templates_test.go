@@ -49,11 +49,11 @@ func TestPlannerDomainSeedsValid(t *testing.T) {
 func TestPlannerDomainSeedsKeepSkeleton(t *testing.T) {
 	anchors := []string{
 		"你是规划者、不是执行者",        // ① 角色契约
-		"必须】产出至少一个",             // ② 硬底线
-		"prove_goal(goal_id",          // ③ 判定目标
+		"必须】产出至少一个",          // ② 硬底线
+		"prove_goal(goal_id", // ③ 判定目标
 		"完整态势已附在本轮用户输入",      // ④ 态势消费
-		"recent_done",                  // ⑤ 方向纪律
-		"add_intent",                   // ⑥ 提交格式
+		"recent_done",        // ⑤ 方向纪律
+		"add_intent",         // ⑥ 提交格式
 	}
 	for name, body := range PlannerDomainSeeds() {
 		for _, a := range anchors {

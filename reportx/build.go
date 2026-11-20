@@ -23,7 +23,7 @@ import (
 // touched (they're legitimate vuln content, no antifox-data marker / not /var/folders).
 var (
 	reAntiFoxDataPath = regexp.MustCompile(`/[^\s，、；;）")']*antifox[^\s，、；;）")']*data[^\s，、；;）")']*`)
-	reVarFolders     = regexp.MustCompile(`(?:/private)?/var/folders/[^\s，、；;）")']+`)
+	reVarFolders      = regexp.MustCompile(`(?:/private)?/var/folders/[^\s，、；;）")']+`)
 )
 
 // redactInternalPaths collapses the platform's own absolute scratch paths to a bare
@@ -50,7 +50,7 @@ func redactLines(in []string, dataDir string) []string {
 
 // FindingInput is one confirmed finding, flattened from a graph node.
 type FindingInput struct {
-	NodeID     int64  // exploration 节点 id：用于加载该漏洞的证据截图(finding_evidence)
+	NodeID     int64 // exploration 节点 id：用于加载该漏洞的证据截图(finding_evidence)
 	VulnClass  string
 	Severity   string // high|medium|low|critical|info
 	Summary    string
@@ -68,7 +68,7 @@ type FindingInput struct {
 	// fall back to AI-reconstructed test_process / PoC.
 	Reproduction json.RawMessage
 	CreatedAt    time.Time
-	Enrichment *Enrichment // pre-loaded persisted enrichment; when set the AI call is skipped
+	Enrichment   *Enrichment // pre-loaded persisted enrichment; when set the AI call is skipped
 }
 
 // Reproduction is the structured 复现过程 captured in-situ by the agent (mirrors the
@@ -420,6 +420,7 @@ func worstSeverityAll(fs []FindingInput) string {
 	}
 	return worst
 }
+
 // ---- text utils ----
 
 func defaultStr(v, d string) string {

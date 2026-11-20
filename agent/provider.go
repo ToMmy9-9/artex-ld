@@ -16,23 +16,23 @@
 package agent
 
 import (
+	"artex/llmhttp"
+	"artex/llmrec"
 	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"regexp"
-	"strings"
-	"time"
-	"artex/llmhttp"
-	"artex/llmrec"
 	"norma/agentcore"
 	"norma/compaction"
 	"norma/llm"
 	acperm "norma/permission"
 	"norma/transcript"
+	"os"
+	"regexp"
+	"strings"
+	"time"
 )
 
 // Config describes the LLM backend resolved from the environment.

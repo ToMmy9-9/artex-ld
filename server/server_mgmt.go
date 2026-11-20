@@ -11,6 +11,10 @@ package server
 
 import (
 	"archive/zip"
+	"artex/agent"
+	"artex/db"
+	"artex/intercept/jev"
+	"artex/llmhttp"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -19,6 +23,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"norma/llm"
+	"norma/skill"
 	"os"
 	"path"
 	"path/filepath"
@@ -30,12 +36,6 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
-	"artex/agent"
-	"artex/db"
-	"norma/llm"
-	"norma/skill"
-	"artex/intercept/jev"
-	"artex/llmhttp"
 )
 
 // validSkillName checks the agentskills.io name constraints, widened so a skill can

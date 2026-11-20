@@ -8,6 +8,11 @@
 package server
 
 import (
+	"artex/db"
+	"artex/guard"
+	"artex/intercept"
+	"artex/intercept/jev"
+	"artex/llmrec"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,17 +20,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"norma/llm"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
-	"artex/db"
-	"artex/guard"
-	"artex/intercept"
-	"artex/llmrec"
-	"norma/llm"
-	"artex/intercept/jev"
 )
 
 // judgeWorkerLane is the usage-ledger "worker" label for intercept fallback-judge

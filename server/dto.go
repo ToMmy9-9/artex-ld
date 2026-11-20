@@ -8,12 +8,12 @@
 package server
 
 import (
+	"artex/db"
+	"artex/traffic"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
-	"artex/db"
-	"artex/traffic"
 )
 
 // DTO/serialization layer: each handler emits EXACTLY the frontend's spec shapes

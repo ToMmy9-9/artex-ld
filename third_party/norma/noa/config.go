@@ -99,9 +99,9 @@ func DefaultConfig(modelContextLimit int) Config {
 			MaxContextLimitPct:    0.75,
 			MinContextLimitPct:    0.45,
 			EmergencyThresholdPct: 0.95,
-			GrowthRatio: 0.05,
+			GrowthRatio:           0.05,
 			// The clamp band must straddle GrowthRatio's output for the window,
-		// not replace it: floor 5k ≈ 5% of a 100k window, cap 50k = 5% of 1M
+			// not replace it: floor 5k ≈ 5% of a 100k window, cap 50k = 5% of 1M
 			// (the size the constants were originally tuned at, whose behaviour
 			// is preserved). Equal floor/cap would flatten the adaptive growth
 			// into a window-independent constant and break small windows.
@@ -111,8 +111,8 @@ func DefaultConfig(modelContextLimit int) Config {
 			// inside small windows (<=25% of a 40k window once the ratio term
 			// applies), large enough that a mid-window nudge on a 200k window
 			// still waits for a real growth step rather than nagging.
-			MinGrowthFloor: 6_000,
-			MinGrowthRatio: 0.45,
+			MinGrowthFloor:        6_000,
+			MinGrowthRatio:        0.45,
 			Tier2GrowthMultiplier: 1.5,
 		},
 		Truncate: TruncateConfig{Threshold: 0.95},

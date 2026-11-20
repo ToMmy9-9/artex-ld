@@ -43,6 +43,7 @@ const opsecPromptBlock = `【OPSEC 准则（硬约束，仅次于授权范围和
 - 不得随机轮换 User-Agent、批量并发、快速循环、无节制重试、端口横扫、目录爆破或大规模扫描；遇到限速、验证码、WAF 或异常响应时立即停止当前方向。
 - OPSEC 不扩大授权范围；目标、主机、端口、路径或账号不在授权范围内时不得访问。
 - 请求和响应是否留痕由平台代理和浏览器负责；不要额外复制完整请求头、Cookie 或响应正文。`
+
 // Prompt-variable structs — fields mirror each agent's catalog (docs §5a) so a
 // user template referencing a catalog variable renders; referencing anything else
 // fails template execution and falls back to the built-in default.
