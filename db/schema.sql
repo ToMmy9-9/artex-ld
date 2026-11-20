@@ -2066,3 +2066,36 @@ CREATE TABLE IF NOT EXISTS tool_asset_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_tool_asset_runs_asset ON tool_asset_runs(asset_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_asset_runs_task ON tool_asset_runs(task_id, created_at DESC);
+
+-- =====================================================================
+-- 外部工具环境准备记录（tool_env_preps）
+-- 上传只覆盖"单文件二进制"；很多攻防工具是发布包（zip/tar.gz）自带依赖、
+-- 字典、模板、运行时。环境准备就是平台替 agent 把发布包下载并解压到受管
+-- 目录，让它具备运行条件。
+--
+-- 关键约束：**只下载与解压，永不执行**。不跑 install/setup/postinst，
+-- 所以这里记录的是"什么被放到了这台磁盘上"，而不是"跑了什么"。
+--
+-- 下载源不做白名单（可填任意 https/http 地址），因此这张表是主要的可追溯
+-- 手段：出问题时能回答哪个 URL、谁要求、落了哪些文件。
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS tool_env_preps (
+    id          BIGSERIAL PRIMARY KEY,
+    tool_name   TEXT NOT NULL DEFAULT '',
+    url         TEXT NOT NULL DEFAULT '',
+    final_url   TEXT NOT NULL DEFAULT '',   -- 跟随重定向后的实际地址
+    archive     TEXT NOT NULL DEFAULT '',   -- zip/tar.gz/tar/gz/binary
+    sha256      TEXT NOT NULL DEFAULT '',
+    downloaded  BIGINT NOT NULL DEFAULT 0,
+    file_count  INT NOT NULL DEFAULT 0,
+    total_bytes BIGINT NOT NULL DEFAULT 0,
+    target_dir  TEXT NOT NULL DEFAULT '',   -- 受管目录内的相对目录
+    entry_bin   TEXT NOT NULL DEFAULT '',   -- 识别出的主可执行文件（相对路径）
+    asset_id    BIGINT NOT NULL DEFAULT 0,  -- 登记出的 tool_assets id（0=未登记）
+    state       TEXT NOT NULL DEFAULT 'ok' CHECK (state IN ('ok','failed')),
+    error       TEXT NOT NULL DEFAULT '',
+    requested_by TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tool_env_preps_tool ON tool_env_preps(tool_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_env_preps_at ON tool_env_preps(created_at DESC);

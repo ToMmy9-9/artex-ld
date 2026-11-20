@@ -93,8 +93,8 @@ func (s *Server) seedToolKeeper() {
 		}
 	}
 
-	// 3) bind its three tools to it ONLY
-	for _, toolKey := range []string{"list_tool_assets", "probe_tool", "claim_tool"} {
+	// 3) bind its tools to it ONLY
+	for _, toolKey := range []string{"list_tool_assets", "probe_tool", "claim_tool", "prepare_tool_env"} {
 		if _, err = tx.Exec(`UPDATE tools SET agents=agents || to_jsonb($2::text)
 			WHERE key=$1 AND NOT (agents ? $2)`, toolKey, toolKeeperAgentKey); err != nil {
 			log.Printf("[tool-keeper] 绑定工具 %s 失败: %v", toolKey, err)

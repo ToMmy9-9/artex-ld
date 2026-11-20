@@ -204,6 +204,72 @@ func (s *Server) toolClaimTool() actool.CoreTool {
 }
 
 
+// toolPrepareEnv prepares a tool's runtime environment by downloading a
+// release archive and extracting it into the managed directory.
+//
+// 为什么给 keeper 而不是给 worker：环境准备是"认领"这件事的一部分——一个
+// 上传的 exe 缺依赖、缺字典、缺模板时，是 keeper 在探测阶段发现它跑不起来，
+// 也只有 keeper 有能力判断该补哪个包。worker 不该有往宿主磁盘写文件的权限。
+//
+// 安全边界写在 toolenv.go 顶部：只下载与解压，永不执行。
+func (s *Server) toolPrepareEnv() actool.CoreTool {
+	return wrTool("prepare_tool_env",
+		"为一个外部工具准备运行环境：从给定 URL 下载发布包（zip/tar.gz/tar/gz/裸二进制），"+
+			"解压到平台的受管工具目录，并自动登记成工具资产（随后走正常认领流程）。\n\n"+
+			"用途：上传的工具只是个 exe，但缺少依赖 DLL、字典、POC 模板、配置文件时，"+
+			"用这个把完整发布包装进来。\n\n"+
+			"重要限制：\n"+
+			"- **只下载与解压，绝不执行任何内容**（不跑 install/setup/postinst/.bat），"+
+			"所以带安装脚本的包不会自动安装，只会把文件放好。\n"+
+			"- 只会写入平台的受管工具目录，不会写到系统目录或用户目录。\n"+
+			"- 下载地址不做白名单，但每次准备都会完整记录（URL、哈希、文件数、谁要求的），可追溯。",
+		objSchema(map[string]any{
+			"tool_name": map[string]any{"type": "string",
+				"description": "工具名（小写字母数字与 . _ -）。会成为受管目录下的子目录名与工具资产名。"},
+			"url": map[string]any{"type": "string",
+				"description": "发布包的 http/https 下载地址。支持 zip / tar.gz / tar / gz / 裸二进制。"},
+			"entry_bin": map[string]any{"type": "string",
+				"description": "可选。包内主可执行文件的相对路径（如 gogo.exe 或 bin/fscan）。留空则平台按名字自动识别。"},
+			"claim": map[string]any{"type": "boolean",
+				"description": "可选。准备成功后是否立即唤醒工具管理员认领。默认 true。"},
+		}, "tool_name", "url"),
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			var req toolEnvPrepRequest
+			if err := json.Unmarshal(in, &req); err != nil {
+				return actool.Errorf("参数格式错误: " + err.Error()), nil
+			}
+			// 默认自动认领：环境准备的目的是让工具可用，停在 uploaded
+			// 还需要人再点一次，等于没省事。用指针区分"没传"与"传了 false"。
+			claim := true
+			if v, ok := boolField(in, "claim"); ok {
+				claim = v
+			}
+			req.Claim = claim
+			res, err := s.toolEnvPrep(ctx, req, toolKeeperAgentKey)
+			if err != nil {
+				return actool.Errorf("环境准备失败: " + err.Error()), nil
+			}
+			b, _ := json.Marshal(res)
+			return actool.Result{Content: []llm.ContentBlock{llm.TextBlock(string(b))}}, nil
+		})
+}
+
+// boolField reports whether key was present as a JSON boolean, and its value.
+func boolField(in json.RawMessage, key string) (val, ok bool) {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(in, &m) != nil {
+		return false, false
+	}
+	raw, exists := m[key]
+	if !exists {
+		return false, false
+	}
+	if json.Unmarshal(raw, &val) != nil {
+		return false, false
+	}
+	return val, true
+}
+
 // wrToolCtx is wrTool with the ToolContext passed through, for tools that
 // need the working dir / agent id (e.g. audit attribution).
 func wrToolCtx(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage, *actool.ToolContext) (actool.Result, error)) actool.CoreTool {
@@ -224,5 +290,6 @@ func (s *Server) toolKeeperTools() []actool.CoreTool {
 		s.toolListToolAssets(),
 		s.toolProbeTool(),
 		s.toolClaimTool(),
+		s.toolPrepareEnv(),
 	}
 }

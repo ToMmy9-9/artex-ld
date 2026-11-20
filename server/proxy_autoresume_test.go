@@ -16,8 +16,53 @@ func proxyTestManager(t *testing.T) *Manager {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)
 	}
+	// 这些测试会直接改内存里的 m.globalProxy，而代理池的持久化逻辑
+	// (persistProxyPoolLocked / pickProxyLocked) 会把内存值写回 settings，
+	// 于是测试里的假代理（proxy.example:8080、proxy.invalid）会污染真实
+	// 部署的 global_proxy —— 之后所有出网请求都会 "no such host"。
+	//
+	// 恢复必须发生在 Close 之前，否则连接已经关了，写不回去。Go 的 cleanup
+	// 是后进先出，所以先注册 Close、再注册恢复。
 	t.Cleanup(func() { _ = m.Close() })
+	restoreProxySettings(t, m)
 	return m
+}
+
+// restoreProxySettings snapshots the proxy-related settings and restores them
+// verbatim after the test, so in-memory mutations that get persisted cannot
+// leak into the real deployment's configuration.
+func restoreProxySettings(t *testing.T, m *Manager) {
+	t.Helper()
+	if m.pg == nil {
+		return
+	}
+	keys := []string{settingGlobalProxy, settingProxyPool, settingProxyPoolActive}
+	type snap struct {
+		value   string
+		existed bool
+	}
+	saved := make(map[string]snap, len(keys))
+	for _, k := range keys {
+		v, ok, err := m.pg.GetSetting(k)
+		if err != nil {
+			t.Fatalf("读取代理设置 %s 失败: %v", k, err)
+		}
+		saved[k] = snap{value: v, existed: ok}
+	}
+	t.Cleanup(func() {
+		for _, k := range keys {
+			s := saved[k]
+			var err error
+			if s.existed {
+				err = m.pg.SetSetting(k, s.value)
+			} else {
+				_, err = m.pg.Exec(`DELETE FROM settings WHERE key=$1`, k)
+			}
+			if err != nil {
+				t.Errorf("恢复代理设置 %s 失败: %v", k, err)
+			}
+		}
+	})
 }
 
 func TestProxyFailureClassification(t *testing.T) {

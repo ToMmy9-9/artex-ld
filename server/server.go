@@ -1256,6 +1256,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tool-assets/{id}/claim", s.toolAssetClaim)
 	mux.HandleFunc("POST /api/tool-assets/{id}/limits", s.toolAssetSetLimits)
 	mux.HandleFunc("GET /api/tool-assets/{id}/runs", s.toolAssetRuns)
+	// 环境准备：下载发布包并解压到受管目录（永不执行）。同时提供审计查询。
+	mux.HandleFunc("POST /api/tool-assets/prepare-env", s.toolEnvPrepHandler)
+	mux.HandleFunc("GET /api/tool-env-preps", s.toolEnvPrepList)
 	mux.HandleFunc("PUT /api/tools/{key}", s.pgUpdateTool)
 	mux.HandleFunc("POST /api/tools/custom", s.pgCreateCustomTool)
 	mux.HandleFunc("POST /api/tools/custom/test", s.pgTestCustomTool)

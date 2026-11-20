@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -203,12 +204,31 @@ func (s *Server) toolAssetUpload(w http.ResponseWriter, r *http.Request) {
 // toolAssetPath resolves an asset's on-disk path, refusing anything that
 // escapes the managed directory.
 //
-// The basename rule plus the prefix check together make path traversal
-// impossible: a stored rel_path of "../../evil.exe" collapses to "evil.exe"
-// (basename) and still has to land inside the managed dir.
+// rel_path 有两种形态：
+//   - 单文件上传：就是受管目录下的文件名（"gogo.exe"）
+//   - 环境准备的发布包：子目录 + 入口程序（"gogo/gogo.exe"），包里的
+//     DLL/字典/模板都在同一子目录下，工具必须在那个目录里才能跑
+//
+// 所以不能再用 filepath.Base 拍平——那会让所有子目录形态的工具永远
+// "文件不存在"。改成：先拒绝任何 ".." 段与绝对路径，再拼前缀校验，
+// 两道一起保证出不去。
 func (s *Server) toolAssetPath(asset *db.ToolAsset) (string, error) {
-	root := s.toolAssetDir()
-	full := filepath.Join(root, filepath.Base(asset.RelPath))
+	root := filepath.Clean(s.toolAssetDir())
+	rel := strings.TrimSpace(asset.RelPath)
+	if rel == "" {
+		return "", fmt.Errorf("工具路径为空")
+	}
+	// 统一分隔符：rel_path 在库里存的是 slash 形态。
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	if strings.HasPrefix(rel, "/") || (len(rel) >= 2 && rel[1] == ':') {
+		return "", fmt.Errorf("工具路径非法（绝对路径）")
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("工具路径非法（含 ..）")
+		}
+	}
+	full := filepath.Join(root, filepath.FromSlash(path.Clean(rel)))
 	// filepath.Join already cleans the result; compare against the cleaned root.
 	if !strings.HasPrefix(full, root+string(os.PathSeparator)) {
 		return "", fmt.Errorf("工具路径非法")
@@ -298,12 +318,28 @@ func (s *Server) toolAssetDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	// Only remove files that live inside the managed directory; a corrupted
 	// rel_path must never turn into a path traversal delete.
-	dst := filepath.Join(s.toolAssetDir(), filepath.Base(asset.RelPath))
-	if !strings.HasPrefix(dst, filepath.Clean(s.toolAssetDir())+string(os.PathSeparator)) {
+	//
+	// 发布包形态的工具（环境准备产生）在受管目录下有自己的子目录，
+	// 删资产时要把整个子目录删掉——只删入口 exe 会留下一堆孤儿依赖文件，
+	// 而它们还占着几百 MB。判断依据：rel_path 含 '/' 时，第一段就是
+	// 该工具独占的目录。
+	root := filepath.Clean(s.toolAssetDir())
+	rel := filepath.ToSlash(strings.ReplaceAll(strings.TrimSpace(asset.RelPath), "\\", "/"))
+	var dst string
+	if first, _, ok := strings.Cut(rel, "/"); ok && first != "" && first != ".." {
+		dst = filepath.Join(root, filepath.FromSlash(first))
+	} else {
+		dst = filepath.Join(root, filepath.Base(rel))
+	}
+	if !strings.HasPrefix(filepath.Clean(dst), root+string(os.PathSeparator)) {
 		writeErr(w, 500, "工具路径非法")
 		return
 	}
-	_ = os.Remove(dst)
+	if strings.Contains(rel, "/") {
+		_ = os.RemoveAll(dst)
+	} else {
+		_ = os.Remove(dst)
+	}
 	if err := pg.DeleteToolAsset(id); err != nil {
 		writeErr(w, 500, err.Error())
 		return

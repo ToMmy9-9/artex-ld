@@ -591,17 +591,15 @@ func TestSetGlobalProxyIsReadOnlyWhenPoolManaged(t *testing.T) {
 }
 
 func TestProxyPoolEmptyPersistenceDoesNotResurrectLegacyProxy(t *testing.T) {
+	// 这个用例会往 settings 里写 "http://deleted.example:8080"，必须走受保护
+	// 的构造函数，否则会把真实部署的 global_proxy 改成这个假地址。
 	dir := t.TempDir()
-	m, err := NewManager(dir, "")
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) - skipping", err)
-	}
+	m := proxyTestManager(t)
 	m.proxyPool = &proxyPoolState{active: "a", entries: []proxyPoolEntry{{
 		ProxyPoolEntry: ProxyPoolEntry{ID: "a", Enabled: true, Health: "healthy"}, RawURL: "http://deleted.example:8080",
 	}}}
 	m.globalProxy = "http://deleted.example:8080"
 	if err := m.persistProxyPoolLocked(); err != nil {
-		_ = m.Close()
 		t.Fatal(err)
 	}
 	s := &Server{m: m}
@@ -610,15 +608,13 @@ func TestProxyPoolEmptyPersistenceDoesNotResurrectLegacyProxy(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.deleteProxyPool(w, r)
 	if w.Code != http.StatusOK {
-		_ = m.Close()
 		t.Fatalf("delete status=%d body=%s", w.Code, w.Body.String())
 	}
 	if got := m.GlobalProxy(); got != "" {
 		t.Fatalf("delete left runtime proxy=%q", got)
 	}
-	if err := m.Close(); err != nil {
-		t.Fatal(err)
-	}
+	// 不在这里 m.Close()：restoreProxySettings 的 cleanup 还要用这条连接
+	// 恢复真实设置，提前关掉会让恢复静默失败（正是之前污染生产配置的路径）。
 	m2, err := NewManager(dir, "")
 	if err != nil {
 		t.Fatal(err)
