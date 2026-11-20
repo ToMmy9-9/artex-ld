@@ -221,7 +221,16 @@ func (t *ToolSet) addReviewIntent() actool.CoreTool {
 			"replaces":        idp("可选：本条意图替代的旧意图 id（必须已存在）"),
 			"target_executor": str("可选：建议执行器标识（executor_key，必须是已注册且启用的自定义 agent）→ payload.pending_executor，审核通过时自动转正为正式 executor"),
 			"reason":          str("可选：送审理由/给审核人的说明（写入 payload.review_reason 供审核参考）"),
-			"intents":         map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "批量模式：每条 {summary,priority?,asset_ids?,parent_ids?,replaces?,target_executor?,reason?}。返回 ids 与本数组等长同序（失败项 id=0，详情见 errors）"},
+			"intents": map[string]any{"type": "array", "description": "批量模式：每条 {summary,priority?,asset_ids?,parent_ids?,replaces?,target_executor?,reason?}。返回 ids 与本数组等长同序（失败项 id=0，详情见 errors）",
+				"items": batchItemsObj(map[string]any{
+					"summary":         str("一句话描述这个探索方向：做什么+为什么"),
+					"priority":        intp("优先级 1-10，默认 5"),
+					"asset_ids":       map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "可选：目标资产 id"},
+					"parent_ids":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "可选：上游锚点 id"},
+					"replaces":        idp("可选：本条意图替代的旧意图 id"),
+					"target_executor": str("可选：建议执行器标识"),
+					"reason":          str("可选：送审理由/给审核人的说明"),
+				}, "summary")},
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			// §2.4：审核总开关在落库前即时校验（不是一轮开始时的快照）；false 明确报错，

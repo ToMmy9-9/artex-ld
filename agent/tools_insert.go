@@ -192,7 +192,11 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 					"auth": map[string]any{
 						"type":        "array",
 						"description": "发现的认证信息列表，每条含 type/username/password 等字段（可选，追加不覆盖）",
-						"items":       map[string]any{"type": "object"},
+						"items": batchItemsObj(map[string]any{
+							"type":     str("凭据类型，如 account/api_key/token/password"),
+							"username": str("用户名（可选）"),
+							"password": str("密码/密钥（可选）"),
+						}),
 					},
 					// service (other，非 HTTP)
 					"service_name": str("服务名称，如 ssh/mysql/redis（service 非 HTTP 时必填）"),
@@ -202,7 +206,12 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 					"params": map[string]any{
 						"type":        "array",
 						"description": "请求参数列表，每条含 location(query/body/header/path)/name/value/type（可选，追加不覆盖）",
-						"items":       map[string]any{"type": "object"},
+						"items": batchItemsObj(map[string]any{
+							"location": str("参数位置：query | body | header | path"),
+							"name":     str("参数名"),
+							"value":    str("参数值（可选）"),
+							"type":     str("参数类型（可选）"),
+						}),
 					},
 				}, "type"),
 			},
@@ -453,10 +462,14 @@ func (t *ToolSet) addTaskScope() actool.CoreTool {
 			"value：company 传公司名或 id(公司须已存在)；root_domain/subdomain 传域名；ip/cidr 传 IP 或网段；icp/keyword 传备案号或企业关键词。\n"+
 			"务必给 reason 说明依据(可审计)。多条用 entries 数组。",
 		obj(map[string]any{
-			"entries": map[string]any{"type": "array", "description": "批量：[{kind, value}]。kind∈company/root_domain/subdomain/ip/cidr/icp/keyword。", "items": map[string]any{"type": "object"}},
-			"kind":    str("[单条] company / root_domain / subdomain / ip / cidr / icp / keyword"),
-			"value":   str("[单条] 公司名或id / 域名 / IP / CIDR / ICP / 关键词"),
-			"reason":  str("加入依据(用于审计)，务必填写"),
+			"entries": map[string]any{"type": "array", "description": "批量：[{kind, value}]。kind∈company/root_domain/subdomain/ip/cidr/icp/keyword。",
+				"items": batchItemsObj(map[string]any{
+					"kind":  str("company / root_domain / subdomain / ip / cidr / icp / keyword"),
+					"value": str("公司名或id / 域名 / IP / CIDR / ICP / 关键词"),
+				}, "kind", "value")},
+			"kind":   str("[单条] company / root_domain / subdomain / ip / cidr / icp / keyword"),
+			"value":  str("[单条] 公司名或id / 域名 / IP / CIDR / ICP / 关键词"),
+			"reason": str("加入依据(用于审计)，务必填写"),
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.as == nil {

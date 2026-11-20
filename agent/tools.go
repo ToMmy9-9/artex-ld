@@ -361,6 +361,25 @@ func obj(props map[string]any, required ...string) map[string]any {
 	return m
 }
 func str(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
+
+// batchItemsObj 构造「批量数组」里元素的 JSON Schema。
+//
+// 为什么必须显式给 properties + required（而不是笼统的 {"type":"object"}）：
+// 有些供应商（如 MiniMax / Anthropic 兼容端点）会对 schema 做**严格校验** ——
+// items 只写 {"type":"object"} 而不带 properties 时，整个请求被直接判 400
+// invalid params，模型一个 token 都拿不到；宽松一点的实现则会退化成"模型自己
+// 猜字段"，实测出现过工具调用参数为空（{}）→ 工具报"summary 不能为空" →
+// 模型重试仍传空参 → 整轮规划作废（planner 的推理全部丢弃）。
+//
+// 这里把元素的字段与顶层同名字段逐个写清，并标出必填项，既满足严格校验，
+// 也让模型知道批量元素要填什么。
+func batchItemsObj(props map[string]any, required ...string) map[string]any {
+	m := map[string]any{"type": "object", "properties": props}
+	if len(required) > 0 {
+		m["required"] = required
+	}
+	return m
+}
 func intp(desc string) map[string]any {
 	return map[string]any{"type": "integer", "description": desc}
 }
@@ -1399,7 +1418,13 @@ func (t *ToolSet) addIntent() actool.CoreTool {
 	return t.writeExpTool("add_intent", "【直投】生成【探索方向】写入 frontier 并立即可执行（open 状态，worker 可直接领取），不经过人工审核；任务开启意图审核时，需要人工把关的方向请改用 add_review_intent（送审）。连入探索链路。意图是开放的探索方向，不是固定类型——用 summary 一句话自由描述要探索/验证/利用什么。\n"+
 		"★优先批量：一轮筛出的多个新方向放进 intents 数组一次提交（比逐条调用省往返）。返回 ids 数组，与 intents 等长同序（失败项 id=0，详情见 errors）。单条则省略 intents 直接给顶层 summary。",
 		obj(map[string]any{
-			"intents":    map[string]any{"type": "array", "description": "【优先用这个】要新增的探索方向数组，按顺序处理。每个元素字段同下方顶层字段（summary/asset_ids/parent_ids/priority）。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
+			"intents": map[string]any{"type": "array", "description": "【优先用这个】要新增的探索方向数组，按顺序处理。每个元素字段同下方顶层字段（summary/asset_ids/parent_ids/priority）。返回 ids 与本数组等长同序（失败项 id=0，详情见 errors）。单条则省略 intents 直接给顶层 summary。",
+				"items": batchItemsObj(map[string]any{
+					"summary":    str("一句话描述这个探索方向：做什么+为什么。"),
+					"asset_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "本方向要测试/攻击的目标资产 id（list_assets 返回的资产 id）。"},
+					"parent_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "上游锚点 id（已存在的 fact/finding 节点 id）。"},
+					"priority":   intp("优先级 0-10，默认5"),
+				}, "summary")},
 			"summary":    str("[单条] 一句话描述这个探索方向：做什么+为什么。已写清方向即可，不依赖资产 id。"),
 			"asset_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "本方向要测试/攻击的【目标资产 id】（**尽量传**，0/1/多个；是 list_assets 返回的资产 id，不是探索节点 id）：这条探索方向针对哪些资产（站点/接口/参数/主机等）。只要方向围绕某些具体资产就务必传上——它是「这条探索打哪些目标」的结构化标记，用于覆盖去重、把意图连入资产链路。仅当纯全局侦察、确实没有具体目标资产时才留空。"},
 			"parent_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "上游锚点 id（可选，0/1/多个）：本方向由哪些【已确认的事实(fact)/发现(finding)】综合得出。**只能填已存在的 fact/finding 节点 id,不能填意图/目标/提示**——意图必须锚在已确认知识上,发现驱动而非凭空规划。多个事实共同产生一个新意图就传多个;顶层全新侦察方向请留空（会自动挂到任务起点 origin fact）。"},
@@ -1783,7 +1808,16 @@ func (t *ToolSet) recordFact() actool.CoreTool {
 		"  · **否定类结论**（不可注入/端口关闭/未发现入口等）只写\"观察 + 试探性读法\"——陈述你实际看到什么，方向是否放弃由规划者综合全局定；务必给 evidence，手段没穷尽或证据弱（含只探一次、看起来像）标 inferred，确已穷尽且直接看到才标 observed。\n"+
 		"  · 【内网拓扑】确认网卡/路由/容器网络/会话连接或发现新内网资产时，额外给 topology 字段：discovery=如何发现的（≤20字写手段，如'nmap 扫到445开放'/'ARP 扫描发现存活'/'docker 网桥推断'，不写结论）、src_ip=父节点（立足点）、dst_ips=目标内网 IP（多台=同方式同父同 kind 的一批）、kind=solid（发现漏洞或横向移动成功）| reachable（仅可达存活，缺省）。**不同发现方式或不同父节点要拆成不同 fact**。拓扑边由 fact 自动生成，边文字取 discovery。找不到证据就保持独立节点，禁止因同任务、同网段或存在入口而猜测连线。",
 		obj(map[string]any{
-			"facts":      map[string]any{"type": "array", "description": "【有多条不同结论时用】事实数组，元素字段同下方顶层字段（summary/detail/evidence/confidence/intent_id/asset_ids）；省略 intent_id 则用顶层 intent_id。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
+			"facts": map[string]any{"type": "array", "description": "【有多条不同结论时用】事实数组，元素字段同下方顶层字段（summary/detail/evidence/confidence/intent_id/asset_ids）；省略 intent_id 则用顶层 intent_id。返回 ids 与本数组等长同序。",
+				"items": batchItemsObj(map[string]any{
+					"summary":    str("对本次探索结论的总结性一句话"),
+					"intent_id":  idp("产生本事实的意图 id（批量时作为各条默认）"),
+					"detail":     str("本事实的相关细节"),
+					"evidence":   str("一行关键证据：命令 + 最能证明结论的一两行输出"),
+					"confidence": str("observed（输出里直接看到）| inferred（据现象推断）"),
+					"asset_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "相关资产 id（可选）"},
+					"topology":   map[string]any{"type": "object", "description": "【可选】{discovery, src_ip, dst_ips, kind}"},
+				}, "summary")},
 			"summary":    str("对本次探索结论的【总结性一句话】（是对 detail 的概括）"),
 			"intent_id":  idp("产生本事实的意图 id（你领到的意图；批量时作为各条默认）"),
 			"detail":     str("本事实的相关细节：把这次探索的多个观察事实都写进这里"),
@@ -1917,7 +1951,11 @@ func (t *ToolSet) setGoals() actool.CoreTool {
 			"★优先批量:多个目标放进 goals 数组一次提交,返回 ids 与之等长同序(失败项 id=0,详情见 errors)。单条则省略 goals 直接给顶层 text。\n"+
 			"vulnclass 可选:对应漏洞类(如 SQLi/IDOR),业务逻辑类目标留空。目标是否达成由系统判定标记 met,本工具只负责新增。",
 		obj(map[string]any{
-			"goals":     map[string]any{"type": "array", "description": "【优先用这个】要新增的目标数组,按顺序处理。每个元素:text(必填,一个独立可验证的最终目标)+ vulnclass(可选)。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
+			"goals": map[string]any{"type": "array", "description": "【优先用这个】要新增的目标数组,按顺序处理。每个元素:text(必填,一个独立可验证的最终目标)+ vulnclass(可选)。返回 ids 与本数组等长同序。",
+				"items": batchItemsObj(map[string]any{
+					"text":      str("一个独立可验证的最终目标"),
+					"vulnclass": str("（可选）该目标对应的漏洞类型"),
+				}, "text")},
 			"text":      str("[单条] 一个独立可验证的最终目标"),
 			"vulnclass": str("[单条] 对应漏洞类(若明确),如 SQLi/IDOR;业务逻辑目标可留空"),
 		}),
@@ -2011,9 +2049,13 @@ func (t *ToolSet) setConstraints() actool.CoreTool {
 			"★优先批量:多条放进 constraints 数组一次提交,返回 ids 与之等长同序(失败项 id=0,详情见 errors)。单条则省略 constraints 直接给顶层 text/type。\n"+
 			"只登记任务目标/描述里【明确写出】的约束,不要臆造;拿不准类型时用 deny(更保守)。",
 		obj(map[string]any{
-			"constraints": map[string]any{"type": "array", "description": "【优先用这个】要新增的约束数组,按顺序处理。每个元素:text(必填,一条约束)+ type(allow|deny)。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
-			"text":        str("[单条] 一条操作约束的内容"),
-			"type":        str("[单条] allow(允许)或 deny(禁止);缺省按 deny 处理"),
+			"constraints": map[string]any{"type": "array", "description": "【优先用这个】要新增的约束数组,按顺序处理。每个元素:text(必填,一条约束)+ type(allow|deny)。返回 ids 与本数组等长同序。",
+				"items": batchItemsObj(map[string]any{
+					"text": str("一条约束（允许/禁止做什么）"),
+					"type": str("allow | deny"),
+				}, "text", "type")},
+			"text": str("[单条] 一条操作约束的内容"),
+			"type": str("[单条] allow(允许)或 deny(禁止);缺省按 deny 处理"),
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.ts == nil {
