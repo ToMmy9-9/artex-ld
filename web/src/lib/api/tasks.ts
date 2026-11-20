@@ -116,13 +116,18 @@ function schedulePayload(input: ScheduleInput) {
 }
 
 export const tasksApi = {
-  // ---- 漏洞↔流量包关联（AntiFox：把复现步骤关联到真实录制的报文）----
+  // ---- 漏洞↔原始流量包关联（AntiFox 语义：只存 exchange_id 引用，报文正文实时取）----
+  // 注意与上面的「快照式」绑定（getFindingTraffic / bindFindingTraffic / editFindingTraffic /
+  // removeFindingTraffic，路径同为 /traffic）区分：那套把报文复制成不可变快照存库，这套只引用。
+  // 后端用 /traffic-exchanges 独立命名空间承载，避免同模式重复注册。
   findingTrafficList: (nodeId: string) =>
-    get<{ exchanges: TrafficExchange[] }>(`/exploration/findings/${nodeId}/traffic`).then((r) => r.exchanges ?? []),
+    get<{ exchanges: TrafficExchange[] }>(`/exploration/findings/${nodeId}/traffic-exchanges`).then((r) => r.exchanges ?? []),
   findingTrafficLink: (nodeId: string, exchangeIds: string[]) =>
-    post<{ ok: boolean; linked: number }>(`/exploration/findings/${nodeId}/traffic`, { exchange_ids: exchangeIds }),
+    post<{ ok: boolean; linked: number }>(`/exploration/findings/${nodeId}/traffic-exchanges`, {
+      exchange_ids: exchangeIds,
+    }),
   findingTrafficUnlink: (nodeId: string, exchangeId: string) =>
-    del<{ ok: boolean }>(`/exploration/findings/${nodeId}/traffic/${encodeURIComponent(exchangeId)}`),
+    del<{ ok: boolean }>(`/exploration/findings/${nodeId}/traffic-exchanges/${encodeURIComponent(exchangeId)}`),
 
   // 后端应用版本号（release 时由 ldflags 注入，默认 "dev"）。
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),

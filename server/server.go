@@ -1052,6 +1052,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/exploration/findings/{id}", s.findingUpdate)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/enrich", s.findingEnrich)
 	mux.HandleFunc("GET /api/exploration/findings/{id}/enrich/status", s.findingEnrichStatus)
+	// 原始流量包（exchange）级关联：只存 exchange_id 引用，报文正文实时取。
+	// 与上面 finding_traffic.go 注册的「快照式」绑定（/traffic）是两套语义，用
+	// /traffic-exchanges 区分，避免同模式重复注册导致 ServeMux panic。
+	mux.HandleFunc("GET /api/exploration/findings/{id}/traffic-exchanges", s.listFindingTrafficExchanges)
+	mux.HandleFunc("POST /api/exploration/findings/{id}/traffic-exchanges", s.linkFindingTrafficExchange)
+	mux.HandleFunc("DELETE /api/exploration/findings/{id}/traffic-exchanges/{exchange_id}", s.unlinkFindingTrafficExchange)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/evidence", s.uploadFindingEvidence)
 	mux.HandleFunc("GET /api/exploration/findings/{id}/evidence", s.listFindingEvidence)
 	mux.HandleFunc("GET /api/exploration/findings/{id}/evidence/{file}", s.serveFindingEvidence)
@@ -1059,6 +1065,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/exploration/findings/{id}/evidence/{eid}", s.deleteFindingEvidence)
 	mux.HandleFunc("GET /api/exploration/findings/{id}/lineage", s.findingLineage)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/deepen", s.deepenFinding)
+	// 从任务会话转录回填「已描述但未落库」的确认漏洞。
+	mux.HandleFunc("POST /api/tasks/{id}/extract-findings", s.extractFindings)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/generate-report", s.generateFindingReport)
 	mux.HandleFunc("GET /api/exploration/findings/{id}/retests", s.listFindingRetests)
 	mux.HandleFunc("GET /api/exploration/findings/retests/active", s.listActiveFindingRetests)
@@ -1139,6 +1147,9 @@ func (s *Server) Handler() http.Handler {
 	// ── AntiFox 知识库（两层 RAG：全局漏洞库 + 任务授权书）──
 	mux.HandleFunc("GET /api/knowledge", s.listKnowledge)
 	mux.HandleFunc("POST /api/knowledge", s.createKnowledge)
+	mux.HandleFunc("GET /api/knowledge/{id}", s.getKnowledge)
+	mux.HandleFunc("PUT /api/knowledge/{id}", s.updateKnowledge)
+	mux.HandleFunc("DELETE /api/knowledge/{id}", s.deleteKnowledge)
 	mux.HandleFunc("POST /api/knowledge/upload", s.uploadKnowledge)
 	mux.HandleFunc("GET /api/knowledge/categories", s.knowledgeCategories)
 	mux.HandleFunc("POST /api/knowledge/search", s.searchKnowledge)
