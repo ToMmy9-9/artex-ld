@@ -174,6 +174,7 @@ func (s *Server) buildReportInput(t *Task, q map[string][]string) *reportx.GenIn
 		}
 		var p struct {
 			VulnClass string `json:"vulnclass"`
+			Name      string `json:"name"` // 可读漏洞名（report_finding 的 name）
 			Severity  string `json:"severity"`
 			Summary   string `json:"summary"`
 			Evidence  struct {
@@ -184,7 +185,7 @@ func (s *Server) buildReportInput(t *Task, q map[string][]string) *reportx.GenIn
 		_ = json.Unmarshal(n.Payload, &p)
 		fi := reportx.FindingInput{
 			NodeID:    n.ID,
-			VulnClass: p.VulnClass, Severity: p.Severity, Summary: p.Summary,
+			VulnClass: p.VulnClass, Name: p.Name, Severity: p.Severity, Summary: p.Summary,
 			PoC: p.Evidence.PoC, CreatedAt: n.CreatedAt,
 			Reproduction: p.Reproduction, // authoritative test_process — rendered verbatim, AI skips rebuild
 		}

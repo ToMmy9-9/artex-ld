@@ -50,8 +50,12 @@ func redactLines(in []string, dataDir string) []string {
 
 // FindingInput is one confirmed finding, flattened from a graph node.
 type FindingInput struct {
-	NodeID     int64 // exploration 节点 id：用于加载该漏洞的证据截图(finding_evidence)
-	VulnClass  string
+	NodeID    int64 // exploration 节点 id：用于加载该漏洞的证据截图(finding_evidence)
+	VulnClass string
+	// Name 是漏洞的可读名称（report_finding 的 name 参数，也是 findings.name 列的值），
+	// 例如「SQL 注入」而不是「sqli」。AI 富化标题优先，其次用它，最后才回退到
+	// vulnclass/summary —— 否则交付给客户的报告里会出现机器口径的类别代码。
+	Name       string
 	Severity   string // high|medium|low|critical|info
 	Summary    string
 	PoC        string
@@ -230,7 +234,7 @@ func assembleVuln(loc string, f FindingInput, enr Enrichment, secNo, dataDir str
 	// Vuln NAME: AI-polished title → vulnclass (already a name, e.g. "SSL POODLE
 	// (CVE-2014-3566)") → cleaned summary as last resort. Summary is the long
 	// description, never the name.
-	title := cleanTitle(nz(enr.Title, nz(f.VulnClass, f.Summary)))
+	title := cleanTitle(nz(enr.Title, nz(f.Name, nz(f.VulnClass, f.Summary))))
 	target := nz(enr.Target, f.Target)
 	d := vulnDetail{
 		SecNo: secNo, Title: title,

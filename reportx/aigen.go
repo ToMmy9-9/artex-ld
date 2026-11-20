@@ -88,7 +88,7 @@ type reportLevelPromptData struct {
 
 // vulnPromptData feeds the editable per-vuln prompt template.
 type vulnPromptData struct {
-	Company, VulnClass, Severity, Summary, PoC, LangDirective string
+	Company, VulnClass, Name, Severity, Summary, PoC, LangDirective string
 }
 
 func aiReportLevel(ctx context.Context, pg *db.DB, in *GenInput, sk *skillContent) reportLevelOut {
@@ -167,7 +167,9 @@ func aiVulnNarrative(ctx context.Context, pg *db.DB, locale string, f FindingInp
 	var out Enrichment
 	loc := normLocale(locale)
 	dir := outputLangDirective(loc)
-	data := vulnPromptData{Company: companyName, VulnClass: nz(f.VulnClass, "-"), Severity: severityName(loc, f.Severity), Summary: nz(f.Summary, "-"), PoC: nz(f.PoC, "-"), LangDirective: dir}
+	// Name 是可读漏洞名（report_finding 的 name）。AI 改写标题时优先参考它，
+	// 否则模型只能看到 "sqli" 这类机器口径的类别代码。
+	data := vulnPromptData{Company: companyName, VulnClass: nz(f.VulnClass, "-"), Name: nz(f.Name, ""), Severity: severityName(loc, f.Severity), Summary: nz(f.Summary, "-"), PoC: nz(f.PoC, "-"), LangDirective: dir}
 	sys := renderPrompt(sk.vulnSys, data)
 	if sys == "" {
 		sys = fmt.Sprintf(sysVuln, companyName)
@@ -175,7 +177,7 @@ func aiVulnNarrative(ctx context.Context, pg *db.DB, locale string, f FindingInp
 	user := renderPrompt(sk.vulnUser, data)
 	if user == "" {
 		user = fmt.Sprintf(userVuln,
-			nz(f.VulnClass, "-"), severityName(loc, f.Severity), nz(f.Summary, "-"), nz(f.PoC, "-")) +
+			firstNonEmpty(f.Name, nz(f.VulnClass, "-")), severityName(loc, f.Severity), nz(f.Summary, "-"), nz(f.PoC, "-")) +
 			"\n\n输出语言要求：" + dir
 	}
 	// Ground the PROSE (description / risk / remediation) in the ACTUAL work transcript
@@ -243,4 +245,14 @@ func cleanJSON(s string) string {
 		}
 	}
 	return s
+}
+
+// firstNonEmpty 返回第一个非空（去空白后）的字符串。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
