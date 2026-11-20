@@ -52,27 +52,22 @@ func TestTaskArchiveAPIQueueListAndLimits(t *testing.T) {
 
 	// 先把任务置为暂停再断言「运行中归档被拒」：归档要求任务已暂停，
 	// 而任务是否处于 queued 取决于全局并发上限设置（其它测试可能改过），
-	// 直接断言 running→409 会被排队态干扰。先确保它不在排队里。
-	// 归档要求「已暂停或终态」，运行中的任务必须被拒（409）。
-	// 任务是否处于 queued 取决于全局并发上限设置：开启且 LLM 不可用时，
-	// reconcileConcurrency 会把任务持久化入队（给出另一种 409 文案）。
-	// 本用例只关心「未暂停 → 拒归档」，所以先关掉并发上限并清掉排队态。
-	// 并发上限是全局设置：本用例临时关掉它。本文件的 defer m.Close() 先于
-	// t.Cleanup 执行，所以恢复必须在 defer 链里做（DB 还活着的时候）。
+	// 并发上限是全局设置：开启且 LLM 不可用时 reconcileConcurrency 会把任务持久化
+	// 入队，排队态会让归档给出另一种 409 文案。本用例与并发无关，因此**在建任务之前**
+	// 就关掉它（恢复放在 defer 里：本文件的 defer m.Close() 先于 t.Cleanup 执行，
+	// 恢复必须在 DB 还活着时做）。
 	defer disableConcurrencyForTest(t, m)()
-	if err := m.pg.SetQueued(taskID, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.pg.SetPaused(taskID, false); err != nil {
-		t.Fatal(err)
-	}
 	recorder := request(http.MethodPost, "/api/tasks/"+task.ID+"/archive", "{}")
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("running archive status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	// 之后置为暂停：暂停态才允许归档。
-	if err := m.pg.SetPaused(taskID, true); err != nil {
-		t.Fatal(err)
+	// 置为暂停：暂停态才允许归档。
+	// 必须走 HTTP 控制端点（applyTaskControl）而不是直写 DB —— 直写 DB 只会改
+	// 数据行，内存态生命周期镜像仍是「未暂停」，后台调度器据此把任务重新入队，
+	// 于是归档又落回「queued task must be paused」。
+	recorder = request(http.MethodPost, "/api/tasks/"+task.ID+"/control", `{"action":"pause"}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("pause task status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	recorder = request(http.MethodPost, "/api/tasks/"+task.ID+"/archive", "{}")
 	if recorder.Code != http.StatusAccepted {
