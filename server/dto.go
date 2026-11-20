@@ -21,6 +21,14 @@ import (
 // internal DB model never leaks over the API. The db structs and the frontend are
 // the canonical contracts; this file maps one onto the other.
 
+// i64sPtr renders an optional int64 id as a string ("" when absent).
+func i64sPtr(p *int64) string {
+	if p == nil {
+		return ""
+	}
+	return strconv.FormatInt(*p, 10)
+}
+
 func i64s(v int64) string { return strconv.FormatInt(v, 10) }
 
 func rfc3339(t time.Time) string { return t.Format(time.RFC3339) }
@@ -359,8 +367,12 @@ type FindingDTO struct {
 	ReportStale           bool                       `json:"report_stale"`
 	TrafficBindings       []db.FindingTrafficBinding `json:"traffic_bindings,omitempty"`
 
-	ID                   string `json:"id"`
-	FindingID            string `json:"finding_id,omitempty"` // standalone findings-table id — the handle for status updates
+	ID        string `json:"id"`
+	FindingID string `json:"finding_id,omitempty"` // standalone findings-table id — the handle for status updates
+	// NodeID 是该漏洞对应的探索节点 id（findings.node_id）。它与独立 findings 表行 id
+	// 是**两套 id**：前者用于复现过程/证据截图/富化等「按探索节点」的能力，
+	// 后者用于状态更新等「按 findings 行」的能力。前端要同时用到两者，故一并下发。
+	NodeID               string `json:"node_id,omitempty"`
 	VulnClass            string `json:"vulnclass"`
 	Name                 string `json:"name,omitempty"` // 漏洞名称;为空时前端回退展示 vulnclass
 	Severity             string `json:"severity"`       // critical | high | medium | low
@@ -497,6 +509,7 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 	d := FindingDTO{
 		ID:           i64s(f.ID),
 		FindingID:    i64s(f.ID),
+		NodeID:       i64sPtr(f.NodeID),
 		TrafficCount: f.TrafficCount, EvidenceVersion: f.EvidenceVersion, ReportEvidenceVersion: f.ReportEvidenceVersion,
 		ReportStale: f.Report != "" && f.EvidenceVersion != f.ReportEvidenceVersion, TrafficBindings: f.TrafficBindings,
 		VulnClass:            f.VulnClass,

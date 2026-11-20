@@ -28,6 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { FindingDetail } from "@/components/finding-detail";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { statusMeta } from "@/lib/status";
@@ -222,6 +223,7 @@ function FindingDetailInner() {
         <TabsList>
           <TabsTrigger value="overview">概览</TabsTrigger>
           <TabsTrigger value="lineage">链路图</TabsTrigger>
+          <TabsTrigger value="evidence">复现与证据</TabsTrigger>
         </TabsList>
       </header>
 
@@ -424,6 +426,13 @@ function FindingDetailInner() {
         </TabsContent>
 
         {/* 链路图：从任务初始节点回溯到本漏洞节点的攻击链路 */}
+        {/* 复现与证据（AntiFox 证据驱动交付）：结构化复现过程分步 + 每步证据截图 +
+            跳真实流量包 + AI 富化。组件按 node_id 取数，与详情页的 finding_id 口径不同，
+            所以传整个 finding 让它自己解析 node_id。 */}
+        <TabsContent value="evidence" className="mt-0">
+          <FindingDetail finding={finding} onChanged={() => void load()} />
+        </TabsContent>
+
         <TabsContent value="lineage" className="mt-0">
           <FindingLineageView findingId={finding.id} />
         </TabsContent>

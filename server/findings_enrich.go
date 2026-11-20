@@ -118,11 +118,28 @@ func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f, err := s.m.pg.GetFindingByNodeID(id)
-	if err != nil || f == nil {
-		writeErr(w, 404, "未找到漏洞")
+	if err != nil {
+		writeErr(w, 500, err.Error())
 		return
 	}
-	enr, _ := s.m.pg.GetFindingEnrichment(id)
+	// 兼容两种 id 口径：本端点的主口径是**探索节点 id**，但调用方（前端漏洞详情页）
+	// 手里可能只有独立 findings 表的行 id。节点查不到时按行 id 回退一次，
+	// 再换算出节点 id，避免「页面能打开但复现过程/证据取不到」。
+	nodeID := id
+	if f == nil {
+		row, rerr := s.m.pg.GetFinding(id)
+		if rerr != nil {
+			writeErr(w, 500, rerr.Error())
+			return
+		}
+		if row == nil || row.NodeID == nil {
+			writeErr(w, 404, "未找到漏洞")
+			return
+		}
+		f = row
+		nodeID = *row.NodeID
+	}
+	enr, _ := s.m.pg.GetFindingEnrichment(nodeID)
 	// 结构化复现过程（agent 就地记录的 入口/前置/有序步骤/来源）直通前端，供"显式分步"渲染 +
 	// 每步证据挂载。空则前端回退到 enrichment.test_process 平铺展示。
 	var repro any
