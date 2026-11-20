@@ -1065,6 +1065,96 @@ export async function mockHandle<T>(method: string, rawPath: string, body?: Body
 function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Record<string, unknown>): unknown {
   const task = q.get("task") ?? undefined;
 
+  // ── 知识库（AntiFox 证据驱动交付）──
+  // 演示模式不落库，但端点形状必须与后端一致，否则页面会因 .map/.find 抛错白屏。
+  if (seg[0] === "knowledge") {
+    if (m === "GET" && seg.length === 1) {
+      return {
+        items: [
+          {
+            id: 1,
+            scope: "global",
+            category: "内网渗透",
+            title: "凭据复用横向移动",
+            content: "拿到通用账号后优先尝试同网段复用，弱口令与默认口令优先。",
+            source: "manual",
+            bytes: 42,
+            indexed: true,
+            chunks: 1,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      };
+    }
+    if (m === "GET" && seg[1] === "categories") return ["内网渗透", "SQL注入", "免杀绕过"];
+    if (m === "GET" && seg[1] === "config") {
+      return {
+        enabled: false,
+        base_url: "https://open.bigmodel.cn/api/paas/v4",
+        model: "embedding-3",
+        api_key: "",
+        has_key: false,
+        dim: 1024,
+        semantic_ready: false,
+        vector_available: false,
+        docs_global: 1,
+        docs_task: 0,
+      };
+    }
+    if (m === "GET" && seg[1] === "logs") return { items: [] };
+    if (m === "GET" && seg[1] === "search") return { mode: "keyword", hits: [] };
+    if (m === "GET" && seg.length === 2) {
+      return {
+        id: Number(seg[1]),
+        scope: "global",
+        category: "内网渗透",
+        title: "凭据复用横向移动",
+        content: "拿到通用账号后优先尝试同网段复用，弱口令与默认口令优先。",
+        source: "manual",
+        bytes: 42,
+        indexed: true,
+        chunks: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
+    if (m === "POST" && seg[1] === "search") return { mode: "keyword", hits: [] };
+  }
+
+  // ── 交付级报告（AntiFox）──
+  if (m === "GET" && path === "/report-settings") {
+    return {
+      company_name: "演示安全团队",
+      company_name_en: "Demo Security Team",
+      logo_path: "",
+      personnel: [{ name: "演示工程师", role: "渗透测试工程师", contact: "demo@example.com" }],
+      cvss_version: "3.1",
+      updated_at: new Date().toISOString(),
+    };
+  }
+  if (m === "GET" && path === "/reports") return [];
+  if (m === "GET" && path === "/report-templates") return [];
+  if (m === "GET" && path === "/report/status") return { status: "idle" };
+
+  // ── 计划任务（RuoJi6）──
+  if (m === "GET" && path === "/schedules") return { schedules: [] };
+
+  // ── 通知推送（RuoJi6）──
+  if (m === "GET" && path === "/notify/meta") {
+    return {
+      enabled: false,
+      public_base_url: "",
+      digest_interval_min: 30,
+      stats: { channels: 0, channels_on: 0 },
+      kinds: [],
+    };
+  }
+  if (m === "GET" && path === "/notify/channels") return { channels: [] };
+  if (m === "GET" && path === "/notify/deliveries") {
+    return { deliveries: [], total: 0, page: 1, page_size: 50 };
+  }
+
   // The demo client still expects the complete repeater response shape. No
   // network request is made in mock mode, but returning the shape keeps the
   // dialog's status/body counters safe for every method.

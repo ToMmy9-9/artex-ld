@@ -265,8 +265,10 @@ export default function NotifyPage() {
   }
 
   const fields = CHANNEL_FIELDS[form.kind] ?? [];
-  const secretKeys = new Set(meta?.kinds.find((k) => k.kind === form.kind)?.secret_keys ?? []);
-  const defaultRate = meta?.kinds.find((k) => k.kind === form.kind)?.default_rate_per_min ?? 0;
+  // meta 可能是 {}（演示模式/旧后端），kinds 未必存在 —— 可选链要一路链到 find，
+  // 否则 meta 存在但没有 kinds 时会抛 TypeError 让整页崩掉。
+  const secretKeys = new Set(meta?.kinds?.find((k) => k.kind === form.kind)?.secret_keys ?? []);
+  const defaultRate = meta?.kinds?.find((k) => k.kind === form.kind)?.default_rate_per_min ?? 0;
 
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">

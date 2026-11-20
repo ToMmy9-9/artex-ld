@@ -109,7 +109,10 @@ export const del = <T>(p: string, body?: unknown) =>
   http<T>(p, { method: "DELETE", body: body ? JSON.stringify(body) : undefined });
 
 // Go serializes nil slices as JSON null — coerce to [].
-export const arr = <T>(x: T[] | null | undefined): T[] => x ?? [];
+// arr 把「可能缺失」的字段兜底成空数组。
+// 除了 null/undefined，**非数组值**（例如后端返回了对象、演示模式返回了 {}）也必须
+// 兜成 []：调用方普遍直接 .map / .find，非数组会抛 TypeError 让整页白屏。
+export const arr = <T>(x: T[] | null | undefined): T[] => (Array.isArray(x) ? x : []);
 export const tq = (task?: string, sep: "?" | "&" = "?") => (task ? `${sep}task=${encodeURIComponent(task)}` : "");
 
 // findingFilterParams 把发现页的筛选条件序列化成 query string。列表 / 分组 /
