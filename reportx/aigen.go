@@ -11,6 +11,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"reflect"
 	"strings"
 	"time"
 
@@ -118,7 +120,10 @@ func aiReportLevel(ctx context.Context, pg *db.DB, in *GenInput, sk *skillConten
 	if err != nil {
 		return out
 	}
-	_ = json.Unmarshal([]byte(raw), &out)
+	if err := decodeLLMJSON(raw, &out); err != nil {
+		// 模型没给出可解析的 JSON：记一笔，别让"AI 分析永远失败"变成无迹可寻。
+		log.Printf("[report] 报告级叙述 JSON 解析失败: %v (原始输出前 200 字: %s)", err, clipText(raw, 200))
+	}
 	return out
 }
 
@@ -205,7 +210,10 @@ func aiVulnNarrative(ctx context.Context, pg *db.DB, locale string, f FindingInp
 	if err != nil {
 		return out
 	}
-	_ = json.Unmarshal([]byte(raw), &out)
+	if err := decodeLLMJSON(raw, &out); err != nil {
+		// 解析失败仍保留已解出的字段（title/risk/remediation 等）—— 比整段丢弃强。
+		log.Printf("[report] 漏洞叙述 JSON 解析失败: %v (原始输出前 200 字: %s)", err, clipText(raw, 200))
+	}
 	// Fill test_process from REAL evidence, never the model's reconstruction: the agent's
 	// in-situ 复现过程 wins; else the raw PoC (deterministic). This makes every consumer
 	// (persisted enrichment → findings page UI, and the report) show real, non-fabricated
@@ -245,6 +253,225 @@ func cleanJSON(s string) string {
 		}
 	}
 	return s
+}
+
+// decodeLLMJSON 把模型的 JSON 响应解进 out，并对**字段形状不一致**做容错。
+//
+// 为什么需要容错：模型并不总是照 schema 返回。实测 MiniMax-M3 会把
+// `"description": ["…"]`（我们要求的数组）返回成 `"description": "…"`（单个字符串），
+// 还可能把数组字段返回成对象、把字符串字段返回成数组。Go 的 json.Unmarshal 遇到
+// 类型不符会**记下第一个类型错误、但继续解后面的字段**，随后返回那个错误。
+//
+// 原来的写法是 `_ = json.Unmarshal(...)` —— 错误被整个丢掉，调用方只看得到
+// "description 是空的"，完全看不出是模型形状不对还是真没内容；更糟的是 title /
+// risk_analysis 等字段虽然解出来了，却因为整段被视为失败而写不进库，表现为
+// "AI 分析永远失败"却没有任何日志线索。
+//
+// 这里：先按原样解一次（拿到的字段都保留），再对形状不符的字段做逐个纠正
+// （字符串 → 单元素数组；数组 → 取首个非空字符串拼成一段；对象 → 取常见文本键），
+// 并把纠正动作记进日志，方便回头调 prompt。
+func decodeLLMJSON(raw string, out any) error {
+	firstErr := json.Unmarshal([]byte(raw), out)
+	if firstErr == nil {
+		return nil
+	}
+	// 逐字段纠正后重解一次。纠正必须**按目标类型**做：把 title 之类本该是字符串的
+	// 字段也压成数组，同样解不出来（只是把一个类型错误换成另一个）。
+	var generic map[string]json.RawMessage
+	if jerr := json.Unmarshal([]byte(raw), &generic); jerr != nil {
+		return firstErr // 连对象都不是，无法纠正
+	}
+	// 别名归位：模型偶尔用同义键名（risk_analysis → impact / risk，
+	// description → desc / detail）而不是我们要求的键名。这类偏差不纠正，
+	// 报告里对应的段落就是空的。
+	for alias, canonical := range llmFieldAliases {
+		if _, exists := generic[canonical]; exists {
+			continue
+		}
+		if v, ok := generic[alias]; ok {
+			generic[canonical] = v
+		}
+	}
+	targets := llmFieldTypes(out)
+	fixed := false
+	for key, val := range generic {
+		want, known := targets[key]
+		if !known {
+			continue // 不在结构体里的字段（模型多吐的）保持原样
+		}
+		norm := normalizeLLMField(val, want)
+		if norm == nil {
+			continue
+		}
+		generic[key] = *norm
+		fixed = true
+	}
+	if !fixed {
+		return firstErr
+	}
+	patched, merr := json.Marshal(generic)
+	if merr != nil {
+		return firstErr
+	}
+	if jerr := json.Unmarshal(patched, out); jerr != nil {
+		return firstErr
+	}
+	return nil
+}
+
+// llmFieldAliases 是模型常用的同义键名 → 本仓库期望的键名。
+// 模型不总按 prompt 里给的键名返回（实测 MiniMax-M3 把 risk_analysis 写成
+// impact、description 写成 desc），不归位就等于丢掉整段内容。
+var llmFieldAliases = map[string]string{
+	"impact":       "risk_analysis",
+	"risk":         "risk_analysis",
+	"risks":        "risk_analysis",
+	"desc":         "description",
+	"detail":       "description",
+	"details":      "description",
+	"fix":          "remediation",
+	"fixes":        "remediation",
+	"advice":       "remediation",
+	"suggestion":   "remediation",
+	"recommend":    "remediation",
+	"module_name":  "module",
+	"vuln_class":   "title",
+	"vuln_name":    "title",
+	"name":         "title",
+	"cvss_vector":  "cvss_vector",
+	"cvss_metrics": "cvss_metrics",
+}
+
+// llmFieldTypes 列出目标结构体每个 JSON 字段的目标类型（"string" / "array"），
+// 供纠正模型返回的形状时按类型归位。
+func llmFieldTypes(out any) map[string]string {
+	outT := reflect.TypeOf(out)
+	if outT == nil || outT.Kind() != reflect.Pointer || outT.Elem().Kind() != reflect.Struct {
+		return nil
+	}
+	res := map[string]string{}
+	for i := 0; i < outT.Elem().NumField(); i++ {
+		f := outT.Elem().Field(i)
+		tag := f.Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		name := strings.Split(tag, ",")[0]
+		if name == "" {
+			name = f.Name
+		}
+		switch f.Type.Kind() {
+		case reflect.Slice:
+			res[name] = "array"
+		case reflect.String:
+			res[name] = "string"
+		}
+	}
+	return res
+}
+
+// normalizeLLMField 把"形状不对"的字段纠正成该平台约定的形状：
+// 数组字段（[]string）→ 字符串/对象时压成单元素或拼接数组；
+// 字符串字段 ← 数组时取首个非空元素；← 对象时取常见的文本键。
+// 返回 nil 表示这个字段本来就合规，无需纠正。
+func normalizeLLMField(val json.RawMessage, want string) *json.RawMessage {
+	trimmed := strings.TrimSpace(string(val))
+	if trimmed == "" || trimmed == "null" {
+		return nil
+	}
+	var arr []any
+	if err := json.Unmarshal(val, &arr); err == nil {
+		// 已经是数组。
+		if want == "string" {
+			// 目标是字符串：取首个非空元素。
+			for _, item := range arr {
+				if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+					out, merr := json.Marshal(s)
+					if merr != nil {
+						return nil
+					}
+					raw := json.RawMessage(out)
+					return &raw
+				}
+			}
+			return nil
+		}
+		// 目标是数组：每个元素转成字符串（对象取文本）。
+		parts := make([]string, 0, len(arr))
+		for _, item := range arr {
+			switch v := item.(type) {
+			case string:
+				if strings.TrimSpace(v) != "" {
+					parts = append(parts, v)
+				}
+			case map[string]any:
+				if s := textFromMap(v); s != "" {
+					parts = append(parts, s)
+				}
+			}
+		}
+		out, err := json.Marshal(parts)
+		if err != nil {
+			return nil
+		}
+		raw := json.RawMessage(out)
+		return &raw
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(val, &obj); err == nil {
+		// 是对象：目标是字符串就取常见的文本键；目标是数组则取不到正文，退回单元素。
+		if s := textFromMap(obj); s != "" {
+			if want == "array" {
+				out, merr := json.Marshal([]string{s})
+				if merr != nil {
+					return nil
+				}
+				raw := json.RawMessage(out)
+				return &raw
+			}
+			out, merr := json.Marshal(s)
+			if merr != nil {
+				return nil
+			}
+			raw := json.RawMessage(out)
+			return &raw
+		}
+		return nil
+	}
+	// 是标量字符串：目标是数组时包成单元素数组。
+	if want == "array" {
+		var s string
+		if err := json.Unmarshal(val, &s); err == nil && strings.TrimSpace(s) != "" {
+			out, merr := json.Marshal([]string{s})
+			if merr != nil {
+				return nil
+			}
+			raw := json.RawMessage(out)
+			return &raw
+		}
+	}
+	return nil // 本来就合规
+}
+
+// textFromMap 从一个对象里挑出最像正文的文本值（按常见键名优先）。
+func textFromMap(m map[string]any) string {
+	for _, key := range []string{"text", "content", "description", "detail", "value", "summary", "body"} {
+		if v, ok := m[key]; ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// clipText 截断长文本用于日志（避免把整段模型输出灌进日志）。
+func clipText(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 // firstNonEmpty 返回第一个非空（去空白后）的字符串。
