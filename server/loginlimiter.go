@@ -75,6 +75,11 @@ func userKey(user string) string { return "u:" + user }
 
 // locked 报告该 IP 或账号是否处于锁定冷却中，并返回剩余冷却时长（取两桶较大者）。
 func (l *loginLimiter) locked(ip, user string) (bool, time.Duration) {
+	// 限流器可能没被初始化（测试直接构造 Server 时就是 nil）。没有限流器 = 不限流，
+	// 不能因此 panic —— 认证路径不能因为限流器缺失而整个挂掉。
+	if l == nil {
+		return false, 0
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -92,7 +97,7 @@ func (l *loginLimiter) locked(ip, user string) (bool, time.Duration) {
 // fail 记一次失败到 IP 桶与账号桶。返回 true 表示本次失败使某个桶【新进入】锁定状态
 // （供调用方写一条锁定审计）。策略关闭时不记任何状态，locked 永远为假。
 func (l *loginLimiter) fail(ip, user string, pol loginPolicy) bool {
-	if !pol.enabled {
+	if l == nil || !pol.enabled {
 		return false
 	}
 	l.mu.Lock()
@@ -133,6 +138,9 @@ func (l *loginLimiter) recordLocked(key string, now time.Time, window, cooldown 
 
 // reset 清掉该 IP 与账号的失败计数（登录成功时调用）。
 func (l *loginLimiter) reset(ip, user string) {
+	if l == nil {
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.buckets, ipKey(ip))
