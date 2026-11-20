@@ -16,6 +16,7 @@ import (
 	"artex/llmpool"
 	"artex/llmrec"
 	"artex/report"
+	"artex/reportx"
 	"artex/traffic"
 	"artex/xlog" // 【二开·P-LOG】DEBUG 开关（04 册 H1）
 	"context"
@@ -322,6 +323,12 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		go s.evidenceStore().RunGC(s.ctx)
 		s.seedPythonInterpreter()     // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
 		go newScheduler(s).Run(s.ctx) // P3 触发器调度(定时/finding/目标事件),仅自定义 agent
+		// 报告生成 skill：把内置骨架/prompt 落成可编辑文件（仅缺失时写，不覆盖用户编辑）。
+		// 缺了这一步，交付级报告会一直走 Go 内置兜底骨架，运营改不动模板。
+		if err := reportx.SeedSkillFiles(skillDir); err != nil {
+			log.Printf("[report] seed skill files: %v", err)
+		}
+		s.seedDemoReportTemplate() // 首启预置一个演示模版（marker 文件保证仅一次）
 		// Calendar scheduler starts after persisted tasks are restored.
 		// 【二开·P-REVIEW·S5】起 —— review 预审 runner（周期扫描待审意图，物理只读预审）
 		// 【二开·审核流 PR1/§2.6】server 持有句柄：送审/重送成功可经 wakeReviewRunner 即时唤醒
