@@ -41,6 +41,7 @@ import { SideQuestionButton, SideQuestionWorkspace } from "@/components/side-que
 import { TodoPopover } from "@/components/todo-popover";
 import { Transcript } from "@/components/transcript";
 import { ReviewPanel } from "./review-panel"; // 【二开·P-INTENT·U3】审核会话面板
+import { REVIEW_ENABLED_CHANGED_EVENT } from "./review-events";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -503,8 +504,16 @@ export function SessionsTab({ taskId, requestedSession = "" }: { taskId: string;
   const [reviewEnabled, setReviewEnabled] = React.useState(false);
   React.useEffect(() => {
     let alive = true;
-    api.task(taskId).then((t) => { if (alive) setReviewEnabled(t.review_enabled === true); }).catch(() => {});
-    return () => { alive = false; };
+    const load = () => api.task(taskId).then((t) => { if (alive) setReviewEnabled(t.review_enabled === true); }).catch(() => {});
+    load();
+    // 审核面板可以中途开启审核（空态里的「开启意图审核」按钮）。开启后这里必须
+    // 重新取一次状态，否则待审计数轮询不会启动，审核 tab 旁永远没有蓝色徽标。
+    const onChanged = () => { void load(); };
+    window.addEventListener(REVIEW_ENABLED_CHANGED_EVENT, onChanged);
+    return () => {
+      alive = false;
+      window.removeEventListener(REVIEW_ENABLED_CHANGED_EVENT, onChanged);
+    };
   }, [taskId]);
   // 【二开·P-REVIEW·待审蓝点】待审意图计数轮询：>0 时审核 tab 旁弹蓝色计数徽标。
   // 仅在开启审核的任务上轮询（未开启的 review 端点 409，无意义）。

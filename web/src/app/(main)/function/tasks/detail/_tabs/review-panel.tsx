@@ -16,6 +16,7 @@ import {
 	Loader2Icon,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { broadcastReviewEnabledChange } from "./review-events";
 import type { InterceptPending, ReviewMessage, ReviewProposedIntent as ProposedIntent } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -190,6 +191,8 @@ export function ReviewPanel({ taskId }: { taskId: string }) {
 	const [autoToggling, setAutoToggling] = useState(false);
 	// 人工全审：任务未开启审核时面板显示空态（tab 常驻，不再按开关隐藏）。
 	const [taskReviewEnabled, setTaskReviewEnabled] = useState<boolean | null>(null);
+	// 中途开启审核的提交态（空态里的按钮用）。
+	const [enablingReview, setEnablingReview] = useState(false);
 	useEffect(() => {
 		api.task(taskId).then((t) => { setReviewAuto(!!t.review_auto); setTaskReviewEnabled(!!t.review_enabled); }).catch(() => {});
 	}, [taskId]);
@@ -251,11 +254,42 @@ export function ReviewPanel({ taskId }: { taskId: string }) {
 	const selectedProposedIndex = selectedProposed ? proposed.findIndex((it) => it.id === selectedProposed.id) : -1;
 
 	// 未开启审核的任务：常驻空态（所有 hooks 已执行完毕，此处早退安全）。
+	//
+	// 空态原本只是两行说明文字——任务一旦建好（或用了默认关闭的分类），就再也
+	// 没有地方能打开审核，只能改库。后端 PATCH /tasks/{id} 一直支持 review_enabled，
+	// 缺的只是这个入口，所以这里直接给按钮。
 	if (taskReviewEnabled === false) {
 		return (
-				<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+			<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
 				<p>该任务未开启意图审核</p>
-				<p className="text-xs opacity-70">开启后所有意图均待人工批准/驳回；打开「自动处置」才由审核 agent 自主裁决</p>
+				<p className="max-w-md text-center text-xs opacity-70">
+					开启后所有意图均待人工批准/驳回；打开「自动处置」才由审核 agent 自主裁决
+				</p>
+				<Button
+					type="button"
+					size="sm"
+					disabled={enablingReview}
+					onClick={async () => {
+						if (enablingReview) return;
+						setEnablingReview(true);
+						try {
+							await api.updateTask(taskId, { review_enabled: true });
+							setTaskReviewEnabled(true);
+							// 会签：让 SessionsTab 重新读 review_enabled，好启动待审计数轮询。
+							broadcastReviewEnabledChange();
+							toast.success("已开启意图审核：后续新意图将进入待审队列");
+						} catch (e) {
+							toast.error("开启意图审核失败：" + (e as Error).message);
+						} finally {
+							setEnablingReview(false);
+						}
+					}}
+				>
+					{enablingReview ? "正在开启…" : "开启意图审核"}
+				</Button>
+				<p className="max-w-md text-center text-[11px] opacity-60">
+					开启只影响新生成的意图；已进入执行的意图不会被回改为待审
+				</p>
 			</div>
 		);
 	}
