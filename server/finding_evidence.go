@@ -20,7 +20,7 @@ import (
 )
 
 // 漏洞证据截图上传/展示/管理。文件存 dataDir/report_assets/evidence/<node_id>/（随 report_assets 备份）；
-// 发现页 <img> 经 /api/findings/{id}/evidence/{file} 取图（cookie 鉴权，同 logo）；报告/MD 侧按磁盘路径内嵌。
+// 发现页 <img> 经 /api/exploration/findings/{id}/evidence/{file} 取图（cookie 鉴权，同 logo）；报告/MD 侧按磁盘路径内嵌。
 //
 // 安全基线（本身是安全平台，上传点不能成为恶意文件入口）：
 //   - 不信任扩展名/客户端 MIME：按内容判定类型 + 解码校验是真图片 + 重编码（剥离追加/内嵌载荷、
@@ -74,10 +74,12 @@ func (s *Server) evidenceDir(nodeID int64) string {
 
 // evidenceURL 构造前端取图 URL。
 func evidenceURL(nodeID int64, filename string) string {
-	return fmt.Sprintf("/api/findings/%d/evidence/%s", nodeID, filename)
+	// 取图 URL 必须与本仓库实际注册的路由一致（/api/exploration/findings/{id}/evidence/{file}），
+	// 否则前端 <img src={url}> 会 404 —— 证据截图存了却显示不出来。
+	return fmt.Sprintf("/api/exploration/findings/%d/evidence/%s", nodeID, filename)
 }
 
-// POST /api/findings/{id}/evidence — multipart "file" + 可选 caption / step_index。
+// POST /api/exploration/findings/{id}/evidence — multipart "file" + 可选 caption / step_index。
 func (s *Server) uploadFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
@@ -165,7 +167,7 @@ func (s *Server) deriveEvidenceCaption(nodeID int64, stepIndex int) string {
 	return clipUTF8(fmt.Sprintf("步骤%d：%s", stepIndex, text), 120)
 }
 
-// GET /api/findings/{id}/evidence — 列出某漏洞全部证据（带取图 url）。
+// GET /api/exploration/findings/{id}/evidence — 列出某漏洞全部证据（带取图 url）。
 func (s *Server) listFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
@@ -188,7 +190,7 @@ func (s *Server) listFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": out})
 }
 
-// PATCH /api/findings/{id}/evidence/{eid} — 改图注 / 对应步骤 / 排序。
+// PATCH /api/exploration/findings/{id}/evidence/{eid} — 改图注 / 对应步骤 / 排序。
 func (s *Server) updateFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
@@ -215,7 +217,7 @@ func (s *Server) updateFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-// DELETE /api/findings/{id}/evidence/{eid} — 删记录 + 盘文件。
+// DELETE /api/exploration/findings/{id}/evidence/{eid} — 删记录 + 盘文件。
 func (s *Server) deleteFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
@@ -239,7 +241,7 @@ func (s *Server) deleteFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"deleted": eid})
 }
 
-// GET /api/findings/{id}/evidence/{file} — 取证据图（base name，防穿越；cookie 鉴权同 logo）。
+// GET /api/exploration/findings/{id}/evidence/{file} — 取证据图（base name，防穿越；cookie 鉴权同 logo）。
 func (s *Server) serveFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	nodeID, ok := pathInt(r, "id")
 	if !ok {
