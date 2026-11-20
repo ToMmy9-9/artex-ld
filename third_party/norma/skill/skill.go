@@ -168,6 +168,15 @@ func (r *Registry) names() []string {
 	return out
 }
 
+// Listing exposes the rendered available-skills block.
+//
+// The Skill tool's prompt embeds this listing every turn, so it is the ONLY
+// signal the model has for deciding which skill to load. Exposing it lets the
+// server render the same list for the UI and lets tests assert that a skill
+// still carries its description (a budget-clipped name-only entry is
+// effectively unusable).
+func (r *Registry) Listing() string { return r.listing() }
+
 // listing renders the available-skills block ("- name: description" per skill),
 // clipping long descriptions and degrading to name-only once maxSkillListingChars
 // is reached. Skills are never dropped — the model must be able to invoke each.
