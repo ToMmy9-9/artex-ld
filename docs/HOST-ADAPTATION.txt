@@ -1,0 +1,48 @@
+# 宿主适配说明（artex-ld）
+
+本目录下的 skill 移植自 `D:\PTS\.claude\skills`（Claude Code 工程）。
+内容（方法论、指纹库、绕过技法、参考文档）保持原样，**只有"谁来执行"这一层被改写**。
+
+artex-ld 与 Claude Code 的执行环境不同：Claude Code 有内置的 MCP 客户端和一组
+固定工具名，artex-ld 有自己的流量录制、拦截、代理与浏览器接入。
+下面的对照表说明原 skill 里的 MCP 调用在 artex-ld 里换成什么。
+
+## 工具映射表
+
+| 原 skill 里的调用 | artex-ld 里的对应能力 | 说明 |
+|---|---|---|
+| `mcp__yakit__http_fuzzer` | `fetch` 工具（带完整参数）或 Bash 里的 curl | artex-ld 无 yakit；发请求用平台 `fetch` 工具，需要看回包细节时优先用它 |
+| `mcp__yakit__start_mitm_v2` | 平台流量录制已默认开启；改写请求用 `intercept` 相关能力 | artex-ld 的 traffic 代理在任务启动时已挂载，无需手动起 MITM |
+| `mcp__yakit__set_current_rules` | `POST /api/intercept/rules`（拦截规则：allow/deny/ask） | 语义不同：artex-ld 的规则控制**放行与否**，不是改写响应体 |
+| `mcp__js-reverse-mcp__navigate_page` | `mcp__browser__navigate`（浏览器 MCP）或 `fetch` | 浏览器类操作走 artex-ld 已接入的 browser MCP |
+| `mcp__js-reverse-mcp__evaluate_script` | `mcp__browser__dom_cua_*` 系列 / Bash 取 JS 文件后本地解析 | 页面内 JS 求值在 artex-ld 里用浏览器 MCP 的 DOM/执行能力 |
+| `mcp__js-reverse-mcp__take_screenshot` | `mcp__browser__tab_screenshot` | 同上 |
+| `mcp__memory-search-mcp__memory_get_methodology` | 平台 `knowledge` / 记忆检索工具 | 方法论检索由平台的知识库能力承担 |
+| `Skill('xxx')` | `Skill` 工具（同名） | artex-ld 同样有 Skill 元工具，格式为 agentskills.io 标准 |
+
+## 路径与描述的改动
+
+- `.claude/skills/<name>/SKILL.md` → 本仓库 `skills/<name>/SKILL.md`
+- `CLAUDE.md` 的硬性要求 → 已改写为对平台能力的要求（见各 skill 正文）
+- `D:/PTS/...` 形式的绝对路径 → 改为相对路径或平台工作目录
+- frontmatter 保留 `name` / `description`（agentskills.io 标准，artex-ld 原生支持）
+
+## 各 skill 的适配深度
+
+| skill | MCP 依赖 | 适配方式 |
+|---|---|---|
+| `api-tester` | 1 处（仅文档提及 js-reverse-mcp） | 轻改：文档路径与工具名 |
+| `sensitive-info-leak` | 无 | 原样移植 |
+| `response-modifier` | 无（自带 mitmproxy 脚本） | 原样移植 + 脚本接入说明 |
+| `fingerprint-finder` | 3 处 | 中改：MCP 并行段落改为平台工具表述 |
+| `route-guard-bypass` | 41 处 | 重改：示例中的 MCP 调用替换为平台等价调用 |
+
+## 重要能力差异
+
+**artex-ld 没有响应体改写引擎。** 平台的 `intercept` 规则控制的是"放行 / 拒绝 / 询问"，
+不是 mitmproxy 那种"改写响应内容"。`response-modifier` 依赖的
+`response_modifier.py`（mitmproxy addon）需要作为**外部工具**运行，
+由 agent 通过 Bash 调用，或由管理员单独部署一个 mitmproxy 实例。
+
+这一点在 `response-modifier/SKILL.md` 开头已明确标注，避免 agent 误以为
+平台自带改写能力而去找不存在的工具。

