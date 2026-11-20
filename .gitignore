@@ -34,6 +34,11 @@ Thumbs.db
 # claude code local state
 .claude/
 
+# 报告生成 skill 的运行时副本：由 reportx.SeedSkillFiles 从 Go 内置默认值
+# 播种到 skill 目录（首次启动时生成）。不入库 —— Go 默认值是唯一真源，
+# 入库会造成第二份副本随默认值改动而漂移。
+/skills/report-generation/
+
 # 内嵌前端的单二进制产物
 /artex
 # 一键更新在可执行文件旁留下的中间产物（暂存件 / 备份 / 失败版本 / 升级标记）
