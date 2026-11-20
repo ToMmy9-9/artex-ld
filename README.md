@@ -34,7 +34,7 @@
 ```bash
 # 1. 新建目录并下载 Release 部署包
 mkdir artex && cd artex
-wget https://github.com/IcebergN2026/artex-ld/releases/download/0.2.0/artex-0.2.0-linux-amd64.deploy.tar.gz
+wget https://github.com/steveopen1/artex-ld/releases/download/0.2.0/artex-0.2.0-linux-amd64.deploy.tar.gz
 
 # 2. 解压并一键安装（自动注册 systemd 服务、初始化数据库）
 tar xzf artex-0.2.0-linux-amd64.deploy.tar.gz
@@ -45,7 +45,7 @@ sudo bash install.sh --server artex-0.2.0-linux-amd64.deploy.tar.gz
 ### 方式二：Docker Compose（从源码构建）
 
 ```bash
-git clone https://github.com/IcebergN2026/artex-ld.git
+git clone https://github.com/steveopen1/artex-ld.git
 cd artex-ld
 chmod +x deploy.sh && ./deploy.sh
 # 已有镜像无需重新构建时：./deploy.sh --no-build
@@ -56,7 +56,7 @@ chmod +x deploy.sh && ./deploy.sh
 ### 方式三：源码构建
 
 ```bash
-git clone https://github.com/IcebergN2026/artex-ld.git
+git clone https://github.com/steveopen1/artex-ld.git
 cd artex-ld
 chmod +x build.sh
 ./build.sh        # 需要 Go 1.26+、Node.js 20+
@@ -66,7 +66,7 @@ export ARTEX_PG_DSN='postgres://artex:密码@127.0.0.1:5432/artex?sslmode=disabl
 
 ### 方式四：下载预编译二进制（Releases）
 
-到本仓库的 [Releases](https://github.com/IcebergN2026/artex-ld/releases) 下载对应平台的 zip，解压后得到 `artex` + `start.sh`（Windows 为 `start.bat`）+ `skills/` + `config.example.json`。Linux ARM64（包括 ARM64 Kali）选择 `linux-arm64`，x86_64 选择 `linux-amd64`：
+到本仓库的 [Releases](https://github.com/steveopen1/artex-ld/releases) 下载对应平台的 zip，解压后得到 `artex` + `start.sh`（Windows 为 `start.bat`）+ `skills/` + `config.example.json`。Linux ARM64（包括 ARM64 Kali）选择 `linux-arm64`，x86_64 选择 `linux-amd64`：
 
 ```bash
 cp config.example.json config.json   # 填好 database 连接
