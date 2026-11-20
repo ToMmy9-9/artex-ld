@@ -316,7 +316,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			return a.TaskTimeoutWrapupMaxTurns, true
 		}
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
-		s.toolKeeperSeedAll() // 内置工具管理员（认领用户上传的外部工具）
+		s.toolKeeperSeedAll()    // 内置工具管理员（认领用户上传的外部工具）
+		s.toolAssetsSyncAll()    // 已认领工具接入 agent 可调用集合 + 注册受管执行入口
 		domainReg := buildDomainReg(m.Assets())
 		wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)

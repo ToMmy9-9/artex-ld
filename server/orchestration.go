@@ -52,6 +52,9 @@ func (s *Server) hostTools() ([]actool.CoreTool, map[string][]string) {
 	// 工具管理员专用工具（探/认领）。它们在 tools 表里只绑定 tool_keeper，
 	// 所以别的 agent 看不到——ToolResolve 按绑定过滤。
 	tools = append(tools, s.toolKeeperTools()...)
+	// 受管执行入口：外部工具唯一合法的调用通道。绑定在 tools 表里
+	// （worker/pentest），ToolResolve 按绑定过滤。
+	tools = append(tools, []actool.CoreTool{s.toolRunTool()}...)
 	custom, err := s.customTools()
 	if err != nil {
 		log.Printf("[custom-tool] 加载失败: %v", err)

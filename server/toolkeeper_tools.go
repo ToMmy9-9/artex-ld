@@ -16,6 +16,7 @@ import (
 
 	"artex/db"
 	"norma/llm"
+	"norma/permission"
 	actool "norma/tool"
 )
 
@@ -188,10 +189,28 @@ func (s *Server) toolClaimTool() actool.CoreTool {
 				req.Summary, req.UsageExample, req.ProbeOutput, "tool_keeper"); err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
+			// The asset is now managed: publish it into the tool catalogue so
+			// agents can see and call it.
+			s.syncToolAssetsToCatalog()
 			msg := fmt.Sprintf("已登记 %s（分类=%s 风险=%s）。契约只会作为平台上限的子集生效。",
 				asset.Name, req.Category, req.RiskLevel)
 			return actool.Result{Content: []llm.ContentBlock{llm.TextBlock(msg)}}, nil
 		})
+}
+
+
+// wrToolCtx is wrTool with the ToolContext passed through, for tools that
+// need the working dir / agent id (e.g. audit attribution).
+func wrToolCtx(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage, *actool.ToolContext) (actool.Result, error)) actool.CoreTool {
+	return actool.Build(actool.Spec{
+		Name: name, Description: desc, Schema: schema,
+		Permissions: func(context.Context, json.RawMessage, permission.Context) permission.Decision {
+			return permission.Allowed()
+		},
+		Run: func(ctx context.Context, in json.RawMessage, tc *actool.ToolContext) (actool.Result, error) {
+			return run(ctx, in, tc)
+		},
+	})
 }
 
 // toolKeeperTools is the tool set bound to the internal tool_keeper agent.

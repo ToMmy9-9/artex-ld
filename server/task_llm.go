@@ -619,6 +619,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	pl.SetNotifyReview(func(int64) { s.wakeReviewRunner() })
 	pl.SetReviewEnabled(func(int64) bool { return t.ReviewEnabled })
 	pl.SetExecutorChecker(s.checkExecutorKey)
+	pl.SetExecutorCatalog(s.executorCatalog)
 	pl.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	pl.SetProxyProvider(s.m.ProxyAddr)
 	pl.SetWebSearch(s.webSearchFor("planner"))

@@ -56,6 +56,11 @@ type Planner struct {
 	// 【二开·审核流 PR1】planner 侧审核流回调：每轮 Plan 注入 ToolSet。
 	notifyReview    func(taskID int64)      // §2.6：送审成功唤醒 ReviewRunner（nil = 只靠 60s ticker 兜底）
 	reviewEnabledFn func(taskID int64) bool // §2.4：任务级审核总开关即时解析（nil = 不校验）
+	// executorCatalogFn renders the list of dispatchable executors into the
+	// planner's system prompt. Without it the planner is asked to fill
+	// target_executor but never told which keys exist or what they are good
+	// at, so it can only guess.
+	executorCatalogFn func() string
 	checkExecutor   func(key string) error  // §2.9.3：target_executor 合法性校验（nil = 不校验）
 	// resolveTraffic maps a finding's structured reproduction steps to the real
 	// recorded MITM exchange ids (【AntiFox 证据驱动交付】host callback).
@@ -169,6 +174,10 @@ func (p *Planner) SetNotifyReview(fn func(taskID int64)) { p.notifyReview = fn }
 // 【二开·审核流 PR1/§2.4】SetReviewEnabled wires the per-task review gate resolver
 // (tasks.review_enabled，落库前即时现读)。
 func (p *Planner) SetReviewEnabled(fn func(taskID int64) bool) { p.reviewEnabledFn = fn }
+
+// SetExecutorCatalog wires the renderer that tells the planner which
+// executors exist and what each is good at.
+func (p *Planner) SetExecutorCatalog(fn func() string) { p.executorCatalogFn = fn }
 
 // 【二开·审核流 PR1+PR8/§2.9.3】SetExecutorChecker wires the target_executor validator
 // (server 侧复用 engine.resolveExecutor)。
@@ -606,6 +615,13 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		// 与 worker 对称：任务级操作约束必须进入 planner 的 system prompt，否则
 		// planner 派生意图时看不到 allow/deny 边界（详见 worker.go 同一处注释）。
 		sysBody += constraintBlock(ts)
+	}
+	// 可用执行器清单：planner 被要求填 target_executor，就必须告诉它有哪些
+	// 可填、每个擅长什么，否则只能凭空猜 key。
+	if p.executorCatalogFn != nil {
+		if cat := p.executorCatalogFn(); cat != "" {
+			sysBody += cat
+		}
 	}
 	system, boundary := deferredSystem(sysBody, def)
 	// planner 无自身墙钟预算;有 deadline 时把 MaxDuration 夹逼到剩余,让在跑的规划轮在

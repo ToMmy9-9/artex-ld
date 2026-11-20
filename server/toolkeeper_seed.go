@@ -132,9 +132,41 @@ func (s *Server) seedToolKeeperTools() {
 			log.Printf("[tool-keeper] 工具 %s schema 取值失败: %v", key, err)
 			continue
 		}
-		if err := pg.UpsertSystemToolExclusive(key, t.Description(), schema,
+		if err := pg.UpsertSystemToolExclusive(key, t.Description(), schema, nil,
 			[]string{toolKeeperAgentKey}); err != nil {
 			log.Printf("[tool-keeper] 工具 %s 入库失败: %v", key, err)
+		}
+	}
+}
+
+
+// seedPlannerSkillVisibility binds a small set of method skills to the planner.
+//
+// The planner is the decision maker: it reads the exploration graph and
+// decides what to dispatch next. Without any skill in its tool set it cannot
+// even load a skill, so it has no idea the platform ships method skills like
+// fingerprint-finder or api-tester — and therefore never dispatches work
+// that would use them.
+//
+// Only a few are bound: the planner's context budget goes to the graph, not
+// to methodology. The worker keeps the full set.
+func (s *Server) seedPlannerSkillVisibility() {
+	pg := s.m.pg
+	if pg == nil {
+		return
+	}
+	planner, err := pg.GetAgentByKey("planner")
+	if err != nil || planner == nil {
+		return
+	}
+	// Append, never replace: SetAgentSkillVisibility is a full replace and
+	// would wipe whatever the user configured for the planner in the UI.
+	// ToggleSkillVisibility only flips one row, so the user's own picks
+	// survive.
+	for _, name := range []string{"fingerprint-finder", "api-tester", "sensitive-info-leak",
+		"route-guard-bypass", "tool-arsenal"} {
+		if err := pg.ToggleSkillVisibility(planner.ID, name, true); err != nil {
+			log.Printf("[planner-skill] 绑定 %s 失败: %v", name, err)
 		}
 	}
 }
@@ -143,4 +175,5 @@ func (s *Server) seedToolKeeperTools() {
 func (s *Server) toolKeeperSeedAll() {
 	s.seedToolKeeperTools()
 	s.seedToolKeeper()
+	s.seedPlannerSkillVisibility()
 }

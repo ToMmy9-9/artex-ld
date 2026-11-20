@@ -248,9 +248,12 @@ UPDATE tools SET description=$2, schema=$3, agents=$4, enabled=$5 WHERE key=$1`,
 // security boundary: if a stale row still carried another agent, that agent
 // could probe and claim uploaded binaries. So we replace the array outright
 // rather than merging.
-func (d *DB) UpsertSystemToolExclusive(key, desc string, schema json.RawMessage, agents []string) error {
+func (d *DB) UpsertSystemToolExclusive(key, desc string, schema json.RawMessage, exec json.RawMessage, agents []string) error {
 	if len(schema) == 0 {
 		schema = json.RawMessage(`{}`)
+	}
+	if len(exec) == 0 {
+		exec = json.RawMessage(`{}`)
 	}
 	if len(agents) == 0 {
 		agents = []string{}
@@ -260,12 +263,48 @@ func (d *DB) UpsertSystemToolExclusive(key, desc string, schema json.RawMessage,
 		return err
 	}
 	_, err = d.Exec(`
-INSERT INTO tools(key, system, description, schema, agents, enabled)
-VALUES ($1, true, $2, $3, $4, true)
+INSERT INTO tools(key, system, description, schema, agents, enabled, kind, exec)
+VALUES ($1, true, $2, $3, $4, true, 'shell', $5)
 ON CONFLICT (key) DO UPDATE
   SET description = EXCLUDED.description,
       schema      = EXCLUDED.schema,
       agents      = EXCLUDED.agents,
-      enabled     = true`, key, desc, schema, raw)
+      enabled     = true,
+      exec        = EXCLUDED.exec`, key, desc, schema, raw, exec)
 	return err
+}
+
+// RemoveSystemToolsNotIn deletes system tools whose key is not in the keep
+// set. Only ext_* keys are considered, so hand-written platform tools are
+// never touched.
+//
+// This is used to drop catalogue entries for external assets that are no
+// longer managed (deleted, quarantined, or reset to unclaimed) — otherwise
+// the catalogue would keep advertising a tool that cannot be called.
+func (d *DB) RemoveSystemToolsNotIn(keep map[string]bool) error {
+	rows, err := d.Query(`SELECT key FROM tools WHERE key LIKE 'ext\_%'`)
+	if err != nil {
+		return err
+	}
+	var stale []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			rows.Close()
+			return err
+		}
+		if !keep[k] {
+			stale = append(stale, k)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, k := range stale {
+		if _, err := d.Exec(`DELETE FROM tools WHERE key=$1`, k); err != nil {
+			return err
+		}
+	}
+	return nil
 }

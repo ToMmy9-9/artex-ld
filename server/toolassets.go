@@ -190,6 +190,10 @@ func (s *Server) toolAssetUpload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "没有收到任何文件")
 		return
 	}
+	// Mirror the new assets into the tool catalogue right away so an agent can
+	// see them even before the keeper has claimed them (the catalogue entry is
+	// refreshed again once the claim completes).
+	s.syncToolAssetsToCatalog()
 	// Wake the internal keeper so the user does not have to configure anything.
 	s.toolassets_triggerClaim(created)
 	writeJSON(w, 200, map[string]any{"created": created, "rejected": rejected})

@@ -374,7 +374,8 @@ func MergeContracts(contract, limits *ToolContract) *ToolContract {
 		merged[p.Flag] = p
 	}
 	for _, p := range contract.Params {
-		if lim, ok := merged[p.Flag]; ok {
+		lim, ok := merged[p.Flag]
+		if ok {
 			if lim.Deny {
 				continue // the platform's ban wins
 			}
@@ -391,13 +392,19 @@ func MergeContracts(contract, limits *ToolContract) *ToolContract {
 			if lim.Pattern != "" && p.Pattern != "" && !regexpSubset(p.Pattern, lim.Pattern) {
 				p.Pattern = lim.Pattern // keep the platform's (looser) ceiling
 			}
+			// The agent may not drop a platform-required flag's requiredness.
+			if lim.Required {
+				p.Required = true
+			}
 		}
 		merged[p.Flag] = p
 	}
+	// Rebuild the slice from the map, sorted by flag for a stable order.
 	out.Params = out.Params[:0]
 	for _, p := range merged {
 		out.Params = append(out.Params, p)
 	}
+	sort.Slice(out.Params, func(i, j int) bool { return out.Params[i].Flag < out.Params[j].Flag })
 	sort.Slice(out.Params, func(i, j int) bool { return out.Params[i].Flag < out.Params[j].Flag })
 
 	// deny_args: union.

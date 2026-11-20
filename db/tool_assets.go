@@ -122,10 +122,11 @@ func (d *DB) ToolAssetByName(name, platform string) (*ToolAsset, error) {
 func (d *DB) InsertToolAsset(a *ToolAsset) (int64, error) {
 	var id int64
 	err := d.QueryRow(`
-INSERT INTO tool_assets(name,display_name,version,sha256,size_bytes,platform,rel_path,state)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+INSERT INTO tool_assets(name,display_name,version,sha256,size_bytes,platform,rel_path,state,contract_limits,contract)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 RETURNING id`,
-		a.Name, a.DisplayName, a.Version, a.SHA256, a.SizeBytes, a.Platform, a.RelPath, a.State).Scan(&id)
+		a.Name, a.DisplayName, a.Version, a.SHA256, a.SizeBytes, a.Platform, a.RelPath, a.State,
+		nullJSON(a.Limits), nullJSON(a.Contract)).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -232,4 +233,12 @@ SET display_name=$2, version=$3, sha256=$4, size_bytes=$5, rel_path=$6,
 WHERE id=$1`,
 		id, a.DisplayName, a.Version, a.SHA256, a.SizeBytes, a.RelPath, a.Limits)
 	return err
+}
+
+// nullJSON maps an empty blob to SQL NULL so the column default applies.
+func nullJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return raw
 }
