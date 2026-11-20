@@ -244,6 +244,7 @@ const API_KEYS = [
   "updateCustomTool",
   "deleteCustomTool",
   "testCustomTool",
+  "previewToolDir",
   "detectPython",
   "mcpServers",
   "saveMcpServer",

@@ -310,6 +310,8 @@ export const llmAgentsApi = {
   deleteCustomTool: (key: string) => del<{ deleted: string }>(`/tools/custom/${key}`),
   testCustomTool: (body: { kind: string; exec: Record<string, unknown>; params: Record<string, unknown> }) =>
     post<{ output: string; is_error: boolean }>("/tools/custom/test", body),
+  previewToolDir: (body: { kind: string; exec: Record<string, unknown> }) =>
+    post<{ listing: string }>("/tools/custom/preview", body),
   detectPython: () => post<{ python_interpreter: string }>("/settings/python/detect", {}),
 
   // ---- mcp ----

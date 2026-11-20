@@ -177,13 +177,33 @@ type customToolToolInput struct {
 	Enabled     *bool           `json:"enabled"`
 }
 
+// rejectModelDirScan rejects a directory-scan shell hint coming from the MODEL
+// side (create_custom_tool / update_custom_tool). Directory-scan hints inject a
+// live listing of a folder into the agent's own context, so only an operator
+// may configure one — a model could otherwise point it at any path on disk and
+// read back a file inventory.
+func rejectModelDirScan(kind string, execRaw json.RawMessage) error {
+	if kind != "shell" || len(execRaw) == 0 {
+		return nil
+	}
+	var probe struct {
+		Dir string `json:"dir"`
+	}
+	if err := json.Unmarshal(execRaw, &probe); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(probe.Dir) != "" {
+		return fmt.Errorf("shell 工具的目录扫描(dir)只能由管理员在工具管理页配置，模型侧不可设置")
+	}
+	return nil
+}
+
 func customToolSchema(keyDesc string) map[string]any {
 	return objSchema(map[string]any{
 		"key":         strParam(keyDesc),
 		"description": strParam("发给模型的描述"),
 		"kind":        strParam("shell | command | script(仅Python) | http。shell=bash 环境声明(仅告知模型该工具可在 bash 中直接调用，无需 exec/schema)；其余三种需提供 exec"),
-		"exec":        map[string]any{"type": "object", "description": "执行规格(shell 类型不需要): command→{command}; script→{code}; http→{method,url,headers,body,proxy,use_recording_proxy}"},
-		"schema":      map[string]any{"type": "object", "description": "参数 JSON-Schema(shell/command/script 可留空; http 必填且需含 properties)"},
+		"exec":        map[string]any{"type": "object", "description": "执行规格(shell 类型不需要): command→{command}; script→{code}; http→{method,url,headers,body,proxy,use_recording_proxy}"},		"schema":      map[string]any{"type": "object", "description": "参数 JSON-Schema(shell/command/script 可留空; http 必填且需含 properties)"},
 		"agents":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "绑定的 agent key(可选)"},
 		"deferred":    map[string]any{"type": "boolean", "description": "是否延迟(shell 类型无效；仅 command/script/http 的不常用工具才开)"},
 		"enabled":     map[string]any{"type": "boolean", "description": "是否启用(默认 true)"},
@@ -217,6 +237,9 @@ func (s *Server) toolCreateCustomTool() actool.CoreTool {
 			if a.Kind == "http" && !hasSchemaProps(a.Schema) {
 				return actool.Errorf("http 工具必须提供参数 JSON Schema(不能留空)"), nil
 			}
+			if err := rejectModelDirScan(a.Kind, a.Exec); err != nil {
+				return actool.Errorf(err.Error()), nil
+			}
 			if exist, _ := s.m.pg.GetTool(a.Key); exist != nil {
 				return actool.Errorf("该 key 已存在: " + a.Key), nil
 			}
@@ -242,6 +265,9 @@ func (s *Server) toolUpdateCustomTool() actool.CoreTool {
 			}
 			if a.Kind == "http" && !hasSchemaProps(a.Schema) {
 				return actool.Errorf("http 工具必须提供参数 JSON Schema(不能留空)"), nil
+			}
+			if err := rejectModelDirScan(a.Kind, a.Exec); err != nil {
+				return actool.Errorf(err.Error()), nil
 			}
 			if err := s.m.pg.UpdateCustomTool(toDBTool(a)); err != nil {
 				return actool.Errorf(err.Error()), nil

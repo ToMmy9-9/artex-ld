@@ -73,6 +73,12 @@ func (s *Server) pgCreateCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "http 工具必须提供参数 JSON Schema(不能留空)")
 		return
 	}
+	// shell 工具可携带 exec.dir：装配时实时扫描该目录，把可用命令注入 Bash
+	// 描述。目录必须绝对、可访问（模型侧已被 rejectModelDirScan 拦掉）。
+	if err := validateShellHintDir(req.Kind, req.Exec); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	if exist, _ := pg.GetTool(req.Key); exist != nil {
 		writeErr(w, 409, "该 key 已存在(内置或自定义工具)")
 		return
@@ -115,6 +121,12 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "http 工具必须提供参数 JSON Schema(不能留空)")
 		return
 	}
+	// shell 工具可携带 exec.dir：装配时实时扫描该目录，把可用命令注入 Bash
+	// 描述。目录必须绝对、可访问（模型侧已被 rejectModelDirScan 拦掉）。
+	if err := validateShellHintDir(req.Kind, req.Exec); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	if err := pg.UpdateCustomTool(&db.Tool{
 		Key: key, Description: req.Description, Schema: req.Schema, Agents: req.Agents,
 		Enabled: req.Enabled, Kind: req.Kind, Exec: req.Exec, Deferred: req.Deferred,
@@ -136,6 +148,38 @@ func (s *Server) pgDeleteCustomTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": key})
+}
+
+// pgPreviewToolDir renders the directory-scan listing for a shell hint without
+// saving anything, so the operator can see exactly what the model will be told
+// before committing the config. Only names and counts are returned — never file
+// contents.
+func (s *Server) pgPreviewToolDir(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Kind string          `json:"kind"`
+		Exec json.RawMessage `json:"exec"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "无效的请求体")
+		return
+	}
+	if req.Kind != "shell" {
+		writeErr(w, 400, "仅 shell 类型支持目录扫描预览")
+		return
+	}
+	if err := validateShellHintDir("shell", req.Exec); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	spec, hasDir := parseShellHintSpec(req.Exec)
+	if !hasDir {
+		writeJSON(w, 200, map[string]any{"listing": "", "count": 0})
+		return
+	}
+	// Bypass the cache: the operator is iterating on the config right now and
+	// must see the current directory state, not a value up to 60s old.
+	listing := scanAndRender(spec, "")
+	writeJSON(w, 200, map[string]any{"listing": listing})
 }
 
 // testToolReq is a dry-run request from the editor: run the given (possibly unsaved)

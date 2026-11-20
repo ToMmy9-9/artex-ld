@@ -538,6 +538,11 @@ type ExecState = {
   timeout_ms: string;
   proxy: string;
   use_recording_proxy: boolean;
+  // 目录扫描型 shell 提示：把一个目录里的可执行文件实时列给模型看。
+  dir: string;
+  max_depth: string;
+  max_per_group: string;
+  platform: string;
 };
 
 function CustomToolDialog({
@@ -558,6 +563,7 @@ function CustomToolDialog({
   const [kind, setKind] = React.useState<"shell" | "command" | "script" | "http">("shell");
   const [ex, setEx] = React.useState<ExecState>({
     command: "", code: "", method: "GET", url: "", headers: "", body: "", timeout_ms: "", proxy: "", use_recording_proxy: false,
+    dir: "", max_depth: "", max_per_group: "", platform: "",
   });
   const [schemaText, setSchemaText] = React.useState("");
   const [bound, setBound] = React.useState<string[]>([]);
@@ -567,14 +573,16 @@ function CustomToolDialog({
   const [paramsText, setParamsText] = React.useState("");
   const [testing, setTesting] = React.useState(false);
   const [testResult, setTestResult] = React.useState<{ output: string; is_error: boolean } | null>(null);
+  const [preview, setPreview] = React.useState("");
+  const [previewing, setPreviewing] = React.useState(false);
 
   // (re)load form state when opening.
   React.useEffect(() => {
     if (!edit) return;
-    setParamsText(""); setTestResult(null);
+    setParamsText(""); setTestResult(null); setPreview("");
     if (edit === "new") {
       setKey(""); setDescription(""); setKind("shell");
-      setEx({ command: "", code: "", method: "GET", url: "", headers: "", body: "", timeout_ms: "", proxy: "", use_recording_proxy: false });
+      setEx({ command: "", code: "", method: "GET", url: "", headers: "", body: "", timeout_ms: "", proxy: "", use_recording_proxy: false, dir: "", max_depth: "", max_per_group: "", platform: "" });
       setSchemaText(""); setBound([]); setDeferred(false); setEnabled(true);
       return;
     }
@@ -593,6 +601,10 @@ function CustomToolDialog({
       timeout_ms: e.timeout_ms ? String(e.timeout_ms) : "",
       proxy: String(e.proxy ?? ""),
       use_recording_proxy: !!e.use_recording_proxy,
+      dir: String(e.dir ?? ""),
+      max_depth: e.max_depth ? String(e.max_depth) : "",
+      max_per_group: e.max_per_group ? String(e.max_per_group) : "",
+      platform: String(e.platform ?? ""),
     });
     setSchemaText(t.schema && Object.keys(t.schema).length ? JSON.stringify(t.schema, null, 2) : "");
     setBound(t.agents ?? []);
@@ -603,7 +615,15 @@ function CustomToolDialog({
   const toggleAgent = (k: string) => setBound((b) => (b.includes(k) ? b.filter((x) => x !== k) : [...b, k]));
 
   function buildExec(): Record<string, unknown> {
-    if (kind === "shell") return {};
+    // shell 类型：静态声明（无目录）或目录扫描（填了工具目录）。
+    if (kind === "shell") {
+      if (!ex.dir.trim()) return {};
+      const out: Record<string, unknown> = { dir: ex.dir.trim() };
+      if (ex.max_depth) out.max_depth = Number(ex.max_depth);
+      if (ex.max_per_group) out.max_per_group = Number(ex.max_per_group);
+      if (ex.platform) out.platform = ex.platform;
+      return out;
+    }
     const t = ex.timeout_ms ? Number(ex.timeout_ms) : undefined;
     if (kind === "command") return { command: ex.command, timeout_ms: t };
     if (kind === "script") return { code: ex.code, timeout_ms: t };
@@ -702,7 +722,7 @@ function CustomToolDialog({
 
           <div className="grid gap-1.5">
             <Label className="text-xs">类型</Label>
-            <Select value={kind} onValueChange={(v) => setKind(v as "shell" | "command" | "script" | "http")}>
+            <Select value={kind} onValueChange={(v) => { setKind(v as "shell" | "command" | "script" | "http"); setPreview(""); }}>
               <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="shell">shell（bash 环境声明）</SelectItem>
@@ -715,6 +735,68 @@ function CustomToolDialog({
               <p className="text-muted-foreground text-xs">适合 nmap、sqlmap、ffuf 等出名工具——模型已知用法，只需声明"可在 bash 中调用"即可。名称+描述会追加到 Bash 工具描述里。</p>
             )}
           </div>
+
+          {kind === "shell" && (
+            <div className="grid gap-2 rounded-lg border border-border-tertiary p-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs">工具目录（可选，填了就实时扫描这个目录）</Label>
+                <Input className="font-mono text-xs" value={ex.dir}
+                  placeholder="D:\PTS\tools 或 /opt/tools"
+                  onChange={(e) => setEx({ ...ex, dir: e.target.value })} />
+                <p className="text-muted-foreground text-xs">
+                  留空 = 静态声明（只把名称和描述告诉模型）。填了绝对路径 = 每次装配 agent 时
+                  实时扫描该目录，把实际存在的可执行文件按目录分组列进 Bash 描述，
+                  往目录里丢新工具下次就生效，无需改配置。
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">扫描深度（默认 3）</Label>
+                  <Input className="text-xs" value={ex.max_depth} placeholder="3"
+                    onChange={(e) => setEx({ ...ex, max_depth: e.target.value })} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">每组最多列出（默认 12）</Label>
+                  <Input className="text-xs" value={ex.max_per_group} placeholder="12"
+                    onChange={(e) => setEx({ ...ex, max_per_group: e.target.value })} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">平台过滤</Label>
+                  <Select value={ex.platform} onValueChange={(v) => setEx({ ...ex, platform: v })}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">自动（按服务器系统）</SelectItem>
+                      <SelectItem value="windows">仅 Windows</SelectItem>
+                      <SelectItem value="linux">仅 Linux</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {ex.dir.trim() && (
+                <div className="grid gap-1.5">
+                  <Button variant="outline" size="sm" className="w-fit"
+                    disabled={previewing}
+                    onClick={async () => {
+                      setPreviewing(true);
+                      setPreview("");
+                      try {
+                        const r = await api.previewToolDir({ kind: "shell", exec: buildExec() });
+                        setPreview(r.listing || "(该目录下没有可执行文件)");
+                      } catch (err) {
+                        setPreview("预览失败：" + String(err));
+                      } finally {
+                        setPreviewing(false);
+                      }
+                    }}>
+                    {previewing ? "扫描中…" : "预览扫描结果"}
+                  </Button>
+                  {preview && (
+                    <pre className="max-h-56 overflow-auto rounded-md bg-muted p-2 text-[11px] leading-relaxed whitespace-pre-wrap">{preview}</pre>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {kind === "command" && (
             <div className="grid gap-1.5">

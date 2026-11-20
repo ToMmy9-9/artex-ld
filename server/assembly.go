@@ -431,10 +431,15 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 		// shell hints: user-defined kind="shell" tools are not callable — they are
 		// environment declarations that tell the model which command-line tools are
 		// installed. Collect the ones bound to this agent and append to Bash's description.
+		// A shell hint whose exec carries a `dir` is a directory-scan hint: the listing
+		// is rendered from the live directory at assembly time, so dropping a new binary
+		// into the folder makes it visible to the next run without touching the DB.
 		var shellHints []string
 		for _, row := range rows {
 			if row.Kind == "shell" && row.Enabled && contains(row.Agents, agentKey) {
-				shellHints = append(shellHints, "- "+row.Key+": "+row.Description)
+				if hint := renderShellHint(row, row.Key, row.Description); hint != "" {
+					shellHints = append(shellHints, hint)
+				}
 			}
 		}
 		if len(shellHints) > 0 {
