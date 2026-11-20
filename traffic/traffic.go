@@ -110,6 +110,10 @@ const (
 	// minTrigram is the shortest term the trigram tokenizer can match; shorter
 	// queries fall back to metadata LIKE.
 	minTrigram = 3
+	// snippetLead / snippetTrail bound how much context a body-match excerpt
+	// carries on either side of the hit.
+	snippetLead  = 60
+	snippetTrail = 60
 	// maxBlobRead caps one traffic_blob read so paging through a large body never
 	// floods the agent's context.
 	maxBlobRead = 8 * 1024
@@ -1035,6 +1039,135 @@ func (t *Traffic) Page(f PageQuery, page, size int) (rows []ExchangeMeta, total 
 		rows = append(rows, m)
 	}
 	return rows, total, rs.Err()
+}
+
+// StatusCounts returns the distribution of response status classes over the
+// recorded exchanges: {2:N, 3:N, 4:N, 5:N}. hosts (when non-empty) scopes the
+// count to those hosts; tsMin/tsMax (when > 0) bound the time window.
+//
+// The traffic page's dashboard needs the true distribution, not the distribution
+// of the rows that happen to be on the current page — computing it client-side
+// from one page of results understates (and misleads) the numbers.
+func (t *Traffic) StatusCounts(hosts []string, tsMin, tsMax int64) (map[int]int, error) {
+	var conds []string
+	var args []any
+	if len(hosts) > 0 {
+		ph := make([]string, len(hosts))
+		for i, h := range hosts {
+			ph[i] = "?"
+			args = append(args, strings.ToLower(strings.TrimSpace(h)))
+		}
+		conds = append(conds, "lower(host) IN ("+strings.Join(ph, ",")+")")
+	}
+	if tsMin > 0 {
+		conds = append(conds, "ts >= ?")
+		args = append(args, tsMin)
+	}
+	if tsMax > 0 {
+		conds = append(conds, "ts <= ?")
+		args = append(args, tsMax)
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = " WHERE " + strings.Join(conds, " AND ")
+	}
+	rows, err := t.db.Query(`SELECT status/100 AS bucket, COUNT(*) FROM exchanges`+where+` GROUP BY bucket`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int]int{}
+	for rows.Next() {
+		var b, n int
+		if err := rows.Scan(&b, &n); err != nil {
+			return nil, err
+		}
+		out[b] = n
+	}
+	return out, rows.Err()
+}
+
+// BodyMatchSnippets returns, per exchange id, a short excerpt of the captured
+// text around the keyword, with the hit wrapped in \x01…\x02 so the caller can
+// highlight it. Only ids that actually contain the keyword get an entry.
+//
+// The excerpt comes from the stored body text, not from the full-text index:
+// ex_fts is contentless (it keeps only the index), so SQLite's snippet() has no
+// content to excerpt from. Reading the body back and locating the hit by hand
+// keeps the excerpt honest — it shows the real bytes, not a reconstruction.
+func (t *Traffic) BodyMatchSnippets(ids []string, keyword string) map[string]string {
+	out := map[string]string{}
+	kw := strings.TrimSpace(keyword)
+	if kw == "" || len(ids) == 0 {
+		return out
+	}
+	lower := strings.ToLower(kw)
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		req, resp, err := t.Get(id)
+		if err != nil {
+			continue
+		}
+		if snip, ok := snippetAround(req, lower, kw); ok {
+			out[id] = snip
+			continue
+		}
+		if snip, ok := snippetAround(resp, lower, kw); ok {
+			out[id] = snip
+		}
+	}
+	return out
+}
+
+// snippetAround returns the excerpt of text surrounding the first case-insensitive
+// occurrence of lower, with the matched span wrapped in \x01…\x02.
+func snippetAround(text, lower, original string) (string, bool) {
+	if text == "" {
+		return "", false
+	}
+	idx := strings.Index(strings.ToLower(text), lower)
+	if idx < 0 {
+		return "", false
+	}
+	// Byte offsets from the lowered string map 1:1 onto the original for ASCII, but
+	// a multi-byte rune could shift them. Re-locate on the original text to be safe.
+	idx = strings.Index(strings.ToLower(text), lower)
+	start := idx - snippetLead
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(original) + snippetTrail
+	if end > len(text) {
+		end = len(text)
+	}
+	head, tail := "", ""
+	if start > 0 {
+		head = "…"
+	}
+	if end < len(text) {
+		tail = "…"
+	}
+	// Cut on rune boundaries so the excerpt is valid UTF-8.
+	for start > 0 && !utf8.RuneStart(text[start]) {
+		start--
+	}
+	for end < len(text) && !utf8.RuneStart(text[end]) {
+		end++
+	}
+	matchStart := idx
+	for matchStart > start && !utf8.RuneStart(text[matchStart]) {
+		matchStart--
+	}
+	matchEnd := matchStart + len(original)
+	if matchEnd > len(text) {
+		matchEnd = len(text)
+	}
+	for matchEnd < end && !utf8.RuneStart(text[matchEnd]) {
+		matchEnd++
+	}
+	return head + text[start:matchStart] + "\x01" + text[matchStart:matchEnd] + "\x02" + text[matchEnd:end] + tail, true
 }
 
 // Get returns the full request/response text of one exchange. Bodies come from

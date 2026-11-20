@@ -210,6 +210,10 @@ type TrafficExchangeDTO struct {
 	Status      int    `json:"status"`
 	ContentType string `json:"content_type"`
 	RespLen     int    `json:"resp_len"`
+	// MatchSnippet is the excerpt of the captured text around the body-filter
+	// keyword, with the hit wrapped in \x01…\x02 so the UI can highlight it.
+	// Empty when no body filter is active.
+	MatchSnippet string `json:"match_snippet,omitempty"`
 }
 
 func trafficDTOs(ex []traffic.ExchangeMeta) []TrafficExchangeDTO {

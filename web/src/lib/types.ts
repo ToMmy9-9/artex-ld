@@ -1011,6 +1011,8 @@ export interface TrafficExchange {
   status: number;
   content_type: string;
   resp_len: number;
+  /** Body-filter hit excerpt; the matched span is wrapped in \x01…\x02. */
+  match_snippet?: string;
 }
 
 export interface TrafficResp {
@@ -1021,6 +1023,8 @@ export interface TrafficResp {
   page?: number;
   size?: number;
   exchanges?: TrafficExchange[];
+  /** Status-class distribution over the whole scope: {"2":N,"3":N,"4":N,"5":N}. */
+  status_buckets?: Record<string, number>;
 }
 
 // Full raw request/response of one exchange (lazy-loaded on row select).

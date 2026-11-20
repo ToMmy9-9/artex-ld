@@ -177,6 +177,9 @@ export default function DashboardPage() {
   const [usageStats, setUsageStats] = React.useState<UsageStats | null>(null);
   const [assetCounts, setAssetCounts] = React.useState<Record<string, number>>({});
   const [traffic, setTraffic] = React.useState<TrafficExchange[]>([]);
+  // Status-class distribution over the WHOLE recorded scope (server-computed).
+  // Deriving it from the 50 rows fetched above would only describe that page.
+  const [trafficBuckets, setTrafficBuckets] = React.useState<Record<string, number>>({});
   const [llmProfiles, setLLMProfiles] = React.useState<LLMProfile[]>([]);
   const [systemMetrics, setSystemMetrics] = React.useState<SystemMetrics | null>(null);
 
@@ -276,6 +279,7 @@ export default function DashboardPage() {
         ]);
         if (!alive) return;
         setTraffic(traf.exchanges ?? []);
+        setTrafficBuckets(traf.status_buckets ?? {});
         setAssetCounts(counts ?? {});
         setLLMProfiles(profileList);
         setUsageStats(usage);
@@ -341,17 +345,14 @@ export default function DashboardPage() {
 
   const assetMax = assetByType[0]?.[1] ?? 1;
 
-  // traffic status code breakdown
-  const trafficByCodes = React.useMemo(() => {
-    const m: Record<number, number> = {};
-    for (const e of traffic) {
-      const bucket = Math.floor(e.status / 100) * 100;
-      m[bucket] = (m[bucket] ?? 0) + 1;
-    }
-    return Object.entries(m)
-      .sort(([a], [b]) => Number(a) - Number(b))
-      .map(([code, n]) => ({ code: Number(code), n }));
-  }, [traffic]);
+  // traffic status code breakdown — from the server's full-scope counts.
+  const trafficByCodes = React.useMemo(
+    () =>
+      Object.entries(trafficBuckets)
+        .sort(([a], [b]) => Number(a) - Number(b))
+        .map(([code, n]) => ({ code: Number(code), n })),
+    [trafficBuckets],
+  );
 
   const trafficMax = Math.max(...trafficByCodes.map((x) => x.n), 1);
   const recentTraffic = [...traffic].sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts)).slice(0, 5);

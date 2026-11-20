@@ -3799,6 +3799,22 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		// filters. Reusing it avoids a second full SQLite scan on every refresh.
 		count = matched
 	}
+	dtos := trafficDTOs(ex)
+	// Body keyword → attach a highlighted excerpt per row showing where it matched
+	// (beats a bare match: you see the hit in context without opening each exchange).
+	if body := strings.TrimSpace(q.Get("body")); body != "" {
+		ids := make([]string, len(ex))
+		for i, e := range ex {
+			ids[i] = e.ID
+		}
+		snips := tr.BodyMatchSnippets(ids, body)
+		for i := range dtos {
+			dtos[i].MatchSnippet = snips[dtos[i].ID]
+		}
+	}
+	// Status-class distribution over the whole scope (not just this page) — the
+	// dashboard's traffic breakdown needs the true numbers.
+	buckets, _ := tr.StatusCounts(taskHosts, 0, 0)
 	writeJSON(w, 200, map[string]any{
 		"enabled":   s.m.TrafficEnabled(), // reflect the capture toggle
 		"proxy":     s.m.ProxyAddr(),
@@ -3806,7 +3822,8 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		"total":     matched, // rows matching the current filter (for pagination)
 		"page":      page,
 		"size":      size,
-		"exchanges": trafficDTOs(ex),
+		"exchanges": dtos,
+		"status_buckets": buckets, // {2:N,3:N,4:N,5:N} — true distribution for the dashboard
 	})
 }
 

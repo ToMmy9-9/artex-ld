@@ -81,6 +81,28 @@ function MethodBadge({ method }: { method: string }) {
   return <Badge className="shrink-0 font-mono">{method}</Badge>;
 }
 
+// Body-filter hit excerpt: the server wraps the matched span in \x01…\x02.
+// Rendering it as a <mark> shows WHERE the keyword hit without opening the
+// exchange — otherwise a body search only says "this row matched", not where.
+function SnippetText({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  const re = /\x01([^\x02]*)\x02/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(
+      <mark key={i++} className="rounded-sm bg-amber-300/60 px-0.5 text-foreground dark:bg-amber-500/40">
+        {m[1]}
+      </mark>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
 // Older captures may predate Host persistence because net/http keeps Host
 // outside Request.Header. Fill it for display while newly recorded traffic is
 // fixed at the recorder layer as well.
@@ -732,8 +754,8 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
               </TableHeader>
               <TableBody>
                 {exchanges.map((e) => (
+                  <React.Fragment key={e.id}>
                   <TableRow
-                    key={e.id}
                     className={cn("cursor-pointer", selected?.id === e.id && "bg-accent hover:bg-accent")}
                     onClick={() => setSelected(e)}
                   >
@@ -768,6 +790,18 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
                     <TableCell className="text-xs text-muted-foreground">{e.content_type}</TableCell>
                     <TableCell className="text-right text-xs tabular-nums">{fmtBytes(e.resp_len)}</TableCell>
                   </TableRow>
+                  {e.match_snippet && (
+                    <TableRow
+                      className={cn("cursor-pointer", selected?.id === e.id && "bg-accent hover:bg-accent")}
+                      onClick={() => setSelected(e)}
+                    >
+                      <TableCell />
+                      <TableCell colSpan={7} className="pt-0 pb-2">
+                        <SnippetText text={e.match_snippet} />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </React.Fragment>
                 ))}
                 {exchanges.length === 0 && (
                   <TableRow>
