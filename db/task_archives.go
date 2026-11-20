@@ -25,7 +25,14 @@ import (
 )
 
 const (
-	TaskArchiveFormatVersion       = 4
+	// TaskArchiveFormatVersion 是当前归档包格式版本。**每次给归档清单新增表都要 +1**：
+	// 老版本二进制读不了新清单（IsTaskArchiveFormatSupported 会拒绝），否则新表里的
+	// 数据会被老代码静默丢弃（不报错、但丢数据）。
+	//
+	// v5：新增 AntiFox 交付域三张表（finding_enrichment / finding_evidence /
+	// finding_traffic）—— 它们按探索节点 id 关联，归档必须带上，否则归档→恢复会
+	// 丢掉漏洞的 AI 富化、证据截图与流量关联。
+	TaskArchiveFormatVersion       = 5
 	TaskArchiveLegacyFormatVersion = 1
 	TaskArchiveLLMRecordsPath      = "database/llm_records.ndjson"
 )
@@ -602,6 +609,12 @@ func (d *DB) snapshotTaskArchive(taskID int64, llmRecords io.Writer) (*TaskArchi
 		{"task_scope", `SELECT * FROM task_scope WHERE task_id=$1 ORDER BY id`, []any{taskID}},
 		{"findings", `SELECT * FROM findings WHERE task_id=$1 ORDER BY id`, []any{taskID}},
 		{"task_intelligence", `SELECT * FROM task_intelligence WHERE task_id=$1 ORDER BY id`, []any{taskID}},
+		// AntiFox 交付域三张表：挂在**探索节点 id** 上（不是 findings 行 id）。
+		// 归档会重插探索节点（id 不变），故按 exploration 关联取回这三张表的行，
+		// 恢复时才能重新挂回节点；否则节点一删，这三张表的行就永久读不到。
+		{"finding_enrichment", `SELECT e.* FROM finding_enrichment e JOIN exploration_nodes n ON n.id=e.node_id WHERE n.exploration_id=$1 ORDER BY e.node_id`, []any{expID}},
+		{"finding_evidence", `SELECT ev.* FROM finding_evidence ev JOIN exploration_nodes n ON n.id=ev.node_id WHERE n.exploration_id=$1 ORDER BY ev.id`, []any{expID}},
+		{"finding_traffic", `SELECT t.* FROM finding_traffic t JOIN exploration_nodes n ON n.id=t.node_id WHERE n.exploration_id=$1 ORDER BY t.node_id,t.exchange_id`, []any{expID}},
 		{"finding_traffic_bindings", `SELECT b.* FROM finding_traffic_bindings b JOIN findings f ON f.id=b.finding_id WHERE f.task_id=$1 ORDER BY b.finding_id,b.position,b.id`, []any{taskID}},
 		{"traffic_evidence_snapshots", `SELECT s.* FROM traffic_evidence_snapshots s WHERE EXISTS(SELECT 1 FROM finding_traffic_bindings b JOIN findings f ON f.id=b.finding_id WHERE b.snapshot_id=s.id AND f.task_id=$1) ORDER BY s.id`, []any{taskID}},
 		{"llm_records", `SELECT * FROM llm_records WHERE COALESCE(task_id,'')=$1 ORDER BY id`, []any{strconv.FormatInt(taskID, 10)}},

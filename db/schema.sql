@@ -1831,8 +1831,14 @@ ALTER TABLE findings ADD COLUMN IF NOT EXISTS reproduction JSONB;
 
 -- 漏洞富化：AI 生成 / 人工编辑的结构化漏洞数据（覆盖层，不改写节点 payload）。
 -- JSONB 列以 json.RawMessage 承载，保持 db 包与报告类型解耦。
+--
+-- 这三张 AntiFox 表（finding_enrichment / finding_evidence / finding_traffic）都挂在
+-- **探索节点 id** 上，而不是 findings 表的行 id 上。节点是 explorations 的子行，删任务
+-- 时随 exploration 级联删除；这三张表若不挂外键，删任务后就会留下一批永远读不到的
+-- 孤儿行（node_id 指向已不存在的节点），且不会随 findings 的删除而回收。
+-- 故统一挂 REFERENCES exploration_nodes(id) ON DELETE CASCADE。
 CREATE TABLE IF NOT EXISTS finding_enrichment (
-    node_id      BIGINT PRIMARY KEY,
+    node_id      BIGINT PRIMARY KEY REFERENCES exploration_nodes(id) ON DELETE CASCADE,
     name         TEXT NOT NULL DEFAULT '',
     target       TEXT NOT NULL DEFAULT '',
     module       TEXT NOT NULL DEFAULT '',
@@ -1854,7 +1860,7 @@ CREATE INDEX IF NOT EXISTS idx_finding_enrichment_status ON finding_enrichment(s
 -- 漏洞证据截图：按复现步骤序号（step_index）把截图挂到具体步骤上。
 CREATE TABLE IF NOT EXISTS finding_evidence (
     id          BIGSERIAL PRIMARY KEY,
-    node_id     BIGINT NOT NULL,
+    node_id     BIGINT NOT NULL REFERENCES exploration_nodes(id) ON DELETE CASCADE,
     filename    TEXT NOT NULL,
     caption     TEXT NOT NULL DEFAULT '',
     step_index  INT NOT NULL DEFAULT 0,   -- 对应复现步骤序号(0=未指定/概览)
@@ -1866,13 +1872,37 @@ CREATE INDEX IF NOT EXISTS idx_finding_evidence_node ON finding_evidence(node_id
 -- 漏洞↔原始流量包关联（AntiFox 证据驱动交付）：
 -- 把复现步骤自动关联到真实录制的 MITM 报文（exchange_id），报告/发现页可直接引用原始包。
 CREATE TABLE IF NOT EXISTS finding_traffic (
-    node_id     BIGINT NOT NULL,
+    node_id     BIGINT NOT NULL REFERENCES exploration_nodes(id) ON DELETE CASCADE,
     exchange_id TEXT NOT NULL,
     source      TEXT NOT NULL DEFAULT 'manual',  -- manual | auto
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (node_id, exchange_id)
 );
 CREATE INDEX IF NOT EXISTS idx_finding_traffic_node ON finding_traffic(node_id);
+
+-- 给旧库补上外键：上表的 REFERENCES 只在**新建表**时生效，已存在的库（合并前建的）
+-- 仍然没有外键，删任务后照样留孤儿行。故显式补挂，并先清掉已存在的孤儿行
+-- （孤儿行会让 ADD CONSTRAINT 失败，且它们本来就永远读不到 —— 节点已不存在）。
+DO $$
+BEGIN
+    -- 孤儿行：node_id 指向已删除的探索节点。
+    DELETE FROM finding_enrichment e WHERE NOT EXISTS (SELECT 1 FROM exploration_nodes n WHERE n.id = e.node_id);
+    DELETE FROM finding_evidence  e WHERE NOT EXISTS (SELECT 1 FROM exploration_nodes n WHERE n.id = e.node_id);
+    DELETE FROM finding_traffic  t WHERE NOT EXISTS (SELECT 1 FROM exploration_nodes n WHERE n.id = t.node_id);
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='finding_enrichment'::regclass AND conname='fk_finding_enrichment_node') THEN
+        ALTER TABLE finding_enrichment ADD CONSTRAINT fk_finding_enrichment_node
+            FOREIGN KEY (node_id) REFERENCES exploration_nodes(id) ON DELETE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='finding_evidence'::regclass AND conname='fk_finding_evidence_node') THEN
+        ALTER TABLE finding_evidence ADD CONSTRAINT fk_finding_evidence_node
+            FOREIGN KEY (node_id) REFERENCES exploration_nodes(id) ON DELETE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='finding_traffic'::regclass AND conname='fk_finding_traffic_node') THEN
+        ALTER TABLE finding_traffic ADD CONSTRAINT fk_finding_traffic_node
+            FOREIGN KEY (node_id) REFERENCES exploration_nodes(id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 -- ═══ AntiFox 交付级报告：出具方信息 / 报告登记表 / 可复用封面模板 ═══
 CREATE TABLE IF NOT EXISTS report_settings (

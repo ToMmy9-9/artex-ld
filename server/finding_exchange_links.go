@@ -27,9 +27,9 @@ func (s *Server) linkFindingTrafficExchange(w http.ResponseWriter, r *http.Reque
 	if pg == nil {
 		return
 	}
-	nodeID, ok := pathInt(r, "id")
+	nodeID, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的漏洞 id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	var req struct {
@@ -52,9 +52,9 @@ func (s *Server) listFindingTrafficExchanges(w http.ResponseWriter, r *http.Requ
 	if pg == nil {
 		return
 	}
-	nodeID, ok := pathInt(r, "id")
+	nodeID, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的漏洞 id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	ids, err := pg.ListFindingTrafficIDs(nodeID)
@@ -75,9 +75,9 @@ func (s *Server) unlinkFindingTrafficExchange(w http.ResponseWriter, r *http.Req
 	if pg == nil {
 		return
 	}
-	nodeID, ok := pathInt(r, "id")
+	nodeID, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的漏洞 id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	if err := pg.UnlinkFindingTraffic(nodeID, r.PathValue("exchange_id")); err != nil {

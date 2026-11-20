@@ -85,9 +85,9 @@ func (s *Server) uploadFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
-	nodeID, ok := pathInt(r, "id")
+	nodeID, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的漏洞 id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	if err := r.ParseMultipartForm(16 << 20); err != nil { // 16 MB
@@ -173,9 +173,9 @@ func (s *Server) listFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
-	nodeID, ok := pathInt(r, "id")
+	nodeID, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的漏洞 id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	list, err := pg.ListFindingEvidence(nodeID)
@@ -243,9 +243,9 @@ func (s *Server) deleteFindingEvidence(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/exploration/findings/{id}/evidence/{file} — 取证据图（base name，防穿越；cookie 鉴权同 logo）。
 func (s *Server) serveFindingEvidence(w http.ResponseWriter, r *http.Request) {
-	nodeID, ok := pathInt(r, "id")
+	nodeID, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的漏洞 id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	file := filepath.Base(r.PathValue("file"))

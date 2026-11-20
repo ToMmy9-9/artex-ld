@@ -275,6 +275,14 @@ WHERE archive.id=$1 FOR UPDATE OF archive,task`, archiveID).Scan(&taskID, &expID
 			return nil, fmt.Errorf("restore %s: %w", table, err)
 		}
 	}
+	// AntiFox 交付域三张表按**探索节点 id** 关联（finding_enrichment / finding_evidence /
+	// finding_traffic），必须在 exploration_nodes 之后插，否则外键不成立。
+	// 这三张表的外键是 ON DELETE CASCADE：节点没了，行也该跟着没。
+	for _, table := range []string{"finding_enrichment", "finding_evidence", "finding_traffic"} {
+		if err := insertArchiveRows(tx, table, remappedTables[table]); err != nil {
+			return nil, fmt.Errorf("restore %s: %w", table, err)
+		}
+	}
 	if warning, err := restoreTaskRelations(tx, taskID, remappedTables["task_relations"]); err != nil {
 		return nil, err
 	} else {
@@ -439,6 +447,7 @@ func insertArchiveRows(tx *sql.Tx, table string, raw json.RawMessage) error {
 	allowed := map[string]bool{
 		"exploration_nodes": true, "exploration_edges": true, "exploration_anchors": true,
 		"task_intelligence": true, "task_constraints": true, "activity": true, "task_asset_links": true, "findings": true,
+		"finding_enrichment": true, "finding_evidence": true, "finding_traffic": true,
 		"llm_records": true, "llm_usage": true, "skill_usage": true, "tool_usage": true,
 		"side_question_sessions": true, "side_question_requests": true,
 	}

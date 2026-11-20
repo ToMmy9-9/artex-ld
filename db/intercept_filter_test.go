@@ -146,6 +146,11 @@ func TestInterceptApprovalFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 上面的批量 UPDATE 只改了**当时已存在**的行；这行是之后新建的，created_at 是
+	// now()，落在日期过滤区间之外。故单独把它挪进 2099 区间再断言日期过滤。
+	if _, err := d.Exec(`UPDATE intercept_pending SET created_at='2099-01-01' WHERE id=$1`, searchID); err != nil {
+		t.Fatal(err)
+	}
 	rows, total, err = d.ListTaskInterceptsPage(scope, 1, 20, InterceptApprovalFilter{Search: "example.test"})
 	if err != nil || total != 1 || len(rows) != 1 || rows[0].ID != searchID {
 		t.Fatalf("snapshot search total=%d rows=%d err=%v", total, len(rows), err)

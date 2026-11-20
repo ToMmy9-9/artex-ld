@@ -110,34 +110,58 @@ func nodeIDFromPath(r *http.Request) (int64, bool) {
 	return id, err == nil && id > 0
 }
 
-// GET /api/findings/{id} — finding + enrichment (enrichment null when not analyzed).
-func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
+// resolveFindingNodeID 把路径里的 id 解析成**规范节点 id**（exploration_nodes.id）。
+//
+// AntiFox 交付域三张表（finding_enrichment / finding_evidence / finding_traffic）
+// 全部以探索节点 id 为键，且已挂 REFERENCES exploration_nodes(id) ON DELETE CASCADE。
+// 但调用方（前端漏洞详情页）手里可能只有独立 findings 表的**行 id**：
+// 两种 id 空间并不相等，直接拿路径 id 当节点 id 写库会撞外键（或更糟：写到别的节点上）。
+// 故统一走这里：先按节点 id 查，查不到再按 findings 行 id 查并取其 node_id；
+// 两者都查不到 → 该漏洞没有可挂载的节点，返回 false。
+func (s *Server) resolveFindingNodeID(r *http.Request) (int64, bool) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "无效的 finding id")
+		return 0, false
+	}
+	pg := s.m.pg
+	if pg == nil {
+		return 0, false
+	}
+	if f, err := pg.GetFindingByNodeID(id); err == nil && f != nil {
+		return id, true
+	}
+	row, err := pg.GetFinding(id)
+	if err != nil || row == nil || row.NodeID == nil {
+		return 0, false
+	}
+	return *row.NodeID, true
+}
+
+// GET /api/findings/{id} — finding + enrichment (enrichment null when not analyzed).
+func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
+	// 两种 id 口径：主口径是**探索节点 id**，但调用方可能只有独立 findings 表的行 id。
+	// 统一由 resolveFindingNodeID 解析出规范节点 id（并回带该漏洞行）。
+	nodeID, ok := s.resolveFindingNodeID(r)
+	if !ok {
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
-	f, err := s.m.pg.GetFindingByNodeID(id)
+	f, err := s.m.pg.GetFindingByNodeID(nodeID)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	// 兼容两种 id 口径：本端点的主口径是**探索节点 id**，但调用方（前端漏洞详情页）
-	// 手里可能只有独立 findings 表的行 id。节点查不到时按行 id 回退一次，
-	// 再换算出节点 id，避免「页面能打开但复现过程/证据取不到」。
-	nodeID := id
 	if f == nil {
-		row, rerr := s.m.pg.GetFinding(id)
+		row, rerr := s.m.pg.GetFinding(nodeID)
 		if rerr != nil {
 			writeErr(w, 500, rerr.Error())
 			return
 		}
-		if row == nil || row.NodeID == nil {
+		if row == nil {
 			writeErr(w, 404, "未找到漏洞")
 			return
 		}
 		f = row
-		nodeID = *row.NodeID
 	}
 	enr, _ := s.m.pg.GetFindingEnrichment(nodeID)
 	// 结构化复现过程（agent 就地记录的 入口/前置/有序步骤/来源）直通前端，供"显式分步"渲染 +
@@ -292,9 +316,9 @@ type enrichJob struct {
 // page switch / client disconnect can't abort it, and re-clicks dedup to the running
 // job. Poll GET /api/findings/{id}/enrich/status for the result.
 func (s *Server) findingEnrich(w http.ResponseWriter, r *http.Request) {
-	id, ok := nodeIDFromPath(r)
+	id, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的 finding id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	f, err := s.m.pg.GetFindingByNodeID(id)
@@ -325,9 +349,9 @@ func (s *Server) findingEnrich(w http.ResponseWriter, r *http.Request) {
 // live job if one exists; otherwise falls back to the persisted enrichment (so a
 // return-to-page after completion shows the result even after job state is dropped).
 func (s *Server) findingEnrichStatus(w http.ResponseWriter, r *http.Request) {
-	id, ok := nodeIDFromPath(r)
+	id, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的 finding id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	s.enrichMu.Lock()
@@ -410,9 +434,9 @@ func enrichmentHasProse(e *db.FindingEnrichment) bool {
 // 这样"人工确认"这一步就自带了报告所需的结构化正文，报告管理只收录已确认漏洞即全部可交付，
 // 导出时不再依赖脆弱的临场大生成。
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
-	id, ok := nodeIDFromPath(r)
+	id, ok := s.resolveFindingNodeID(r)
 	if !ok {
-		writeErr(w, 400, "无效的 finding id")
+		writeErr(w, 404, "未找到漏洞")
 		return
 	}
 	var body struct {
