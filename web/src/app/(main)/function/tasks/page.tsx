@@ -2277,7 +2277,7 @@ function archiveCompressionLabel(archive: TaskArchive): string {
 }
 
 function archiveDataTotal(archive: TaskArchive): number {
-  return Object.values(archive.data_counts).reduce(
+  return Object.values(archive.data_counts ?? {}).reduce(
     (sum, value) => sum + (Number(value) || 0),
     0,
   );

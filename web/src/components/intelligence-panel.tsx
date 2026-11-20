@@ -86,7 +86,7 @@ export function IntelligencePanel({
   const [trafficTarget, setTrafficTarget] = React.useState<{ item: TaskIntelligence; id: string } | null>(null);
   React.useEffect(() => {
     if (data)
-      setSelected((current) => (current ? (data.items.find((item) => item.id === current.id) ?? current) : null));
+      setSelected((current) => (current ? (data.items?.find((item) => item.id === current.id) ?? current) : null));
   }, [data]);
   React.useEffect(() => {
     const timer = setTimeout(() => {
@@ -181,7 +181,7 @@ export function IntelligencePanel({
           >
             <TabsList className="max-w-full overflow-x-auto">
               <TabsTrigger value="all">
-                全部 {data ? Object.values(data.counts).reduce((a, b) => a + b, 0) : ""}
+                全部 {data ? Object.values(data.counts ?? {}).reduce((a, b) => a + b, 0) : ""}
               </TabsTrigger>
               {KINDS.map((item) => (
                 <TabsTrigger key={item.value} value={item.value}>
@@ -236,7 +236,7 @@ export function IntelligencePanel({
           ) : null}
           {!data && !error ? (
             <Skeleton className="h-40 w-full" />
-          ) : data?.items.length ? (
+          ) : data?.items?.length ? (
             <Table className="min-w-[68rem] table-fixed">
               <colgroup>
                 <col className="w-[20%]" />
@@ -259,7 +259,7 @@ export function IntelligencePanel({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.items.map((item) => (
+                {data.items?.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="align-top whitespace-normal">
                       <div className="flex min-w-0 flex-col items-start gap-1">
@@ -343,7 +343,7 @@ export function IntelligencePanel({
             <Button
               size="sm"
               variant="outline"
-              disabled={!data || (page + 1) * 25 >= data.total}
+              disabled={!data || (page + 1) * 25 >= (data.total ?? 0)}
               onClick={() => setPage((n) => n + 1)}
             >
               下一页

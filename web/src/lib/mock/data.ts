@@ -48,6 +48,7 @@ import type {
   Stats,
   Task,
   TaskCategory,
+  TaskIntelligence,
   TaskNode,
   TaskTemplate,
   TokenTotal,
@@ -59,6 +60,60 @@ import type {
 } from "@/lib/types";
 
 const T = (iso: string) => iso; // readability helper for timestamps
+
+// ── Intelligence（任务情报）────────────────────────────────────────────────
+// 演示模式的任务/资产关联情报。形状必须与后端 IntelligencePage 一致
+// （items/total/counts/enabled/...），否则前端读 counts/items 会抛错白屏。
+export const mockIntelligence: TaskIntelligence[] = [
+  {
+    id: 9001,
+    task_id: 1,
+    kind: "credential",
+    title: "后台管理入口弱口令凭据",
+    content: "acme.com 后台 /admin 存在可登录测试账号 admin / admin@2024，属高危凭据泄露。",
+    evidence: "POST /api/admin/login → 200 {\"code\":0,\"token\":\"...\"}",
+    confidence: "observed",
+    status: "suspected",
+    asset_ids: [],
+    worker: "work#1",
+    created_at: T("2026-07-25T02:10:00Z"),
+    updated_at: T("2026-07-25T02:10:00Z"),
+    inherited: false,
+    source_session: "exp1-worker",
+  },
+  {
+    id: 9002,
+    task_id: 1,
+    kind: "sensitive_data",
+    title: "订单列表接口未授权返回手机号与住址",
+    content: "GET /api/v2/orders 不带任何凭据即返回全量订单，含用户手机号、收货地址等敏感字段。",
+    evidence: "curl -s https://acme.com/api/v2/orders | jq '.data[0]' → 含 phone/address",
+    confidence: "observed",
+    status: "confirmed",
+    asset_ids: [],
+    worker: "work#2",
+    created_at: T("2026-07-25T03:42:00Z"),
+    updated_at: T("2026-07-25T03:42:00Z"),
+    inherited: false,
+    source_session: "exp1-worker",
+  },
+  {
+    id: 9003,
+    task_id: 1,
+    kind: "lead",
+    title: "子域 takeover 线索：dev.acme.com CNAME 到已释放的 S3 桶",
+    content: "dev.acme.com CNAME dev-acme.s3.amazonaws.com，该桶已不存在，可能被他人注册接管。",
+    evidence: "dig +short dev.acme.com → dev-acme.s3.amazonaws.com；HTTP 404 NoSuchBucket",
+    confidence: "inferred",
+    status: "suspected",
+    asset_ids: [],
+    worker: "work#3",
+    created_at: T("2026-07-25T05:05:00Z"),
+    updated_at: T("2026-07-25T05:05:00Z"),
+    inherited: false,
+    source_session: "exp1-worker",
+  },
+];
 
 // ── Tasks ──────────────────────────────────────────────────────────────────
 export const ACTIVE_TASK = "t-acme-web";

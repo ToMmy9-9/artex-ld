@@ -1630,6 +1630,42 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     ] };
   }
   // 【二开·P-INTENT·U6】止
+  // 任务/资产关联情报（AntiFox 证据驱动交付）：形状必须与后端 IntelligencePage 一致。
+  // 此前 mock 没有这个路由，落到"读兜底 {}"——前端拿到 {} 后读 data.counts 直接抛
+  // "Cannot convert undefined or null to object"，整个任务详情页白屏。
+  if ((seg[0] === "tasks" || seg[0] === "assets") && seg[2] === "intelligence" && m === "GET") {
+    const kind = q.get("kind") ?? "";
+    const status = q.get("status") ?? "";
+    const needle = (q.get("q") ?? "").trim().toLowerCase();
+    const scopeId = seg[1];
+    const limit = Math.max(1, Number(q.get("limit") ?? 25) || 25);
+    const offset = Math.max(0, Number(q.get("offset") ?? 0) || 0);
+    let rows = D.mockIntelligence;
+    if (seg[0] === "tasks") {
+      const task = mockTasks.find((item) => item.id === scopeId);
+      if (!task) throw new Error("任务不存在");
+      rows = rows.filter((item) => String(item.task_id) === String(task.id) || item.inherited);
+    } else {
+      rows = rows.filter((item) => item.asset_ids.includes(Number(scopeId)));
+    }
+    if (kind && kind !== "all") rows = rows.filter((item) => item.kind === kind);
+    if (status && status !== "all") rows = rows.filter((item) => item.status === status);
+    if (needle) {
+      rows = rows.filter((item) =>
+        `${item.title} ${item.content} ${item.evidence} ${item.worker}`.toLowerCase().includes(needle),
+      );
+    }
+    const counts = { credential: 0, lead: 0, sensitive_data: 0 };
+    for (const item of D.mockIntelligence) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+    return {
+      items: rows.slice(offset, offset + limit),
+      total: rows.length,
+      counts,
+      enabled: true,
+      credential_agent_enabled: false,
+      credential_traffic_binding: false,
+    };
+  }
   if (seg[0] === "tasks" && seg.length === 2 && m === "GET") {
     const task = mockTasks.find((item) => item.id === seg[1]);
     if (!task) throw new Error("任务不存在");
