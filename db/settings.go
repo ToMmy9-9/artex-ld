@@ -3,12 +3,15 @@
 //   - GetSetting / SetSetting：读取配置值（缺省返回 ok=false）/ upsert 写入。
 //   - InsertSettingIfAbsent：仅缺省时插入，不覆盖已有值。
 //   - GetBool / SetBool：布尔配置的读写包装（存为 "true"/"false"）。
+//   - GetIntSetting：整数配置读取（缺省/不可解析返回 0）。
 package db
 
 import (
 	"context"
 	"database/sql"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // Settings is a tiny key-value store for global app config the UI toggles at
@@ -98,4 +101,17 @@ func (d *DB) SetBool(key string, val bool) error {
 		return d.SetSetting(key, "true")
 	}
 	return d.SetSetting(key, "false")
+}
+
+// GetIntSetting returns the integer setting, or 0 when unset/unparseable.
+func (d *DB) GetIntSetting(key string) int {
+	v, ok, err := d.GetSetting(key)
+	if err != nil || !ok {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		return 0
+	}
+	return n
 }

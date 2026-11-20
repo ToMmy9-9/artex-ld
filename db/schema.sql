@@ -1904,6 +1904,23 @@ BEGIN
     END IF;
 END $$;
 
+-- ═══ AntiFox 审计日志：登录/平台操作留痕 ═══
+-- 本仓库没有 RBAC 多用户表，actor 统一记 "ARTEX"（唯一管理员账号）。
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id         BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    actor      TEXT NOT NULL DEFAULT '',   -- 操作者（ARTEX）
+    category   TEXT NOT NULL DEFAULT '',   -- auth / task / ...
+    action     TEXT NOT NULL DEFAULT '',   -- login / login_failed / login_locked / ...
+    result     TEXT NOT NULL DEFAULT 'success', -- success / fail
+    ip         TEXT NOT NULL DEFAULT '',
+    message    TEXT NOT NULL DEFAULT '',
+    detail     JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_id ON audit_logs(id DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON audit_logs(category, action);
+
 -- ═══ AntiFox 交付级报告：出具方信息 / 报告登记表 / 可复用封面模板 ═══
 CREATE TABLE IF NOT EXISTS report_settings (
     id              INT PRIMARY KEY DEFAULT 1,

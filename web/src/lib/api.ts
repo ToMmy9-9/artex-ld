@@ -172,6 +172,7 @@ const API_KEYS = [
   "mainSessions",
   "newMainSession",
   "audit",
+  "auditLogs",
   "traffic",
   "trafficExchange",
   "trafficHosts",

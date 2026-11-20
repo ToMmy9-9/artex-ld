@@ -2550,6 +2550,25 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
 
   // ── traffic / audit / settings ──
   if (path === "/audit") return D.audit;
+  if (path === "/audit/logs") {
+    const cat = q.get("category") ?? "";
+    const act = q.get("action") ?? "";
+    const res = q.get("result") ?? "";
+    const needle = (q.get("q") ?? "").toLowerCase();
+    const limit = Number(q.get("limit") ?? 50) || 50;
+    const offset = Number(q.get("offset") ?? 0) || 0;
+    const rows = (D.auditLogs.logs ?? []).filter((l) => {
+      if (cat && cat !== "all" && l.category !== cat) return false;
+      if (act && act !== "all" && l.action !== act) return false;
+      if (res && res !== "all" && l.result !== res) return false;
+      if (needle) {
+        const hay = `${l.message} ${l.ip} ${l.actor} ${l.category} ${l.action}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    return { logs: rows.slice(offset, offset + limit), total: rows.length };
+  }
   if (path === "/traffic" && m === "DELETE") return { deleted: 0 };
   if (path === "/traffic/hosts" && m === "DELETE") return { deleted: (b.hosts as unknown[])?.length ?? 0 };
   if (path === "/traffic/hosts") return { hosts: D.trafficHosts };

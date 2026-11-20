@@ -1001,6 +1001,19 @@ export interface Audit {
   attributions?: Record<string, number>;
 }
 
+/** One audit row (login / platform operation trail). */
+export interface AuditLog {
+  id: string;
+  created_at: string;
+  actor: string;
+  category: string;
+  action: string;
+  result: string;
+  ip: string;
+  message: string;
+  detail?: Record<string, unknown>;
+}
+
 // ---- Traffic ----
 export interface TrafficExchange {
   id: string;

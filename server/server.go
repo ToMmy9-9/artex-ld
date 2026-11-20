@@ -62,6 +62,9 @@ type Server struct {
 	jwtKey    []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
 	basicAuth basicAuthGate
 
+	// loginLimiter throttles login attempts per IP + account (AntiFox 暴力破解防护).
+	loginLimiter *loginLimiter
+
 	// concMu serializes concurrency-cap decisions (admission + reconcile) so a
 	// scheduler tick and an HTTP settings change / task creation can't both count
 	// free slots off the same snapshot and over-promote past the limit.
@@ -195,7 +198,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	if err != nil {
 		log.Fatalf("[auth] JWT key: %v", err)
 	}
-	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, dataDir: dataDir, jwtKey: key, chatBusy: map[string]bool{}, enrichJobs: map[int64]*enrichJob{}, reportJobs: map[string]*reportJob{},
+	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, dataDir: dataDir, jwtKey: key, chatBusy: map[string]bool{}, enrichJobs: map[int64]*enrichJob{}, reportJobs: map[string]*reportJob{}, loginLimiter: newLoginLimiter(),
 		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{}, proxyPoolWake: make(chan struct{}, 1), proxyPoolProbeSem: make(chan struct{}, proxyPoolMaxProbeConcurrency),
 		profChatAgents: map[int64]*agent.ChatAgent{},
@@ -1095,6 +1098,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tokens/usage", s.pgUsageStats) // 全局 llm_usage 聚合（仪表盘新版视图）
 
 	mux.HandleFunc("GET /api/audit", s.getAudit)
+	mux.HandleFunc("GET /api/audit/logs", s.auditLogs) // 审计日志（登录/操作留痕）
 	mux.HandleFunc("POST /api/gc", s.gc)
 	mux.HandleFunc("GET /api/traffic", s.getTraffic)
 	mux.HandleFunc("GET /api/traffic/hosts", s.getTrafficHosts)
@@ -3816,13 +3820,13 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 	// dashboard's traffic breakdown needs the true numbers.
 	buckets, _ := tr.StatusCounts(taskHosts, 0, 0)
 	writeJSON(w, 200, map[string]any{
-		"enabled":   s.m.TrafficEnabled(), // reflect the capture toggle
-		"proxy":     s.m.ProxyAddr(),
-		"count":     count,   // total recorded (unfiltered)
-		"total":     matched, // rows matching the current filter (for pagination)
-		"page":      page,
-		"size":      size,
-		"exchanges": dtos,
+		"enabled":        s.m.TrafficEnabled(), // reflect the capture toggle
+		"proxy":          s.m.ProxyAddr(),
+		"count":          count,   // total recorded (unfiltered)
+		"total":          matched, // rows matching the current filter (for pagination)
+		"page":           page,
+		"size":           size,
+		"exchanges":      dtos,
 		"status_buckets": buckets, // {2:N,3:N,4:N,5:N} — true distribution for the dashboard
 	})
 }

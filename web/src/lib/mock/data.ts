@@ -16,6 +16,7 @@
  */
 
 import type {
+  AuditLog,
   Activity,
   Agent,
   AgentDetail,
@@ -2946,6 +2947,46 @@ Content-Length: 655
 };
 
 // ── Security / Audit ─────────────────────────────────────────────────────────
+// auditLogs —— 审计日志（登录/操作留痕）演示数据。
+export const auditLogs: { logs: AuditLog[]; total: number } = {
+  logs: [
+    {
+      id: "3",
+      created_at: T("2026-07-26T03:41:12Z"),
+      actor: "ARTEX",
+      category: "auth",
+      action: "login",
+      result: "success",
+      ip: "203.0.113.24",
+      message: "登录成功",
+      detail: {},
+    },
+    {
+      id: "2",
+      created_at: T("2026-07-26T03:38:55Z"),
+      actor: "ARTEX",
+      category: "auth",
+      action: "login_failed",
+      result: "fail",
+      ip: "198.51.100.7",
+      message: "密码错误",
+      detail: {},
+    },
+    {
+      id: "1",
+      created_at: T("2026-07-26T03:37:02Z"),
+      actor: "ARTEX",
+      category: "auth",
+      action: "login_locked",
+      result: "fail",
+      ip: "198.51.100.7",
+      message: "触发暴力破解锁定，剩余冷却 892s",
+      detail: {},
+    },
+  ],
+  total: 3,
+};
+
 export const audit: Audit = {
   attributions: { allow: 312, block: 9 },
   entries: [

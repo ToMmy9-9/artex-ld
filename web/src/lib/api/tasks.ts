@@ -21,6 +21,7 @@ import type {
   AssetInterceptRule,
   AssetInterceptRuleInput,
   Audit,
+  AuditLog,
   BatchCategoryItem,
   BatchControlItem,
   Company,
@@ -791,6 +792,22 @@ export const tasksApi = {
 
   // ---- traffic / audit / report / chat ----
   audit: (task?: string) => get<Audit>(`/audit${tq(task)}`),
+  auditLogs: (opts: {
+    category?: string;
+    action?: string;
+    result?: string;
+    q?: string;
+    page?: number;
+    limit?: number;
+  } = {}) =>
+    get<{ logs: AuditLog[]; total: number }>(
+      `/audit/logs?category=${encodeURIComponent(opts.category ?? "")}` +
+        `&action=${encodeURIComponent(opts.action ?? "")}` +
+        `&result=${encodeURIComponent(opts.result ?? "")}` +
+        `&q=${encodeURIComponent(opts.q ?? "")}` +
+        `&limit=${opts.limit ?? 50}` +
+        `&offset=${((opts.page ?? 1) - 1) * (opts.limit ?? 50)}`,
+    ),
   traffic: (
     page = 0,
     size = 100,

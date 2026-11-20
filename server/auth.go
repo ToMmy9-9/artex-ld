@@ -14,12 +14,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+
+	"artex/db"
 )
 
 const (
@@ -200,6 +203,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !inserted {
+		pg.RecordAudit("ARTEX", "auth", "init", "fail", clientIP(r), "平台已初始化，拒绝重复设置密码", nil)
 		writeErr(w, 403, "密码已设置")
 		return
 	}
@@ -208,6 +212,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "token 生成失败")
 		return
 	}
+	pg.RecordAudit("ARTEX", "auth", "init", "success", clientIP(r), "首启初始化管理员密码", nil)
 	writeJSON(w, 200, map[string]any{"token": tok})
 }
 
@@ -249,6 +254,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.OldPassword)); err != nil {
+		pg.RecordAudit("ARTEX", "auth", "change_password", "fail", clientIP(r), "当前密码错误", nil)
 		writeErr(w, 401, "当前密码错误")
 		return
 	}
@@ -261,6 +267,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "保存失败: "+err.Error())
 		return
 	}
+	pg.RecordAudit("ARTEX", "auth", "change_password", "success", clientIP(r), "修改密码成功", nil)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -278,7 +285,20 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
+	ip := clientIP(r)
+	uname := strings.TrimSpace(req.Username)
+	// 暴力破解防护：按 IP + 账号双维度检查锁定状态。命中锁定直接 429，不再做任何
+	// 口令比对（bcrypt 本身耗 CPU，先挡在前面同时也缓解了「海量尝试打满 CPU/连接」）。
+	if locked, retry := s.loginLimiter.locked(ip, uname); locked {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())))
+		pg.RecordAudit("ARTEX", "auth", "login_locked", "fail", ip,
+			fmt.Sprintf("触发暴力破解锁定，剩余冷却 %ds", int(retry.Seconds())), nil)
+		writeErr(w, 429, fmt.Sprintf("尝试过于频繁，账号/来源已临时锁定，请 %d 秒后再试", int(retry.Seconds())))
+		return
+	}
 	if req.Username != "ARTEX" {
+		s.registerLoginFailure(pg, ip, uname)
+		pg.RecordAudit("ARTEX", "auth", "login_failed", "fail", ip, "用户名或密码错误", nil)
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
@@ -292,6 +312,8 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err != nil {
+		s.registerLoginFailure(pg, ip, uname)
+		pg.RecordAudit("ARTEX", "auth", "login_failed", "fail", ip, "密码错误", nil)
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
@@ -300,5 +322,15 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "token 生成失败")
 		return
 	}
+	s.loginLimiter.reset(ip, uname) // 成功登录清零该 IP+账号的失败计数
+	pg.RecordAudit("ARTEX", "auth", "login", "success", ip, "登录成功", nil)
 	writeJSON(w, 200, map[string]any{"token": tok})
+}
+
+// registerLoginFailure 记一次失败到限流器；若恰好触发锁定则写一条审计便于在日志页看到。
+func (s *Server) registerLoginFailure(pg *db.DB, ip, username string) {
+	if s.loginLimiter.fail(ip, username, s.loginPolicy()) {
+		pg.RecordAudit("ARTEX", "auth", "login_locked", "fail", ip, "失败次数超阈值，已临时锁定", nil)
+		log.Printf("[auth] 暴力破解锁定 用户=%q ip=%s", username, ip)
+	}
 }
