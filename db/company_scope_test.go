@@ -326,10 +326,6 @@ func TestCompanyScopeAttribution(t *testing.T) {
 		d.Close()
 		t.Fatalf("startMax: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = d.Exec(`DELETE FROM assets WHERE id > $1`, startMax)
-		d.Close()
-	})
 
 	uniq := startMax + 1
 	root := fmt.Sprintf("scopetest%d.com", uniq)
@@ -342,6 +338,16 @@ func TestCompanyScopeAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertCompany: %v", err)
 	}
+	// Cleanup must remove the company too, not just the assets: the company
+	// carries the scope rules (root domain + 198.51.100.0/24), and a leftover
+	// ScopeCo company keeps matching those ranges — so the NEXT run of this
+	// test has its assets attributed to the PREVIOUS run's company and fails
+	// with a confusing "company_id = 27, want 100".
+	t.Cleanup(func() {
+		_, _ = d.Exec(`DELETE FROM assets WHERE id > $1`, startMax)
+		_, _ = d.Exec(`DELETE FROM companies WHERE id = $1`, cid)
+		d.Close()
+	})
 
 	// a pre-existing asset (inserted BEFORE any scope) — must be back-filled.
 	preID, err := as.UpsertSubdomain(UpsertSubdomainReq{Domain: sub})

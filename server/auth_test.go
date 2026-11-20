@@ -71,8 +71,26 @@ func TestAuthInitOnlyOnce(t *testing.T) {
 	}
 	t.Cleanup(func() { m.Close() })
 	pg := m.pg
+	// This test needs the "password not yet set" state to exercise the first-run
+	// init path. It used to DELETE the administrator's password hash and then
+	// delete it AGAIN on the way out — so every full test run left the operator
+	// locked out with "密码未初始化，请先设置密码" and forced a re-setup.
+	//
+	// Snapshot the existing hash and put it back verbatim afterwards instead.
+	// The hash is a bcrypt digest, so restoring the exact text restores the
+	// same password.
+	prevHash, hadHash, herr := pg.GetSetting(authPassKey)
+	if herr != nil {
+		t.Fatalf("read existing password hash: %v", herr)
+	}
 	_, _ = pg.Exec(`DELETE FROM settings WHERE key = $1`, authPassKey)
-	defer func() { _, _ = pg.Exec(`DELETE FROM settings WHERE key = $1`, authPassKey) }()
+	t.Cleanup(func() {
+		_, _ = pg.Exec(`DELETE FROM settings WHERE key = $1`, authPassKey)
+		if hadHash && prevHash != "" {
+			_, _ = pg.Exec(`INSERT INTO settings(key, value) VALUES($1,$2)
+				ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, authPassKey, prevHash)
+		}
+	})
 
 	s := &Server{m: m}
 	for _, tc := range []struct {

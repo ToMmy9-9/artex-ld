@@ -116,12 +116,11 @@ func (s *Store) writeBody(r io.Reader, expectedLength int64, expectedHash string
 	if err = os.Rename(f.Name(), path); err != nil {
 		return "", err
 	}
-	d, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return "", err
-	}
-	defer d.Close()
-	return hash, d.Sync()
+	// Flush the directory entry so the rename survives a crash. Windows cannot
+	// fsync a directory handle (it errors with "Access is denied"), so that
+	// platform uses a no-op — see fsync_other.go / fsync_windows.go. Without
+	// this split every evidence write on Windows failed.
+	return hash, syncDir(filepath.Dir(path))
 }
 
 // StageFindingsExport freezes bindings/report versions and makes private body

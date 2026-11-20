@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,68 +24,37 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
 	t.Cleanup(func() { m.Close() })
-	// Goal seeding must not depend on an enabled test LLM left by another package.
-	// The fallback single-goal path is the behavior under test here.
+	// Goal seeding must not depend on an enabled test LLM left by another
+	// package: the FALLBACK single-goal path (raw goal used verbatim when the
+	// LLM yields nothing) is the behavior under test here.
 	//
-	// This must NOT touch the operator's own profiles: an unscoped
-	// `UPDATE llm_profiles SET is_default=false` silently deactivated the
-	// user's active LLM (and, with it, the model-judge for intercept
-	// approvals — every approval then failed with "未配置可用的裁判模型").
-	// Disable only the profiles this test package created, and restore the
-	// operator's active profile afterwards.
-	testProfileIDs := []int64{}
-	rows, err := m.pg.Query(`SELECT id FROM llm_profiles
-		WHERE name LIKE 't-%' OR name LIKE '%-test-%' OR name LIKE '%test-%'
-		   OR name ~ '^[a-z-]*-\d{10,}$'`)
-	if err == nil {
-		for rows.Next() {
-			var id int64
-			if rows.Scan(&id) == nil {
-				testProfileIDs = append(testProfileIDs, id)
-			}
-		}
-		rows.Close()
-	}
-	// The behaviour under test is the FALLBACK single-goal path, which only
-	// happens when no profile is active. So every profile has to be inactive
-	// for the duration of the test.
+	// Construct that precondition WITHOUT touching global state. This test
+	// used to run an unscoped
+	//     UPDATE llm_profiles SET is_default=false, pool_exclude=true
+	// which deactivated the OPERATOR's own profiles — and with them the model
+	// judge behind intercept approvals, so every approval then failed with
+	// "未配置可用的裁判模型". Restoring the flags afterwards is not enough
+	// either: a concurrently running package can create a profile in
+	// between, and the restore would leave that one permanently deactivated.
 	//
-	// Snapshot the flags first and restore them exactly afterwards: an
-	// unscoped `UPDATE llm_profiles SET is_default=false` (as this test used
-	// to do) silently deactivated the operator's own LLM — and with it the
-	// model judge behind intercept approvals, so every approval then failed
-	// with "未配置可用的裁判模型".
-	type profileFlags struct {
-		id          int64
-		isDefault   bool
-		poolExclude bool
-	}
-	var snapshot []profileFlags
-	prows, err := m.pg.Query(`SELECT id, is_default, pool_exclude FROM llm_profiles`)
-	if err == nil {
-		for prows.Next() {
-			var pf profileFlags
-			if prows.Scan(&pf.id, &pf.isDefault, &pf.poolExclude) == nil {
-				snapshot = append(snapshot, pf)
-			}
-		}
-		prows.Close()
-	}
-	for _, id := range testProfileIDs {
-		if _, err := m.pg.Exec(`UPDATE llm_profiles SET is_default=false, pool_exclude=true WHERE id=$1`, id); err != nil {
-			t.Fatalf("disable test LLM profile %d: %v", id, err)
-		}
-	}
-	if len(snapshot) > 0 {
-		if _, err := m.pg.Exec(`UPDATE llm_profiles SET is_default=false`); err != nil {
-			t.Fatalf("deactivate profiles for the fallback path: %v", err)
-		}
+	// Instead: create a profile that is structurally valid but cannot reach
+	// any LLM. An empty api key is rejected at task-creation time ("LLM 配置 #
+	// N 不存在或未设置 API Key"), so use a well-formed key pointed at a port
+	// nothing listens on: the provider builds fine, the call fails with
+	// connection refused, and the goal decomposition yields nothing — exactly
+	// the precondition this test needs, scoped to THIS task alone.
+	deadProfileID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name:    fmt.Sprintf("t-core-unavailable-%d", time.Now().UnixNano()),
+		Format:  "openai",
+		Model:   "m",
+		APIKey:  "test-key",
+		BaseURL: "http://127.0.0.1:1/v1", // nothing listens on port 1
+	})
+	if err != nil {
+		t.Fatalf("create unavailable profile: %v", err)
 	}
 	t.Cleanup(func() {
-		for _, pf := range snapshot {
-			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=$2, pool_exclude=$3 WHERE id=$1`,
-				pf.id, pf.isDefault, pf.poolExclude)
-		}
+		_, _ = m.pg.Exec(`DELETE FROM llm_profiles WHERE id=$1`, deadProfileID)
 	})
 	td := t.TempDir()
 	s := New(context.Background(), m, td, td, td)
@@ -125,7 +95,10 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 	}
 
 	// create a task → 201, returns PG task (string id + exploration_id)
-	code, out := doRetry("POST", "/api/tasks", map[string]string{"description": "smoke", "goal": "测试 SQLi/XSS"})
+	code, out := doRetry("POST", "/api/tasks", map[string]any{
+		"description": "smoke", "goal": "测试 SQLi/XSS",
+		"llm_profile_id": deadProfileID, // unusable LLM → fallback single-goal path
+	})
 	if code != 201 {
 		t.Fatalf("create task: %d (%v)", code, out)
 	}
@@ -135,9 +108,14 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 		t.Fatalf("bad task payload: %v", out)
 	}
 
-	// the exploration owns goal node(s) — goal seeding is async, poll briefly
+	// The exploration owns goal node(s) — goal seeding is async, poll briefly.
+	//
+	// The pinned profile points at an unreachable port, so the goal-splitting
+	// agent has to fail before it falls back to the single raw goal. That
+	// fallback happens after the agent loop gives up, which takes a few
+	// seconds — hence the generous window (was 3s, too short).
 	var goals []*db.Node
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 300; i++ {
 		goals, err = m.pg.Exploration(expID).ListByKind("goal", 10)
 		if err != nil || len(goals) > 0 {
 			break
@@ -215,8 +193,11 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 	if deleted, _ := out["findings_deleted"].(float64); deleted != 1 {
 		t.Fatalf("expected one deleted finding, got %v", out)
 	}
-	if deleted, _ := out["llm_records_deleted"].(float64); deleted != 1 {
-		t.Fatalf("expected one deleted LLM record, got %v", out)
+	// The cascade must remove THIS task's LLM records. The exact count is not
+	// asserted: the goal-splitting agent retries the failed call (task-level
+	// LLM retry policy), so how many rows exist depends on the retry budget.
+	if deleted, _ := out["llm_records_deleted"].(float64); deleted < 1 {
+		t.Fatalf("expected the task's LLM records to be deleted, got %v", out)
 	}
 	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
 		t.Fatalf("task directory should be deleted, stat err=%v", err)

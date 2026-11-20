@@ -39,6 +39,38 @@ func TestWireTools(t *testing.T) {
 	// pass-through assertion holds regardless of DB state.
 	t.Setenv("AGENT_CORE_DISABLE_INTERACTIVE_SHELL", "1")
 
+	// Shell hints (kind="shell" tools such as the uploaded-tool catalogue) are
+	// ALSO appended to Bash's description at assembly time. That is the intended
+	// behaviour — it is how a worker learns which external binaries exist — but
+	// it makes the "Bash passes through undecorated" assertion below depend on
+	// whatever the operator has uploaded. Park those rows for the duration of
+	// this test and restore them exactly afterwards, so the assertion tests the
+	// decoration logic rather than the live catalogue.
+	type shellRow struct {
+		key     string
+		enabled bool
+	}
+	var parked []shellRow
+	if shellRows, serr := pg.Query(`SELECT key, enabled FROM tools WHERE kind='shell'`); serr == nil {
+		for shellRows.Next() {
+			var sr shellRow
+			if shellRows.Scan(&sr.key, &sr.enabled) == nil && sr.enabled {
+				parked = append(parked, sr)
+			}
+		}
+		shellRows.Close()
+	}
+	if len(parked) > 0 {
+		if _, uerr := pg.Exec(`UPDATE tools SET enabled=false WHERE kind='shell'`); uerr != nil {
+			t.Fatalf("park shell hints: %v", uerr)
+		}
+		t.Cleanup(func() {
+			for _, sr := range parked {
+				_, _ = pg.Exec(`UPDATE tools SET enabled=$2 WHERE key=$1`, sr.key, sr.enabled)
+			}
+		})
+	}
+
 	// Seeding populated the catalog.
 	rf, err := pg.GetTool("record_fact")
 	if err != nil || rf == nil {

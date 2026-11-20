@@ -1600,6 +1600,11 @@ func walkSkillFiles(root string) ([]string, error) {
 		if relErr != nil || rel == "." {
 			return nil
 		}
+		// Rel returns OS-native separators, so on Windows this used to emit
+		// "scripts\run.py". The API contract (and the frontend tree renderer)
+		// is slash-separated, and a backslash breaks the path the UI joins
+		// when opening a file.
+		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
 			entries = append(entries, rel+"/")

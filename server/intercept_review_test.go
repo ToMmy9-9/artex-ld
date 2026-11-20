@@ -40,7 +40,7 @@ func TestReviewCompletionSendsCurrentCallWithoutHistory(t *testing.T) {
 	}
 	p := &reviewCaptureProvider{}
 	prompt := intercept.EffectiveJudgePrompt(intercept.DefaultJudgePrompt)
-	reply, err := reviewCompletion(ctx, p, prompt, input)
+	reply, err := reviewCompletion(ctx, p, prompt, input, "")
 	if err != nil || intercept.ParseVerdict(reply).Action != "ask" {
 		t.Fatalf("%s %v", reply, err)
 	}

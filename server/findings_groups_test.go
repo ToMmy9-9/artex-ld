@@ -153,6 +153,27 @@ func TestDeepenFindingCreatesAuditedIntentAndRevivesTask(t *testing.T) {
 	}
 	t.Cleanup(func() { m.Close() })
 
+	// This test asserts the finding can be deepened and the task revives
+	// IMMEDIATELY (Queued=false). Admission queues new work once the concurrency
+	// limit is reached, and this manager sees every task in the shared dev
+	// database — so an unrelated task left running by an earlier test would push
+	// this one into the FIFO and fail the assertion for reasons that have nothing
+	// to do with deepening. Disable the gate for the duration and restore it
+	// exactly afterwards.
+	prevGate, hadGate, gerr := m.pg.GetSetting("task_concurrency_enabled")
+	if gerr == nil {
+		if serr := m.pg.SetSetting("task_concurrency_enabled", "false"); serr != nil {
+			t.Fatalf("disable concurrency gate: %v", serr)
+		}
+		t.Cleanup(func() {
+			if hadGate {
+				_, _ = m.pg.Exec(`UPDATE settings SET value=$2 WHERE key=$1`, "task_concurrency_enabled", prevGate)
+				return
+			}
+			_, _ = m.pg.Exec(`DELETE FROM settings WHERE key=$1`, "task_concurrency_enabled")
+		})
+	}
+
 	task, err := m.CreateTask("deepen finding", "goal", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)

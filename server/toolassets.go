@@ -575,6 +575,12 @@ func (s *Server) toolAssetClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, _ := pg.ToolAssetByID(id)
+	// Same as the agent-side claim: publish to the catalogue and announce it
+	// to the running tasks.
+	s.syncToolAssetsToCatalog()
+	if updated != nil {
+		s.notifyToolAvailable(updated)
+	}
 	writeJSON(w, 200, map[string]any{"ok": true, "asset": updated})
 }
 

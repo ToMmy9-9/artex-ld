@@ -109,7 +109,7 @@ func TestLiveContextReview(t *testing.T) {
 			if policy == "" {
 				policy = intercept.DefaultJudgePrompt
 			}
-			reply, err := reviewCompletion(ctx, provider, intercept.EffectiveJudgePrompt(policy), in)
+			reply, err := reviewCompletion(ctx, provider, intercept.EffectiveJudgePrompt(policy), in, "")
 			if err != nil {
 				t.Fatal("live reviewer request failed; check provider availability")
 			}

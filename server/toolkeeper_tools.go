@@ -190,8 +190,13 @@ func (s *Server) toolClaimTool() actool.CoreTool {
 				return actool.Errorf(err.Error()), nil
 			}
 			// The asset is now managed: publish it into the tool catalogue so
-			// agents can see and call it.
+			// agents can see and call it, and tell the running tasks about it
+			// so a worker mid-run learns about it without waiting for its next
+			// tool-set re-assembly.
 			s.syncToolAssetsToCatalog()
+			if claimed, cerr := pg.ToolAssetByID(req.AssetID); cerr == nil {
+				s.notifyToolAvailable(claimed)
+			}
 			msg := fmt.Sprintf("已登记 %s（分类=%s 风险=%s）。契约只会作为平台上限的子集生效。",
 				asset.Name, req.Category, req.RiskLevel)
 			return actool.Result{Content: []llm.ContentBlock{llm.TextBlock(msg)}}, nil

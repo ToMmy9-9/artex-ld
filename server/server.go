@@ -723,12 +723,25 @@ func (s *Server) resolveChatAgent(c *db.Conversation) *agent.ChatAgent {
 // — rather than a flat "not configured" that hides which of those it is.
 func (s *Server) chatUnavailableReason() string {
 	if s.m.pg != nil {
-		if profiles, err := s.m.pg.ListProfiles(); err == nil && len(profiles) == 0 {
-			return "尚未配置 LLM：请到 系统 → LLM 配置 添加一个配置"
+		profiles, lerr := s.m.pg.ListProfiles()
+		active, aerr := s.m.pg.ActiveProfile()
+		if lerr == nil && aerr == nil {
+			return llmUnavailableReason(len(profiles), active != nil)
 		}
-		if active, err := s.m.pg.ActiveProfile(); err == nil && active == nil {
-			return "没有已激活的 LLM 配置：请到 系统 → LLM 配置 激活一个，或在本对话为该会话指定一个配置"
-		}
+	}
+	return "LLM 未就绪，无法对话：请检查 系统 → LLM 配置是否有可用且已激活的配置"
+}
+
+// llmUnavailableReason maps "how many profiles exist / is one active" to the
+// operator-facing message. Pure, so it can be tested without touching the
+// database — the old test wiped the WHOLE llm_profiles table to construct the
+// zero-profile case, which deleted the operator's own configurations.
+func llmUnavailableReason(profileCount int, hasActive bool) string {
+	if profileCount == 0 {
+		return "尚未配置 LLM：请到 系统 → LLM 配置 添加一个配置"
+	}
+	if !hasActive {
+		return "没有已激活的 LLM 配置：请到 系统 → LLM 配置 激活一个，或在本对话为该会话指定一个配置"
 	}
 	return "LLM 未就绪，无法对话：请检查 系统 → LLM 配置是否有可用且已激活的配置"
 }
