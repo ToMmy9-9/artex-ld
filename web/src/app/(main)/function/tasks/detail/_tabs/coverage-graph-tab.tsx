@@ -638,30 +638,57 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
   });
   const graphDataRef = React.useRef<typeof data>(null);
 
+  // G6 v5 的 destroy() 顺序是：先清空 this.context，最后才置 destroyed=true
+  // （见 node_modules/@antv/g6/esm/runtime/graph.js 的 destroy()）。
+  // 于是在「context 已清空、destroyed 仍为 false」的窗口里，graph.destroyed
+  // 这个守卫拦不住，而 graph.getZoom() 内部是 this.context.viewport.getZoom()
+  // —— context.viewport 已是 undefined，直接抛
+  // "Cannot read properties of undefined (reading 'getZoom')"。
+  //
+  // 同一文件 applyData() 里已有同类 teardown 竞态的处理（注释写明"g6 会在已清空的
+  // context 上访问 transform 抛错"），但 syncViewport 这条路径当时漏了。
+  // 这里统一用一个"图是否真的可用"的判断，并兜 try/catch：teardown 竞态是
+  // 纯卸载期噪声，不该让整个页面崩掉。
+  const isGraphAlive = React.useCallback((g: G6Graph | null | undefined): g is G6Graph => {
+    if (!g || g.destroyed) return false;
+    // context 被清空后 viewport 就没有了，此时任何取视口的调用都会炸。
+    const ctx = (g as unknown as { context?: { viewport?: unknown } }).context;
+    return !!ctx && !!ctx.viewport;
+  }, []);
+
   const syncViewport = React.useCallback(() => {
     const graph = graphRef.current;
-    if (!graph || graph.destroyed) return;
-    const position = graph.getPosition();
-    setViewport({ zoom: graph.getZoom(), position: [position[0], position[1]] });
-  }, []);
+    if (!isGraphAlive(graph)) return;
+    try {
+      const position = graph.getPosition();
+      setViewport({ zoom: graph.getZoom(), position: [position[0], position[1]] });
+    } catch {
+      // 卸载/销毁期的竞态，图已经不可用了，直接放弃这次视口同步。
+    }
+  }, [isGraphAlive]);
 
   const resetView = React.useCallback(async (mode: CoverageViewMode = viewModeRef.current) => {
     setActivePath([]);
     setSelectedAsset(null);
     setSelectedFoldId(null);
     const graph = graphRef.current;
-    if (!graph || graph.destroyed) return;
-    await graph.zoomTo(1);
-    if (mode === "network") {
-      // Network coordinates are already assigned to the three fixed zone
-      // columns. Centering a graph with an empty zone shifts every node into
-      // the next visible column and makes the background regions misleading.
-      await graph.translateTo([0, 0]);
-    } else {
-      await graph.fitCenter();
+    if (!isGraphAlive(graph)) return;
+    try {
+      await graph.zoomTo(1);
+      if (mode === "network") {
+        // Network coordinates are already assigned to the three fixed zone
+        // columns. Centering a graph with an empty zone shifts every node into
+        // the next visible column and makes the background regions misleading.
+        await graph.translateTo([0, 0]);
+      } else {
+        await graph.fitCenter();
+      }
+    } catch {
+      // 销毁期的竞态，图已不可用，直接放弃这次重置。
+      return;
     }
     syncViewport();
-  }, [syncViewport]);
+  }, [isGraphAlive, syncViewport]);
 
   const fetchGraph = React.useCallback(() => {
     setLoading(true);
@@ -791,14 +818,14 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
 
   const applyData = React.useCallback(() => {
     const graph = graphRef.current;
-    if (!graph || graph.destroyed) return;
+    if (!isGraphAlive(graph)) return;
     graph.setData(gDataRef.current);
     // render() 异步跑布局;若组件在布局落地前被卸载/销毁,g6 会在已清空的
     // context 上访问 transform 抛错。这是纯 teardown 竞态,吞掉它,不影响功能。
     void graph
       .render()
       .then(() => {
-        if (graph.destroyed) return;
+        if (!isGraphAlive(graph)) return;
         const active = gDataRef.current.nodes.filter((node) => node.active).map((node) => node.id);
         // Keep the zone columns at their assigned coordinates. Centering a
         // network graph with an empty zone causes the remaining nodes to slide
@@ -811,9 +838,9 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
         return result.then(() => syncViewport());
       })
       .catch((err) => {
-        if (!graph.destroyed) console.error("[coverage-graph] render:", err);
+        if (isGraphAlive(graph)) console.error("[coverage-graph] render:", err);
       });
-  }, [syncViewport]);
+  }, [isGraphAlive, syncViewport]);
 
   // 建图（一次）。动态 import 避开 SSR/静态导出期的 window 依赖。
   React.useEffect(() => {
@@ -889,13 +916,20 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
           cursor = parents.get(cursor);
         }
         setActivePath(lineage);
-        void graph?.focusElement(lineage).then(() => syncViewport());
+        // graph 可能已被销毁（可选链返回 undefined），此时 .then 会炸在
+        // undefined 上，所以这里必须判空再链。
+        const focused = graph?.focusElement(lineage);
+        if (focused) void focused.then(() => syncViewport());
       });
       graphRef.current = graph;
       applyData();
     })();
     return () => {
       destroyed = true;
+      // 先把 ref 摘掉再 destroy：destroy() 内部会同步触发 canvas/element 的
+      // destroy，它们可能回调 afterresize → syncViewport。此时 ref 已置空，
+      // 守卫立即短路，不会碰到刚被清空的 context。
+      graphRef.current = null;
       // 先停布局再销毁:尽量缩短"布局在飞、context 被清空"的竞态窗口。
       try {
         graph?.stopLayout();
@@ -903,7 +937,6 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
         /* 图可能尚未建成或已无布局上下文 */
       }
       graph?.destroy();
-      graphRef.current = null;
     };
   }, [applyData, resetView, syncViewport]);
 
