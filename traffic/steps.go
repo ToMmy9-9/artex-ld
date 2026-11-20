@@ -27,17 +27,25 @@ type StepRef struct {
 // ResolveSteps maps an ORDERED list of reproduction steps to real recorded exchanges,
 // constrained to the task's traffic time window [sinceUnix, untilUnix] (Unix seconds).
 // Returns one exchange id per step ("" when unresolved).
+//
+// 两步之间的消歧规则：
+//   - 时间下界 cursor：后一步不得早于前一步（agent 按时间顺序列步骤）。
+//   - 已用排除：前一步命中的报文不再参与后续步骤的匹配 —— 否则同一秒内录到的
+//     多个相同请求，后一步会反复指向前一步的那个包（ts 只有秒级精度，
+//     只靠时间下界区分不开）。
 func (t *Traffic) ResolveSteps(sinceUnix, untilUnix int64, steps []StepRef) []string {
 	out := make([]string, len(steps))
-	cursor := int64(0) // previous step's exchange ts (chronological lower bound)
+	cursor := int64(0)                    // previous step's exchange ts (chronological lower bound)
+	used := make([]string, 0, len(steps)) // already-consumed exchange ids
 	for i, st := range steps {
 		method, path, query, bodyToken := parseStepRequest(st.Request)
 		if method == "" || path == "" {
 			continue
 		}
-		if id, ts, ok := t.resolveStepInWindow(sinceUnix, untilUnix, cursor, method, path, query, bodyToken, st.Response); ok {
+		if id, ts, ok := t.resolveStepInWindow(sinceUnix, untilUnix, cursor, method, path, query, bodyToken, st.Response, used); ok {
 			out[i] = id
 			cursor = ts
+			used = append(used, id)
 		}
 	}
 	return out
@@ -45,9 +53,24 @@ func (t *Traffic) ResolveSteps(sinceUnix, untilUnix int64, steps []StepRef) []st
 
 // resolveStepInWindow finds the earliest exchange matching one step, at-or-after
 // cursor, inside the task's time window. Returns (id, ts, ok).
-func (t *Traffic) resolveStepInWindow(sinceUnix, untilUnix, cursor int64, method, path, query, bodyToken, respText string) (string, int64, bool) {
-	where := `e.method=? AND (e.url = ? OR e.url LIKE ?) AND e.ts BETWEEN ? AND ? AND e.ts >= ?`
-	args := []any{strings.ToUpper(method), path, likePrefix(path), sinceUnix, untilUnix, cursor}
+//
+// 注意：exchanges.url 存的是**完整 URL**（http://host/path?query），而 exchanges.path
+// 是报文在磁盘上的文件路径（host/GET/<id>），两者都不是「URL 路径」。所以这里按
+// AntiFox 的做法在 url 上做**包含**匹配（而不是等值/前缀），再用 query/body/响应特征
+// 逐级收窄。
+func (t *Traffic) resolveStepInWindow(sinceUnix, untilUnix, cursor int64, method, path, query, bodyToken, respText string, used []string) (string, int64, bool) {
+	where := `e.method=? AND e.url LIKE ? ESCAPE '\' AND e.ts BETWEEN ? AND ? AND e.ts >= ?`
+	args := []any{strings.ToUpper(method), pathBoundaryPattern(path), sinceUnix, untilUnix, cursor}
+	if len(used) > 0 {
+		ph := make([]string, len(used))
+		exArgs := make([]any, len(used))
+		for i, id := range used {
+			ph[i] = "?"
+			exArgs[i] = id
+		}
+		where += ` AND e.id NOT IN (` + strings.Join(ph, ",") + `)`
+		args = append(args, exArgs...)
+	}
 	// tryNarrow applies a discriminator only if it still leaves ≥1 candidate, so a
 	// paraphrased/over-specific field can't zero out a match that should succeed.
 	tryNarrow := func(cond string, arg any) {
@@ -236,6 +259,23 @@ func likeContains(s string) string {
 // likePrefix builds a LIKE pattern matching a path prefix.
 func likePrefix(s string) string {
 	return escapeLike(s) + "%"
+}
+
+// pathBoundaryPattern builds a LIKE pattern that matches the URL path segment
+// anywhere in a full URL, but only on a segment boundary — "/api" must not match
+// "/apixxx", while "/api/order" matches "http://host/api/order?id=7".
+// The pattern is "%<path>" plus, when the path could be followed by more
+// segments, an explicit boundary lookahead implemented via the trailing "%" and
+// the leading "%": we anchor the left side on "/" or the scheme and let the
+// right side fall to the end of the path.
+func pathBoundaryPattern(p string) string {
+	p = escapeLike(p)
+	if p == "" {
+		return "%"
+	}
+	// 左侧：URL 里的路径要么紧跟 host，要么跟在 scheme://host 之后 —— 用 "/" 收尾即可
+	// 命中 "/api"；右侧允许后接 "?query" 或 "/more/path"。
+	return "%" + p + "%"
 }
 
 // escapeLike escapes the LIKE wildcards in a literal.

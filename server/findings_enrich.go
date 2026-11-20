@@ -145,9 +145,17 @@ func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			if !hasResolved {
 				if tr := s.m.Traffic(); tr != nil && f.TaskID != nil {
+					// 解析窗口 = 该任务的整个生命周期，而不是「这条漏洞的创建时刻」。
+					// 漏洞是**先有流量、后落库**（agent 打完才 report_finding），
+					// 用 f.CreatedAt 当起点会把真正的证据包排除在外 —— 步骤永远解析不到。
+					// 优先用任务的首次运行时刻；没有就退回任务的创建时刻。
 					since := f.CreatedAt
-					if tk, err := s.m.pg.GetTask(*f.TaskID); err == nil && tk.FirstRunAt != nil {
-						since = *tk.FirstRunAt
+					if tk, err := s.m.pg.GetTask(*f.TaskID); err == nil {
+						if tk.FirstRunAt != nil {
+							since = *tk.FirstRunAt
+						} else if !tk.CreatedAt.IsZero() {
+							since = tk.CreatedAt
+						}
 					}
 					refs := make([]traffic.StepRef, len(rp.Steps))
 					for i, st := range rp.Steps {
