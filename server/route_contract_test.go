@@ -92,7 +92,7 @@ func TestMuxRouteContract(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	td := t.TempDir()

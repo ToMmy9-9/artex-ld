@@ -37,7 +37,7 @@ func TestBuildEdgesFromFact(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	if _, err := d.SeedTaskCategoryPresetIfEmpty("内网渗透", true, 0, 0, false, ""); err != nil {
 		t.Fatal(err)
 	}

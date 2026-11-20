@@ -10,7 +10,7 @@ func TestTaskRunSegmentLifecycle(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	task, err := d.CreateTask("runtime lifecycle", "runtime lifecycle test", nil, 0, 0)
 	if err != nil {
@@ -143,7 +143,7 @@ func TestClearOpenTaskRunSegmentsPreservesAccumulatedRuntime(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	task, err := d.CreateTask("runtime restart clear", "runtime restart clear test", nil, 0, 0)
 	if err != nil {

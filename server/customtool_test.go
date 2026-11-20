@@ -121,7 +121,7 @@ func TestRunHTTPTool(t *testing.T) {
 		w.WriteHeader(201)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 
 	execRaw, _ := json.Marshal(map[string]any{
 		"method":  "POST",
@@ -195,7 +195,7 @@ func TestHTTPToolTruncatesLargeBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(big))
 	}))
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 
 	execRaw, _ := json.Marshal(map[string]any{"method": "GET", "url": srv.URL})
 	res, err := (&Server{}).runHTTPTool(context.Background(), execRaw, map[string]any{}, nil)

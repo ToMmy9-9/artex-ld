@@ -30,7 +30,7 @@ func TestTaskDispatchTargetsDeduplicateAcrossParentsAndConcurrentCreates(t *test
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	var categoryID int64
 	category, err := d.GetTaskCategoryByNKey("内网渗透")
 	createdCategory := false

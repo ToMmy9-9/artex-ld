@@ -12,7 +12,7 @@ func TestSetSettingsAtomic(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v)", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	prefix := fmt.Sprintf("test.atomic_settings.%d", time.Now().UnixNano())
 	defer func() { _, _ = d.Exec(`DELETE FROM settings WHERE key LIKE $1`, prefix+".%") }()
 	values := map[string]string{prefix + ".worker_pools": "[]", prefix + ".workers": "3"}

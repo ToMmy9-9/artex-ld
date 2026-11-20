@@ -15,7 +15,7 @@ func TestExternalPentestReviewDefaultMigration(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer pg.Close()
+	t.Cleanup(func() { pg.Close() })
 	t.Cleanup(stashSettingFlag(t, pg, "external_pentest_review_default_off_v1"))
 
 	category, err := pg.GetTaskCategoryByNKey("外网渗透")

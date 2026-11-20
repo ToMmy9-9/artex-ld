@@ -31,7 +31,7 @@ func TestJevModelListAndConnectionEndpoints(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer upstream.Close()
+	t.Cleanup(func() { upstream.Close() })
 	s := &Server{}
 	for _, tc := range []struct {
 		name    string

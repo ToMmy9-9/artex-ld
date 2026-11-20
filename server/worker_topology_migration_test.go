@@ -31,7 +31,7 @@ func TestUpgradeInternalWorkerTopologyPrompt(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer pg.Close()
+	t.Cleanup(func() { pg.Close() })
 	var original string
 	if err := pg.QueryRow(`SELECT body FROM worker_templates WHERE builtin AND nkey='内网渗透'`).Scan(&original); err != nil {
 		t.Skipf("internal worker template unavailable: %v", err)

@@ -35,7 +35,7 @@ func TestIntelligenceProvenanceDedupAndDirectContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	first, err := d.CreateTask("intelligence source", "test", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestIntelligenceSensitiveDataListIncludesContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	task, err := d.CreateTask("direct sensitive data display", "local fixture", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestIntelligenceSourceSessionUsesGraphProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	task, err := d.CreateTask("source navigation", "local fixture", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)

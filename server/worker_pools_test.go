@@ -83,7 +83,7 @@ func TestWorkerPoolSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	pID, err := m.pg.SaveProfile(&db.LLMProfile{Name: "pool-test", Format: "openai", Model: "pool-test", APIKey: "pool-test-key"})
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +186,7 @@ func TestPinnedRuntimeMissingProfileDoesNotFallback(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	task, err := m.CreateTask("pinned runtime test", "test", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +216,7 @@ func TestPinnedRuntimeQuotaDoesNotAdvanceTaskFailover(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	task, err := m.CreateTask("pinned quota", "test", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestPinnedWorkerLoopDoesNotConsultTaskRouterAndReportsFailureOnce(t *testin
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	task, err := m.CreateTask("pinned worker loop", "test", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +313,7 @@ func TestPinnedWorkerAvailabilityRecoveryUsesSystemSession(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	task, err := m.CreateTask("pinned availability", "test", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -349,7 +349,7 @@ func TestDetachedIntentPinnedOwnerUsesPinnedResolver(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	task, err := m.CreateTask("detached pinned owner", "test", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)

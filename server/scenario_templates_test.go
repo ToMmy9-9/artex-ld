@@ -15,7 +15,7 @@ func TestSeedPromptsIncludesExternalPentestScenario(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer pg.Close()
+	t.Cleanup(func() { pg.Close() })
 
 	if _, err := pg.Exec(`DELETE FROM task_categories WHERE nkey='外网渗透'`); err != nil {
 		t.Fatal(err)

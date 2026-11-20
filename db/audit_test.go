@@ -11,7 +11,7 @@ func TestAuditLogRecordAndList(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	// 只清本测试写入的行，避免动到别的用例的审计数据。
 	const marker = "audit-selftest-marker"

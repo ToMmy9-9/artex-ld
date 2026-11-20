@@ -77,7 +77,7 @@ func TestResolveSpawnReviewUsesNKeyCategoryDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pg.Close()
+	t.Cleanup(func() { pg.Close() })
 
 	var previousReview bool
 	hadCategory := pg.QueryRow(`SELECT default_review_enabled FROM task_categories WHERE nkey='内网渗透'`).Scan(&previousReview) == nil
@@ -127,7 +127,7 @@ func TestSpawnTaskRejectsUnknownTemplateNKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pg.Close()
+	t.Cleanup(func() { pg.Close() })
 	s := &Server{m: &Manager{pg: pg}}
 	result, err := s.toolSpawnTask().Call(context.Background(), json.RawMessage(`{
 		"description":"test","goal":"test","planner_template_nkey":"__missing_template__"

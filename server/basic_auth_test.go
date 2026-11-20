@@ -426,7 +426,7 @@ func TestBasicAuthPostgresLoginFlow(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable: %v", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	for _, key := range []string{basicAuthKey, authPassKey} {
 		old, exists, err := m.pg.GetSetting(key)
 		if err != nil {

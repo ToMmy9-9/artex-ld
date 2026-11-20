@@ -16,7 +16,7 @@ func TestUpgradeScopeAuthorizationPrompts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pg.Close()
+	t.Cleanup(func() { pg.Close() })
 	oldSetting, hadSetting, err := pg.GetSetting(scopeAuthorizationPromptMigrationKey)
 	if err != nil {
 		t.Fatal(err)

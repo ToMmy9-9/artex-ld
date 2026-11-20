@@ -11,7 +11,7 @@ func TestCredentialSwitchDependencyAndLeases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	oldRecording := d.GetBool(SettingTaskIntelligence, false)
 	oldAgent, oldBinding := d.GetBool(SettingCredentialAgent, false), d.GetBool(SettingCredentialTraffic, false)
 	defer func() {

@@ -21,6 +21,8 @@ func TestMain(m *testing.M) {
 	if err != nil || conn.Ping() != nil {
 		os.Exit(m.Run())
 	}
+	// TestMain has no *testing.T — close the advisory-lock connection
+	// when the run finishes.
 	defer conn.Close()
 	if _, err := conn.Exec(`SELECT pg_advisory_lock(7337741002)`); err != nil {
 		os.Exit(m.Run())

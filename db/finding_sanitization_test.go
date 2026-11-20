@@ -12,7 +12,7 @@ func TestRecordFindingSanitizesUntrustedText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	task, err := d.CreateTaskWithOptions("finding binary evidence", "preserve finding with untrusted bytes", TaskCreateOptions{})
 	if err != nil {
 		t.Fatal(err)

@@ -10,7 +10,7 @@ func TestTaskArchiveStaleWorkerCannotOverwriteReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	task, err := d.CreateTaskWithOptions("archive state fence", "stale worker isolation", TaskCreateOptions{})
 	if err != nil {
 		t.Fatal(err)

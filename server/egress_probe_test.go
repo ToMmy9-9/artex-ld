@@ -165,7 +165,7 @@ func TestProbeEgressTrustsCustomCA(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"ip":"192.0.2.5"}`))
 	}))
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 
 	caPath := filepath.Join(t.TempDir(), "ca.pem")
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
@@ -479,7 +479,7 @@ func TestProbeCheckRedirect(t *testing.T) {
 func TestProbeEgressBlocksLoopback(t *testing.T) {
 	t.Setenv(repeaterAllowLocalEnv, "1")
 	srv := fakeIPServer("203.0.113.7")
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 
 	res := probeEgress(context.Background(), "", "", []string{srv.URL}, 2*time.Second)
 	if res.OK {

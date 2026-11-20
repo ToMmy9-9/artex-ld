@@ -8,7 +8,7 @@ import (
 
 func TestTaskAssetSharingOffAllowsManualAssociations(t *testing.T) {
 	d, assets, _ := testSetup(t)
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	task, err := d.CreateTask("manual assets while sharing off", "goal", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestTaskAssetSharingOffAllowsManualAssociations(t *testing.T) {
 
 func TestTaskAssetSharingLegacyArchiveDefault(t *testing.T) {
 	d, _, _ := testSetup(t)
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	task, err := d.CreateTaskWithOptions("legacy sharing archive", "goal", TaskCreateOptions{ShareGlobalAssets: true})
 	if err != nil {
 		t.Fatal(err)

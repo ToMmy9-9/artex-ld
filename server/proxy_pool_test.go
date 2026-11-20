@@ -404,7 +404,7 @@ func TestProxyPoolCaptureOffUsesLocalForwarder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fp.Close()
+	t.Cleanup(func() { fp.Close() })
 	m := &Manager{forwardProxy: fp}
 	m.proxyPoolConfigured.Store(true)
 	got := m.ProxyAddr()
@@ -654,7 +654,7 @@ func TestDynamicForwardProxyUsesCurrentUpstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fp.Close()
+	t.Cleanup(func() { fp.Close() })
 	pu, _ := url.Parse(fp.Addr())
 	c := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(pu)}}
 	resp, err := c.Get(target.URL)
@@ -689,24 +689,24 @@ func TestDynamicForwardProxyConnectAuthenticatedUpstreamAndBufferedBytes(t *test
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		t.Cleanup(func() { c.Close() })
 		_, _ = rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\nupstream-buffer")
 		_ = rw.Flush()
 	}))
-	defer upstream.Close()
+	t.Cleanup(func() { upstream.Close() })
 	up, _ := url.Parse(upstream.URL)
 	up.User = url.UserPassword(user, pass)
 	fp, err := newDynamicForwardProxy(func() string { return up.String() })
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fp.Close()
+	t.Cleanup(func() { fp.Close() })
 
 	c, err := net.Dial("tcp", strings.TrimPrefix(fp.Addr(), "http://"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	t.Cleanup(func() { c.Close() })
 	_, _ = fmt.Fprintf(c, "CONNECT example.test:443 HTTP/1.1\r\nHost: example.test:443\r\n\r\n")
 	rd := bufio.NewReader(c)
 	resp, err := http.ReadResponse(rd, &http.Request{Method: http.MethodConnect})
@@ -733,7 +733,7 @@ func TestDynamicForwardProxyConnectForwardsHijackBufferedClientBytes(t *testing.
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		t.Cleanup(func() { c.Close() })
 		buf := make([]byte, len("hello"))
 		if _, err := io.ReadFull(c, buf); err == nil {
 			_, _ = c.Write([]byte("target"))
@@ -756,7 +756,7 @@ func TestDynamicForwardProxyConnectForwardsHijackBufferedClientBytes(t *testing.
 			return
 		}
 		defer client.Close()
-		defer c.Close()
+		t.Cleanup(func() { c.Close() })
 		_, _ = rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
 		_ = rw.Flush()
 		buf := make([]byte, len("hello"))
@@ -774,12 +774,12 @@ func TestDynamicForwardProxyConnectForwardsHijackBufferedClientBytes(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fp.Close()
+	t.Cleanup(func() { fp.Close() })
 	c, err := net.Dial("tcp", strings.TrimPrefix(fp.Addr(), "http://"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	t.Cleanup(func() { c.Close() })
 	_, _ = fmt.Fprintf(c, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\nhello", targetLn.Addr().String(), targetLn.Addr().String())
 	rd := bufio.NewReader(c)
 	resp, err := http.ReadResponse(rd, &http.Request{Method: http.MethodConnect})
@@ -802,7 +802,7 @@ func TestDialHTTPConnectBlackholeHonorsContext(t *testing.T) {
 	go func() {
 		c, err := ln.Accept()
 		if err == nil {
-			defer c.Close()
+			t.Cleanup(func() { c.Close() })
 			_, _ = io.Copy(io.Discard, c)
 		}
 	}()

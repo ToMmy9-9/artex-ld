@@ -23,7 +23,7 @@ func TestRecorderPersistsRawWireBodies(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	pg := m.PG()
 	if err := pg.EnsureLLMRecordsTable(); err != nil {
 		t.Fatalf("ensure table: %v", err)
@@ -56,7 +56,7 @@ func TestRecorderPersistsRawWireBodies(t *testing.T) {
 		w.Header().Set("content-type", "text/event-stream")
 		_, _ = io.WriteString(w, sse)
 	}))
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 
 	cfg := agent.Config{Format: llm.FormatAnthropic, BaseURL: srv.URL, APIKey: "k", Model: "claude-raw-test"}
 	inner, err := cfg.NewProvider()

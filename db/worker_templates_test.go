@@ -13,7 +13,7 @@ func TestExternalPentestDefaultMigration(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	for _, table := range []string{"planner_templates", "worker_templates"} {
 		if _, err := d.Exec(`UPDATE ` + table + ` SET is_default=false WHERE is_default`); err != nil {
@@ -39,7 +39,7 @@ func TestExternalPentestDefaultMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() { conn.Close() })
 	if err := migrateExternalPentestDefaultTemplates(context.Background(), conn); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestBuiltinWorkerTemplateBodyEditable(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	name := fmt.Sprintf("Builtin editable %d", time.Now().UnixNano())
 	tpl, err := d.CreateWorkerTemplate(WorkerTemplateInput{Name: name, Body: "before"})
@@ -97,7 +97,7 @@ func TestWorkerTemplateAndTaskSnapshot(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	name := fmt.Sprintf("Worker template %d", time.Now().UnixNano())
 	tpl, err := d.CreateWorkerTemplate(WorkerTemplateInput{Name: name, Body: "worker {{.WorkerName}}"})

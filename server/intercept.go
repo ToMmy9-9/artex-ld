@@ -75,7 +75,9 @@ func (s *Server) wireInterceptReviewer() {
 		// Tag this call's usage as the "judge" lane so the config page can report
 		// how much the fallback approval has spent, separate from model profiles.
 		ctx = llmrec.WithWorker(ctx, judgeWorkerLane)
-		text, err := reviewCompletion(ctx, prov, prompt, input)
+		// The judge follows the profile's own thinking setting: a model that
+		// requires adaptive thinking rejects thinking=disabled outright.
+		text, err := reviewCompletion(ctx, prov, prompt, input, profile.ThinkingType)
 		if err != nil {
 			return intercept.Decision{ProfileID: profileID}, err
 		}
@@ -113,25 +115,41 @@ func (s *Server) recordJevJudgeUsage(ctx context.Context, profile *db.LLMProfile
 	}
 }
 
-func reviewCompletion(ctx context.Context, prov llm.Provider, prompt string, input intercept.ReviewInput) (string, error) {
+func reviewCompletion(ctx context.Context, prov llm.Provider, prompt string, input intercept.ReviewInput, thinking string) (string, error) {
 	user, err := json.Marshal(input)
 	if err != nil {
 		return "", err
 	}
-	return streamCollectText(ctx, prov, prompt, string(user))
+	return streamCollectTextWithThinking(ctx, prov, prompt, string(user), thinking)
 }
 
-// streamCollectText runs a single non-streaming-style completion (thinking off,
-// low temperature, bounded output) and returns the concatenated text. The
-// budget includes the explanation and complete closing JSON delimiters.
+// streamCollectText runs a single non-streaming-style completion (low
+// temperature, bounded output) and returns the concatenated text. The budget
+// includes the explanation and complete closing JSON delimiters.
+//
+// Thinking is NOT hardcoded off. It used to be, because a verdict should be
+// fast — but some models (MiniMax-M3.1-Flash and friends) REQUIRE adaptive
+// thinking and reject `thinking.type="disabled"` with HTTP 400. Every model
+// approval then failed with the provider's error and fell back to the failure
+// action, so the approval feature looked permanently broken.
+//
+// The caller passes the profile's own thinking setting; an empty value means
+// "let the provider decide" (the default), and an explicit "disabled" still
+// wins for models that allow it.
 func streamCollectText(ctx context.Context, prov llm.Provider, system, user string) (string, error) {
+	return streamCollectTextWithThinking(ctx, prov, system, user, "")
+}
+
+// streamCollectTextWithThinking is streamCollectText with an explicit
+// thinking mode ("" = provider default).
+func streamCollectTextWithThinking(ctx context.Context, prov llm.Provider, system, user, thinking string) (string, error) {
 	temp := 0.0
 	req := llm.CompletionRequest{
 		System:      []string{system},
 		Messages:    []llm.Message{llm.UserText(user)},
 		MaxTokens:   1024,
 		Temperature: &temp,
-		Thinking:    "disabled",
+		Thinking:    thinking,
 	}
 	var sb strings.Builder
 	for ev, err := range prov.Stream(ctx, req) {

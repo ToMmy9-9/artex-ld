@@ -125,7 +125,7 @@ func TestTaskArchiveDatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	if err := d.EnsureLLMRecordsTable(); err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestTaskArchiveBlockersIgnoreQueuedDependents(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	source, err := d.CreateTaskWithOptions("archive blocker source", "source", TaskCreateOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -399,7 +399,7 @@ func TestRecoverInterruptedArchiveRequiresManualRetry(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	task, err := d.CreateTaskWithOptions("interrupted archive", "must not restart automatically", TaskCreateOptions{})
 	if err != nil {
 		t.Fatal(err)

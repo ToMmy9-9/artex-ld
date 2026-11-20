@@ -38,7 +38,7 @@ func TestAppendFindingToTaskSameAsset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	if _, err := m.pg.Exec(`DELETE FROM tasks WHERE id IN (SELECT task_id FROM task_dispatch_targets WHERE asset_key='ip:192.0.2.77')`); err != nil {
 		t.Fatal(err)
 	}

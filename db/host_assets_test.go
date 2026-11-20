@@ -49,7 +49,7 @@ func TestQueryHostsAndExactAssetFindingFilter(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	tk, err := d.CreateTask("宿主投影测试", "目标", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)

@@ -106,7 +106,7 @@ func TestParseAutoScopeLine(t *testing.T) {
 
 func TestExplicitCompanyAttributionSurvivesScopeRebuild(t *testing.T) {
 	d, as, cs := testSetup(t)
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	stamp := time.Now().UnixNano()
 	explicitCompany, _, err := cs.UpsertCompany(fmt.Sprintf("Explicit Attribution %d", stamp), "")

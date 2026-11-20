@@ -33,7 +33,7 @@ func TestCheckInternalAssetTaskUsesFindingAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	parent, err := m.CreateTaskWithOptions("外网父任务", "验证目标", db.TaskCreateOptions{})
 	if err != nil {
 		t.Fatal(err)

@@ -16,7 +16,7 @@ func TestFindingDeliveryTablesCascadeWithNode(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	tk, err := d.CreateTask("交付域级联测试", "目标", nil, 0, 0)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestFindingDeliveryTablesRejectUnknownNode(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	const bogusNodeID = int64(1) << 40 // 远超任何真实序列值，必然不存在
 	if err := d.UpsertFindingEnrichment(&FindingEnrichment{NodeID: bogusNodeID, Name: "x"}); err == nil {
@@ -107,7 +107,7 @@ func TestTaskArchiveCapturesFindingDeliveryTables(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	// 归档快照会读 llm_records / llm_usage（与既有归档测试同前提）。
 	if err := d.EnsureLLMRecordsTable(); err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestArchiveRestoreRebindsFindingDeliveryTables(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	if err := d.EnsureLLMRecordsTable(); err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ func TestPoolProfilesOrder(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	mk := func(name string, priority int, exclude bool, key string) int64 {
 		id, err := d.SaveProfile(&LLMProfile{
@@ -69,7 +69,7 @@ func TestConfigStores(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	// LLM profile: save, active, key never serialized
 	pid, err := d.SaveProfile(&LLMProfile{Name: "t-default", Format: "openai", Model: "gpt-x", APIKey: "secret123"})
@@ -188,7 +188,7 @@ func TestJevProfileCannotBeActivatedOrAgentBound(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	id, err := d.SaveProfile(&LLMProfile{Name: "t-jev-only", Format: "jev", Model: "jev-latest", APIKey: "jev-key"})
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestJevProfileCannotBeSavedAsDefault(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	if _, err := d.SaveProfile(&LLMProfile{Name: "t-jev-default", Format: "jev", Model: "jev-latest", APIKey: "jev-key", IsDefault: true}); !errors.Is(err, ErrJevProfileJudgeOnly) {
 		t.Fatalf("SaveProfile Jev default error=%v, want %v", err, ErrJevProfileJudgeOnly)
 	}

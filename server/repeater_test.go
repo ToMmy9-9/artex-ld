@@ -75,7 +75,7 @@ func TestRepeaterBlockedIPs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("loopback handler should not be reached")
 	}))
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 	code, _, body := repeaterTestSend(t, &Server{}, map[string]any{"url": srv.URL, "use_recording_proxy": false})
 	if code != http.StatusBadRequest || !strings.Contains(body, "拒绝") {
 		t.Fatalf("loopback status=%d body=%s", code, body)
@@ -151,7 +151,7 @@ func TestRepeaterDirectHTTP2(t *testing.T) {
 	srv.EnableHTTP2 = true
 	srv.TLS = &tls.Config{NextProtos: []string{"h2"}}
 	srv.StartTLS()
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 
 	code, out, raw := repeaterTestSend(t, &Server{}, map[string]any{
 		"url": srv.URL, "use_recording_proxy": false, "insecure_skip_verify": true,
@@ -180,7 +180,7 @@ func TestRepeaterTLSHandshakeUsesRequestTimeout(t *testing.T) {
 		return nil, nil
 	}}
 	srv.StartTLS()
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 
 	code, out, raw := repeaterTestSend(t, &Server{}, map[string]any{
 		"url": srv.URL, "use_recording_proxy": false, "insecure_skip_verify": true, "timeout_ms": 1000,
@@ -209,7 +209,7 @@ func TestRepeaterClosesIdleConnections(t *testing.T) {
 			} else {
 				srv.Start()
 			}
-			defer srv.Close()
+			t.Cleanup(func() { srv.Close() })
 
 			s := &Server{}
 			payload := map[string]any{"url": srv.URL, "use_recording_proxy": false, "insecure_skip_verify": true}
@@ -245,7 +245,7 @@ func TestRepeaterRoundTripHeadersAndBody(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = io.WriteString(w, "hello")
 	}))
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 
 	code, out, body := repeaterTestSend(t, &Server{}, map[string]any{
 		"method": "POST", "url": srv.URL, "headers": map[string]string{
@@ -282,7 +282,7 @@ func TestRepeaterTruncatesAndHonoursHEAD(t *testing.T) {
 		}
 		_, _ = io.WriteString(w, large)
 	}))
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 	_, out, _ := repeaterTestSend(t, &Server{}, map[string]any{"url": srv.URL, "use_recording_proxy": false})
 	if !out.BodyTruncated || out.BodyBytes != repeaterMaxBody || len(out.Body) != repeaterMaxBody {
 		t.Fatalf("truncation=%+v", out)
@@ -410,7 +410,7 @@ func TestRepeaterHonorsExplicitHTTPVersion(t *testing.T) {
 	}))
 	srv.EnableHTTP2 = true
 	srv.StartTLS()
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 	for _, version := range []string{"HTTP/1.1", "HTTP/2.0"} {
 		t.Run(version, func(t *testing.T) {
 			code, out, raw := repeaterTestSend(t, &Server{}, map[string]any{
@@ -434,7 +434,7 @@ func TestRepeaterExplicitHTTP2Cleartext(t *testing.T) {
 	srv.Config.Protocols = new(http.Protocols)
 	srv.Config.Protocols.SetUnencryptedHTTP2(true)
 	srv.Start()
-	defer srv.Close()
+	t.Cleanup(func() { srv.Close() })
 	code, out, raw := repeaterTestSend(t, &Server{}, map[string]any{"method": "GET", "url": srv.URL, "http_version": "HTTP/2.0", "use_recording_proxy": false})
 	if code != http.StatusOK || out.Error != "" || out.Body != "HTTP/2.0" {
 		t.Fatalf("status=%d response=%s", code, raw)

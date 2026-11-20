@@ -10,7 +10,7 @@ func TestLatestWorkerOutputSkipsLargeHistory(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 	expID, err := d.CreateExploration("worker output", "latest result after long history")
 	if err != nil {
 		t.Fatal(err)

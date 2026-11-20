@@ -34,7 +34,7 @@ func TestTaskOptionsPersistAndValidateLimits(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	if _, err := d.CreateTaskWithOptions("oversized remark", "goal", TaskCreateOptions{
 		Remark: strings.Repeat("界", MaxTaskRemarkRunes+1),

@@ -12,7 +12,7 @@ func TestBuiltinPlannerTemplateBodyEditable(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { d.Close() })
 
 	name := fmt.Sprintf("Builtin planner edit %d", time.Now().UnixNano())
 	tpl, err := d.CreatePlannerTemplate(PlannerTemplateInput{Name: name, Body: "planner original"})

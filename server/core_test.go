@@ -22,12 +22,70 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer m.Close()
+	t.Cleanup(func() { m.Close() })
 	// Goal seeding must not depend on an enabled test LLM left by another package.
 	// The fallback single-goal path is the behavior under test here.
-	if _, err := m.pg.Exec(`UPDATE llm_profiles SET is_default=false, pool_exclude=true`); err != nil {
-		t.Fatalf("disable test LLM profiles: %v", err)
+	//
+	// This must NOT touch the operator's own profiles: an unscoped
+	// `UPDATE llm_profiles SET is_default=false` silently deactivated the
+	// user's active LLM (and, with it, the model-judge for intercept
+	// approvals — every approval then failed with "未配置可用的裁判模型").
+	// Disable only the profiles this test package created, and restore the
+	// operator's active profile afterwards.
+	testProfileIDs := []int64{}
+	rows, err := m.pg.Query(`SELECT id FROM llm_profiles
+		WHERE name LIKE 't-%' OR name LIKE '%-test-%' OR name LIKE '%test-%'
+		   OR name ~ '^[a-z-]*-\d{10,}$'`)
+	if err == nil {
+		for rows.Next() {
+			var id int64
+			if rows.Scan(&id) == nil {
+				testProfileIDs = append(testProfileIDs, id)
+			}
+		}
+		rows.Close()
 	}
+	// The behaviour under test is the FALLBACK single-goal path, which only
+	// happens when no profile is active. So every profile has to be inactive
+	// for the duration of the test.
+	//
+	// Snapshot the flags first and restore them exactly afterwards: an
+	// unscoped `UPDATE llm_profiles SET is_default=false` (as this test used
+	// to do) silently deactivated the operator's own LLM — and with it the
+	// model judge behind intercept approvals, so every approval then failed
+	// with "未配置可用的裁判模型".
+	type profileFlags struct {
+		id          int64
+		isDefault   bool
+		poolExclude bool
+	}
+	var snapshot []profileFlags
+	prows, err := m.pg.Query(`SELECT id, is_default, pool_exclude FROM llm_profiles`)
+	if err == nil {
+		for prows.Next() {
+			var pf profileFlags
+			if prows.Scan(&pf.id, &pf.isDefault, &pf.poolExclude) == nil {
+				snapshot = append(snapshot, pf)
+			}
+		}
+		prows.Close()
+	}
+	for _, id := range testProfileIDs {
+		if _, err := m.pg.Exec(`UPDATE llm_profiles SET is_default=false, pool_exclude=true WHERE id=$1`, id); err != nil {
+			t.Fatalf("disable test LLM profile %d: %v", id, err)
+		}
+	}
+	if len(snapshot) > 0 {
+		if _, err := m.pg.Exec(`UPDATE llm_profiles SET is_default=false`); err != nil {
+			t.Fatalf("deactivate profiles for the fallback path: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, pf := range snapshot {
+			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=$2, pool_exclude=$3 WHERE id=$1`,
+				pf.id, pf.isDefault, pf.poolExclude)
+		}
+	})
 	td := t.TempDir()
 	s := New(context.Background(), m, td, td, td)
 	h := s.Handler()
