@@ -512,6 +512,44 @@ func (s *AssetStore) CountDSL(dsl, typ string, taskID int64) (int, error) {
 	return n, err
 }
 
+// DSLIDSet returns ALL asset ids matching a DSL expression (and optional type /
+// task scope) as a set, with no LIMIT/OFFSET. Set-membership callers must use this
+// instead of QueryDSL: QueryDSL normalises limit<=0 to 50, so using it as a
+// membership oracle silently drops every match past the first page.
+func (s *AssetStore) DSLIDSet(dsl, typ string, taskID int64) (map[int64]bool, error) {
+	node, err := ParseDSL(dsl)
+	if err != nil {
+		return nil, err
+	}
+	where, args, err := buildDSLWhere(node)
+	if err != nil {
+		return nil, err
+	}
+	where = "(" + where + ")"
+	if typ != "" {
+		args = append(args, typ)
+		where += fmt.Sprintf(" AND type = $%d", len(args))
+	}
+	if taskID > 0 {
+		args = append(args, taskID)
+		where += fmt.Sprintf(" AND $%d = ANY(task_ids)", len(args))
+	}
+	rows, err := s.db.Query("SELECT id FROM assets WHERE "+where, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
+}
+
 // QueryDSL executes a DSL query string against the asset store.
 // typ is an optional asset type filter applied independently of the DSL expression.
 // taskID > 0 scopes results to assets attached to that task and hydrates each

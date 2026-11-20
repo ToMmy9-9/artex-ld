@@ -11,6 +11,7 @@ import (
 	"artex/db"
 	"artex/intercept"
 	"artex/sidequestion"
+	"artex/xlog"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"net/http"
 	"norma/llm"
 	"path/filepath"
+	"runtime/debug" // runConversationTurn 的 panic 栈
 	"strconv"
 	"strings"
 	"time"
@@ -574,6 +576,16 @@ func (s *Server) conversationRunContext(id int64, busyKey string) (context.Conte
 }
 
 func (s *Server) runConversationTurn(ctx context.Context, cancel context.CancelCauseFunc, c *db.Conversation, msg, busyKey string, taskID int64) {
+	// 【P-LOG·M1 补漏】这条 turn 由 runConversation 用裸 goroutine 起（540 行）或
+	// 由 P3 触发器队列同步调用，两条路径都没有 recover：ca.Chat 执行任意工具时一旦
+	// panic，整个进程退出（对比 review.go 的 review chat 轮，那里一直有 recover）。
+	// 声明在最前面 → 最后执行，保证下面各条清理 defer（busyKey、review_runs.state）
+	// 都跑完才兜住 panic。
+	defer func() {
+		if r := recover(); r != nil {
+			xlog.Errorf("[conv %d] agent turn PANIC (agent=%s): %v\n%s", c.ID, c.AgentKey, r, debug.Stack())
+		}
+	}()
 	defer func() {
 		cancel(agent.AbortChatTurnFinished)
 		s.chatMu.Lock()

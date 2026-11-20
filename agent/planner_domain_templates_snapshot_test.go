@@ -20,7 +20,12 @@ func TestPlannerDomainTemplatesByteExact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
 	}
-	entries := strings.Split(string(raw), goldenSeparator)
+	// golden 在库里是以 LF 存的，但 Windows 上 core.autocrlf=true 检出时会变成 CRLF，
+	// 于是下面的 "\n=====TEMPLATE=====\n" 分隔符一个都匹配不上（实测只剩 1 条），
+	// 而模板正文常量恒为 LF —— 逐字节比对全线失败。比对的是文案而不是检出形态，
+	// 统一折成 LF 再比。
+	goldenText := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	entries := strings.Split(goldenText, goldenSeparator)
 	// 首段为空（文件以分隔符开头）。
 	want := map[string]string{}
 	for _, e := range entries {

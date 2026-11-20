@@ -474,6 +474,12 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	}
 	sysBody := workerSystem(proxyAddr, w.proxyCACert, w.workDir, runDir, name, w.taskPromptOverride())
 	if w.wantConstraints() {
+		// 任务级操作约束（task_constraints）注入 worker 的 system。此前这里是个空 if：
+		// constraintBlock 变成死代码，而 SetConstraintInject / set_constraints 工具 /
+		// task_constraints 表全都还在正常装配——约束被采集、存库、能被 list_task_constraints
+		// 读到，却从不进入真正执行决策的 agent 上下文，"只允许打 a.example.com"这类授权
+		// 边界对模型完全不可见。
+		sysBody += constraintBlock(ts)
 	}
 	// 意图块 → 意图锚定资产块 → 启动指令，依次追加到 system 尾部（与 constraintBlock 同一套追加法）。
 	sysBody += RenderIntentTask(intent) // 【二开·P-EXEC·A1】导出改名

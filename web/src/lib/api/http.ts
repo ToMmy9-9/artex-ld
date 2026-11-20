@@ -127,6 +127,11 @@ export function findingFilterParams(q: Omit<FindingQuery, "page" | "pageSize">):
   if (q.sort) p.set("sort", q.sort);
   if (q.assetScope) p.set("asset_scope", q.assetScope);
   if (q.assetIDs?.length) p.set("asset_ids", q.assetIDs.join(","));
+  // 日期区间与方向必须一起序列化：列表 / 分组 / 资产树 / 导出共用本函数，
+  // 少了这三项时前端「筛选生效了」（fingerprint 变了会重取），但后端结果原样不变。
+  if (q.timeDirection) p.set("time_direction", q.timeDirection);
+  if (q.from) p.set("from", q.from);
+  if (q.to) p.set("to", q.to);
   return p;
 }
 
@@ -134,5 +139,10 @@ export function interceptPageQuery(page: number, size: number, filter: Intercept
   const query = new URLSearchParams({ page: String(page), size: String(size) });
   if (filter.status) query.set("status", filter.status);
   if (filter.decision_source) query.set("decision_source", filter.decision_source);
+  // 后端 interceptFilterParams 读的是 q/from/to；少了这三行，审批记录页的
+  // 关键字搜索与时间筛选都是静默 no-op（UI 会重新请求，结果却完全不变）。
+  if (filter.q?.trim()) query.set("q", filter.q.trim());
+  if (filter.from) query.set("from", filter.from);
+  if (filter.to) query.set("to", filter.to);
   return query.toString();
 }

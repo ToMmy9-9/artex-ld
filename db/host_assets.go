@@ -65,6 +65,9 @@ func (s *AssetStore) QueryHosts(f AssetHostFilter) ([]AssetHostRow, int, error) 
 	if err != nil {
 		return nil, 0, err
 	}
+	// scanAssets 本身不 Close，正常路径靠 Next() 耗尽隐式关闭；一旦 Scan 提前报错
+	// 就必须在这里兜住，否则这条连接要等 GC 才回池（其余 scanAssets 调用点都有）。
+	defer rows.Close()
 	assets, err := scanAssets(rows)
 	if err != nil {
 		return nil, 0, err
@@ -108,13 +111,11 @@ func (s *AssetStore) QueryHosts(f AssetHostFilter) ([]AssetHostRow, int, error) 
 
 	var dslMatches map[int64]bool
 	if strings.TrimSpace(f.DSL) != "" {
-		matched, err := s.QueryDSL(f.DSL, "", f.TaskID, 0, 0)
+		// 这里要的是"命中集合"，不是一页展示数据。此前传 limit=0 会被 QueryDSL
+		// 归一成 50，第 51 条之后的资产所属主机被静默过滤掉（total 也偏小）。
+		dslMatches, err = s.DSLIDSet(f.DSL, "", f.TaskID)
 		if err != nil {
 			return nil, 0, err
-		}
-		dslMatches = map[int64]bool{}
-		for _, a := range matched {
-			dslMatches[a.ID] = true
 		}
 	}
 

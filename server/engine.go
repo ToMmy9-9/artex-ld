@@ -1511,6 +1511,14 @@ func (e *Engine) runDetachedIntent(ctx context.Context, t *Task, intentID int64,
 	release = false // ownership of the admission passes to the goroutine
 	go func() {
 		defer e.decInflight(t.ID)
+		// 【P-LOG·M1 补漏】runIntent 会跑完整工具链（Execute / RunCustomExecutor），
+		// 是本文件里唯一没走 runTaskRoutine 的 goroutine —— 少一次 recover 就等于
+		// 给「人工消息续跑意图」这条最常用路径留了个杀进程的口子。
+		defer func() {
+			if r := recover(); r != nil {
+				xlog.Errorf("[engine] goroutine PANIC (intent chat %d, task %s): %v\n%s", intentID, t.ID, r, debug.Stack())
+			}
+		}()
 		e.runIntent(ctx, t, "chat", worker, node, requestID, agentMessage)
 	}()
 	return nil

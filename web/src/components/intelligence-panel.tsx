@@ -186,7 +186,7 @@ export function IntelligencePanel({
               {KINDS.map((item) => (
                 <TabsTrigger key={item.value} value={item.value}>
                   <ToneDot tone={statusMeta("intelligence", item.value).tone} />
-                  {item.label} {data?.counts[item.value] ?? 0}
+                  {item.label} {data?.counts?.[item.value] ?? 0}
                 </TabsTrigger>
               ))}
             </TabsList>

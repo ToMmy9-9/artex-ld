@@ -603,6 +603,9 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		sysBody += "\n\n【意图审核已开启（最高优先级约束）】：本任务开启了人工审核流——创建新意图必须改用 add_review_intent 送审（参数同 add_intent，另可带 target_executor 预选执行器、replaces 标注替代的旧意图）；不要用 add_intent 直投 open。被驳回的意图（概览 rejected_intents 块，附驳回理由）用 update_intent 修订原稿后自动重送审；确认无价值的用 cancel_intent 取消（reason 必填）。"
 	}
 	if p.wantConstraints() {
+		// 与 worker 对称：任务级操作约束必须进入 planner 的 system prompt，否则
+		// planner 派生意图时看不到 allow/deny 边界（详见 worker.go 同一处注释）。
+		sysBody += constraintBlock(ts)
 	}
 	system, boundary := deferredSystem(sysBody, def)
 	// planner 无自身墙钟预算;有 deadline 时把 MaxDuration 夹逼到剩余,让在跑的规划轮在

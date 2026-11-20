@@ -34,6 +34,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug" // 主 Agent 会话 goroutine 的 panic 栈
 	"sort"
 	"strconv"
 	"strings"
@@ -3551,18 +3552,28 @@ func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 		limit = 500
 	}
 	// If no before given, return the most recent DB rows (mirrors ring restore).
+	// 多取一条来判定「还有更早的」：直接拿 len(rows)==limit 判断，会在日志总数
+	// 恰好是 limit 整数倍时，让最旧的一页也回 has_more:true，前端再请求一次拿到
+	// 空数组才收敛。
+	fetch := limit + 1
 	var (
 		rows []*db.DBLog
 		err  error
 	)
 	if before <= 0 {
-		rows, err = s.m.pg.RecentLogs(limit)
+		rows, err = s.m.pg.RecentLogs(fetch)
 	} else {
-		rows, err = s.m.pg.ListLogsBefore(before, limit)
+		rows, err = s.m.pg.ListLogsBefore(before, fetch)
 	}
 	if err != nil {
 		writeErr(w, 500, "db: "+err.Error())
 		return
+	}
+	// 两个查询都按 id DESC 取窗口再翻成 oldest-first，所以多出来的那条是窗口里
+	// 最旧的一行（下标 0），要保留的是紧接着 before 的那 limit 行。
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[1:]
 	}
 	items := make([]LogLine, 0, len(rows))
 	for _, r := range rows {
@@ -3574,7 +3585,7 @@ func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 			Text:  r.Text,
 		})
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "has_more": len(rows) == limit})
+	writeJSON(w, 200, map[string]any{"items": items, "has_more": hasMore})
 }
 
 // streamLogs is the live SSE tail of the backend log: replays history after
@@ -4721,6 +4732,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		// handler returns immediately and the browser never needs to hold the request.
 		go func() {
 			defer func() {
+				// 【P-LOG·M1 补漏】主 Agent 一轮里要跑完整工具链（模型输出的
+				// tool_input 直接进各 handler 的类型断言/索引），是 panic 面最大
+				// 的一条 goroutine。此前这里只有清理没有 recover —— 一旦 panic，
+				// Go runtime 直接终止整个进程，连 `runTaskRoutine` 那套「标记 failed、
+				// 其它任务继续跑」的兜底都轮不到（见 engine.go:runTaskRoutine 注释）。
+				if r := recover(); r != nil {
+					xlog.Errorf("[chat] 主 Agent PANIC task %s: %v\n%s", t.ID, r, debug.Stack())
+					s.engine.emitActivity(t, db.Activity{
+						Worker: "mainagent", Kind: "text", IsError: true,
+						Summary: "（主 Agent 内部错误，本轮已中止，任务仍在运行）", MainSeg: segPtr,
+					})
+				}
 				s.finishTaskChat(t.ID, cancel)
 			}()
 			// emit every step (thinking/tool_use/tool_result/text/result) so the main
@@ -4737,8 +4760,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			taskDir := filepath.Join(s.m.dir, "tasks", t.ID)
 			agentMsg := composeAgentMessage(agentMessage, req.Attachments, taskDir)
 			s.engine.BeginLLMCall(t.ID)
+			// defer 而非顺序调用：panic 时这一对计数必须配对归还，否则
+			// ActiveLLMCall 永久 >0，reconcileConcurrency 与 stats 的 engine_mode
+			// 判定被这条脏计数长期污染。
+			defer s.engine.EndLLMCall(t.ID)
 			_, err := ma.Chat(ctx, maTaskID, mainSeg, s.m.Assets(), t.Store, t.Goal, agentMsg, emit, t.Notify, resume, t.NotifyGoal, t.NotifyHint)
-			s.engine.EndLLMCall(t.ID)
 			if err != nil && ctx.Err() == nil {
 				s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", IsError: true, Summary: "（主 Agent 出错：" + err.Error() + "）", MainSeg: segPtr})
 			}

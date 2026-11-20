@@ -3,6 +3,7 @@ package db
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -42,6 +43,12 @@ func (d *DB) RecordAudit(actor, category, action, result, ip, message string, de
 // ListAuditLogs pages audit logs newest-first (filterable by category/actor/
 // action/result). Returns the rows and the total matching count.
 func (d *DB) ListAuditLogs(category, actor, action, result string, limit, offset int) ([]AuditLog, int, error) {
+	return d.ListAuditLogsSearch(category, actor, action, result, "", limit, offset)
+}
+
+// ListAuditLogsSearch 在 ListAuditLogs 之上支持 message / ip 模糊搜索。前端
+// 「搜索消息或 IP」一直发 q 参数，但服务端此前从不读取，搜索框等于摆设。
+func (d *DB) ListAuditLogsSearch(category, actor, action, result, search string, limit, offset int) ([]AuditLog, int, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
@@ -61,6 +68,11 @@ func (d *DB) ListAuditLogs(category, actor, action, result string, limit, offset
 	add("actor", actor)
 	add("action", action)
 	add("result", result)
+	if s := strings.TrimSpace(search); s != "" {
+		args = append(args, "%"+s+"%")
+		n := strconv.Itoa(len(args))
+		where += " AND (message ILIKE $" + n + " OR ip ILIKE $" + n + ")"
+	}
 
 	var total int
 	if err := d.QueryRow(`SELECT count(*) FROM audit_logs `+where, args...).Scan(&total); err != nil {
