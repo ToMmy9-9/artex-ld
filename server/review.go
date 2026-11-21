@@ -115,13 +115,38 @@ type ReviewRunner struct {
 	mu        sync.Mutex
 	slots     map[string]*reviewSlot
 	undecided map[string]int // 自动审核连续全未决轮数（≥3 告警）
+	// noProv 记录已播报过「无可用 LLM」的任务，避免 15 秒一轮把同一条错误刷满时间线。
+	// 拿到 provider 后清除，配置修好即恢复播报能力。
+	noProv map[string]bool
 }
 
 // newReviewRunner 创建默认每 15 秒扫描一次的审核调度器。
 func newReviewRunner(s *Server) *ReviewRunner {
 	// ticker 是漏唤醒时的兜底，间隔不宜过长。
 	return &ReviewRunner{s: s, interval: 15 * time.Second, wake: make(chan struct{}, 1),
-		slots: make(map[string]*reviewSlot), undecided: make(map[string]int)}
+		slots: make(map[string]*reviewSlot), undecided: make(map[string]int),
+		noProv: make(map[string]bool)}
+}
+
+// shouldReportNoProvider 判断本次「无可用 LLM」是否需要播报到任务时间线（每任务只播一次）。
+func (rr *ReviewRunner) shouldReportNoProvider(taskID string) bool {
+	rr.mu.Lock()
+	defer rr.mu.Unlock()
+	if rr.noProv == nil {
+		rr.noProv = make(map[string]bool)
+	}
+	if rr.noProv[taskID] {
+		return false
+	}
+	rr.noProv[taskID] = true
+	return true
+}
+
+// clearNoProvider 在拿到可用 provider 后清掉播报标记。
+func (rr *ReviewRunner) clearNoProvider(taskID string) {
+	rr.mu.Lock()
+	defer rr.mu.Unlock()
+	delete(rr.noProv, taskID)
 }
 
 // reviewSlot 是每任务的进程内审核租约；TTL 允许后续请求接管失效租约。
@@ -261,9 +286,18 @@ func (rr *ReviewRunner) sweep(ctx context.Context) {
 
 // preReviewTask 对单个任务的 fresh 待审意图跑一轮 review agent 预审。
 // BeginLLMCall/EndLLMCall 包裹——预热限流/断网熔断统计与正式 LLM 调用同口径。
-// 仅处理 reviewed_version 缺失或落后于 content_version 的意图。
+// 「fresh」的判据按模式分开：人工全审看 reviewed_version（预审计次），
+// 自动处置看 auto_reviewed_version（自动处置计次）。两者混用会让「先人工审、
+// 后开自动处置」的任务整批意图永久卡在待审池（见 AutoDecidePendingIntents 注释）。
 func (rr *ReviewRunner) preReviewTask(ctx context.Context, t *Task) {
-	freshNodes, err := t.Store.FreshPendingIntents(50) // 在 SQL 中筛选版本过期的意图。
+	// 自动处置模式要的是「还没被自动处置过」的意图，而不是「没预审过」的。
+	var freshNodes []*db.Node
+	var err error
+	if t.ReviewAuto {
+		freshNodes, err = t.Store.AutoDecidePendingIntents(50)
+	} else {
+		freshNodes, err = t.Store.FreshPendingIntents(50) // 在 SQL 中筛选版本过期的意图。
+	}
 	if err != nil || len(freshNodes) == 0 {
 		return
 	}
@@ -283,10 +317,17 @@ func (rr *ReviewRunner) preReviewTask(ctx context.Context, t *Task) {
 	// review agent 的 LLM：绑定该 agent 的 profile（未绑→全局激活）。
 	prov := rr.reviewProvider(t)
 	if prov == nil {
-		// provider 不可用时记录告警，避免审核被静默跳过。
-		log.Printf("[review] task %s 预审跳过 ⚠ reviewProvider() 为 nil（review agent 缺失/禁用/无 LLM 绑定）——%d 条待审意图无人预审", t.ID, len(fresh))
+		// provider 不可用时不只写日志：任务页的审核面板必须能看见，
+		// 否则用户只会观察到「开了自动处置但意图一直堆着」，无从判断是配置问题还是没轮到。
+		// 每任务只播一次 —— 15 秒一轮会把它刷满时间线。
+		log.Printf("[review] task %s 审核跳过 ⚠ reviewProvider() 为 nil（review agent 缺失/禁用/无可用 LLM）——%d 条待审意图无人处置", t.ID, len(fresh))
+		if rr.shouldReportNoProvider(t.ID) {
+			rr.s.engine.emitActivity(t, db.Activity{Worker: "review", Kind: "error",
+				Summary: fmt.Sprintf("无法审核 %d 条待审意图：review agent 没有可用的 LLM 配置（请到 系统 → LLM 配置 指定一个并激活）", len(fresh))})
+		}
 		return
 	}
+	rr.clearNoProvider(t.ID)
 	// 记录本次审核的意图数和自动处置状态。
 	log.Printf("[review] task %s 进入审核轮：%d 条待审意图（review_auto=%v）", t.ID, len(fresh), t.ReviewAuto)
 	// ReviewPreScreenConfig.TaskID 是 string 型（agent 侧签名）——t.ID 直接传，不再 ParseInt。
@@ -345,24 +386,47 @@ func (rr *ReviewRunner) preReviewTask(ctx context.Context, t *Task) {
 
 // autoDecide 按模型决策自动批准或驳回，并用版本 CAS 避免覆盖人工并发处置。
 // 无法确定的意图保持未决；连续多轮全部未决时记录告警。
+//
+// 每轮研判过的意图都会打上 auto_reviewed_version（含未决的），否则 15 秒一轮的
+// sweep 会拿同一批内容无限重复调用 LLM（burn 令牌且永远不收敛）。未决只是
+// 「不在本轮处置」，不等于「没判断过」；内容版本变了会重新进入候选。
 func (rr *ReviewRunner) autoDecide(ctx context.Context, t *Task, cfg agent.ReviewPreScreenConfig, versions map[int64]int) {
 	decisions, err := agent.RunReviewAuto(ctx, agent.ReviewAutoConfig{
 		Store: cfg.Store, Goal: cfg.Goal, TaskID: cfg.TaskID,
 		Provider: cfg.Provider, FreshIDs: cfg.FreshIDs, Emit: cfg.Emit,
 	})
 	if err != nil {
+		// 出错不打标记：下一轮重试，否则这批意图会因一次瞬时故障永久失去自动处置机会。
 		log.Printf("[review] task %s 自动审核失败（本轮全部留人）: %v", t.ID, err)
 		return
 	}
-	if len(decisions) == 0 && len(cfg.FreshIDs) > 0 {
+	decided := make(map[int64]bool, len(decisions))
+	for _, d := range decisions {
+		decided[d.ID] = true
+	}
+	// 未决 = 审核 agent 自己拿不准，按契约「留给人工」。这里必须让人看见：
+	// 打了研判标记后它们不会再被重复研判，若不主动播报，就会静默躺在待审池里。
+	var undecided int
+	for _, id := range cfg.FreshIDs {
+		if !decided[id] {
+			undecided++
+		}
+	}
+	if undecided > 0 {
 		// 连续未决可能表示审核提示词或模型异常。
 		if rr.bumpUndecided(t.ID) >= 3 {
-			log.Printf("[review] task %s ⚠ 自动审核连续 3 轮以上全未决（%d 条待审无人处置），请检查 review agent 配置", t.ID, len(cfg.FreshIDs))
+			log.Printf("[review] task %s ⚠ 自动审核连续 3 轮以上出现未决（本轮 %d 条拿不准），请检查 review agent 配置", t.ID, undecided)
 		}
-	} else if len(decisions) > 0 {
+		rr.s.engine.emitActivity(t, db.Activity{Worker: "review", Kind: "text",
+			Summary: fmt.Sprintf("%d 条意图审核 agent 拿不准，已留在待审池等你处置", undecided)})
+	} else if len(cfg.FreshIDs) > 0 {
 		rr.resetUndecided(t.ID)
 	}
 	var approved, rejected int
+	// failed 记「模型给了决策但落库失败」的 id（不含 CAS 冲突——那是人抢先处置，
+	// 本就该放手）。这些意图仍 pending 且版本未变，若跟着打研判标记就会因一次
+	// 瞬时写错误永久失去自动处置机会，所以排除在下方的标记循环之外。
+	failed := make(map[int64]bool)
 	for _, d := range decisions {
 		note := d.Note
 		if len([]rune(note)) > 200 {
@@ -373,6 +437,7 @@ func (rr *ReviewRunner) autoDecide(ctx context.Context, t *Task, cfg agent.Revie
 			ok, err := t.Store.ApproveIntentAt(d.ID, versions[d.ID]) // 批准时确定执行器。
 			if err != nil {
 				log.Printf("[review] task %s 自动放行 #%d 失败: %v", t.ID, d.ID, err)
+				failed[d.ID] = true
 				continue
 			}
 			if !ok {
@@ -392,6 +457,7 @@ func (rr *ReviewRunner) autoDecide(ctx context.Context, t *Task, cfg agent.Revie
 					}
 				}
 				log.Printf("[review] task %s 自动驳回 #%d 失败: %v", t.ID, d.ID, err)
+				failed[d.ID] = true
 				continue
 			}
 			if !ok {
@@ -407,14 +473,39 @@ func (rr *ReviewRunner) autoDecide(ctx context.Context, t *Task, cfg agent.Revie
 	if approved > 0 {
 		t.Notify() // 有放行 → 唤醒 worker 池立即领取
 	}
-	log.Printf("[review] task %s 自动审核完成：放行 %d / 驳回 %d / 留人 %d", t.ID, approved, rejected, len(cfg.FreshIDs)-approved-rejected)
+	// 本轮出现过的所有意图（含未决的）都记一次「自动处置已研判」，
+	// 让下一轮 sweep 不再对同一份内容重复调 LLM。放行/驳回的已离开待审态，
+	// 这里的 CAS 会自然失效，不影响结果。
+	// 例外：落库失败的（failed）不标记——它们仍 pending 且版本未变，
+	// 标了就会因一次瞬时写错误永久失去自动处置机会。
+	var skipped int
+	for _, id := range cfg.FreshIDs {
+		if failed[id] {
+			skipped++
+			continue
+		}
+		if _, err := t.Store.MarkAutoDecided(id, versions[id]); err != nil {
+			log.Printf("[review] task %s 记录自动处置标记 #%d 失败: %v", t.ID, id, err)
+		}
+	}
+	log.Printf("[review] task %s 自动审核完成：放行 %d / 驳回 %d / 留人 %d / 待重试 %d（本轮研判 %d 条，模型明确处置 %d 条）",
+		t.ID, approved, rejected, len(cfg.FreshIDs)-approved-rejected-skipped, skipped,
+		len(cfg.FreshIDs), len(decided))
 }
 
-// reviewProvider 依次尝试任务配置链、review agent 绑定和全局默认 profile。
+// reviewProvider 依次尝试任务配置链、review agent 绑定、全局默认 profile，
+// 最后回落到 LLM 池里第一个有 key 的可用档位。
 // 没有可用 provider 时返回 nil，由调用方跳过并记录告警。
+//
+// 为什么要池兜底：任务链绑定是可选功能（实测 task_llm_profiles 可以整表为空），
+// review agent 也常常不单独绑 LLM；此时唯一依赖就是 is_default。而库里完全可以
+// 只有优先级档、没有任何 is_default（实测 llm_profiles 有 2 条、is_default=0 条），
+// 于是 ActiveProfile() 返回 nil → profileID 停在 0 → providerForProfile(0) 查无此行
+// → 预审/自动处置永久静默跳过。池里明明有可用模型却用不上，属误判而非真缺配置。
 func (rr *ReviewRunner) reviewProvider(t *Task) llm.Provider {
 	a, err := rr.s.m.pg.GetAgentByKey("review")
 	if err != nil || a == nil || !a.Enabled {
+		log.Printf("[review] reviewProvider 不可用：review agent 缺失或已禁用")
 		return nil
 	}
 	for _, pid := range t.LLMProfileIDs {
@@ -430,11 +521,24 @@ func (rr *ReviewRunner) reviewProvider(t *Task) llm.Provider {
 		// is_default 档的 id，否则未绑链的任务预审永远 nil（task 206 实测踩中）。
 		profileID = dp.ID
 	}
-	prov, _, ok := rr.s.providerForProfile(profileID)
-	if !ok {
+	if prov, _, ok := rr.s.providerForProfile(profileID); ok {
+		return prov
+	}
+	// 兜底：池顺序即策略（is_default 优先、priority DESC，且已过滤无 key 档）。
+	pool, perr := rr.s.m.pg.PoolProfiles()
+	if perr != nil {
+		log.Printf("[review] reviewProvider 读取 LLM 池失败: %v", perr)
 		return nil
 	}
-	return prov
+	for _, p := range pool {
+		if prov, _, ok := rr.s.providerForProfile(p.ID); ok {
+			log.Printf("[review] reviewProvider 回落到 LLM 池档位 id=%d（%s）：任务链与 is_default 均不可用",
+				p.ID, p.Name)
+			return prov
+		}
+	}
+	log.Printf("[review] reviewProvider 无任何可用 LLM：任务链为空、review agent 未绑定、无 is_default、池内 %d 条档位均不可用", len(pool))
+	return nil
 }
 
 // 以下 handler 实现审核列表、批准、驳回、对话、消息和自动处置设置。

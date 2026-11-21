@@ -747,6 +747,7 @@ func (s *Server) seedOrchestrationTools() {
 	s.reseedPlannerPrompt()           // planner 提示词:重写「0 意图」正当理由 + 加量化验收核对(一次性)
 	s.reseedWorkerPrompt()            // worker 提示词:加否定结论证据门槛(一次性)
 	s.upgradeExternalFindingPrompts() // 外网内置 Planner/Worker 提示词加入 Finding 证据与显式派发规则
+	s.upgradeReviewAutoContract()     // review 提示词:自动处置「省略=放弃处置」契约(一次性)
 	s.seedReporterAgent()             // 预置「报告撰写」agent + 工具绑定 + finding 触发器(一次性)
 	s.seedVulnDispatcherAgent()       // 【二开·P-DISPATCH】预置「漏洞派发」agent + finding 触发器(一次性)
 	if err := s.seedTraceCleanerAgent(); err != nil {

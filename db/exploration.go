@@ -2300,19 +2300,63 @@ ORDER BY id DESC LIMIT $2`, s.expID, limit)
 // 从未审过（无 reviewed_version 键）或审后正文又变过（reviewed_version < content_version）。
 // 预审轮/自动处置轮只处理 fresh 集合，审过且未变的不再重复消耗 LLM。
 func (s *ExplorationStore) FreshPendingIntents(limit int) ([]*Node, error) {
+	return s.freshPendingIntents(limit, "")
+}
+
+// AutoDecidePendingIntents 列出自动处置轮该处理的待审意图。
+// 与 FreshPendingIntents 的差别只在「审过」的判据上：
+//   - 预审轮用 reviewed_version——审过的就是审过的，不会重复消耗 LLM；
+//   - 自动处置轮要的是「还没被自动处置过」的（auto_reviewed_version 缺失或过期）。
+//
+// 两者必须分开：人工全审模式下预审轮会写满 reviewed_version（内容版本不变），
+// 若自动处置轮沿用同一判据，之后打开「自动处置」时整批意图都不再 fresh，
+// 自动放行/驳回永不发生，意图只能堆在面板上等人（实测踩中）。
+func (s *ExplorationStore) AutoDecidePendingIntents(limit int) ([]*Node, error) {
+	return s.freshPendingIntents(limit, "auto_reviewed_version")
+}
+
+// freshPendingIntents 按指定「已审版本」标记列筛选待审意图；marker 为空用 reviewed_version。
+func (s *ExplorationStore) freshPendingIntents(limit int, marker string) ([]*Node, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	if marker == "" {
+		marker = "reviewed_version"
+	}
 	rows, err := s.db.Query(`SELECT `+nodeCols+` FROM exploration_nodes
 WHERE exploration_id=$1 AND `+ProposedPendingFilter+`
-  AND (payload->>'reviewed_version' IS NULL
-       OR COALESCE((payload->>'reviewed_version')::int, -1) < content_version)
-ORDER BY priority DESC, id ASC LIMIT $2`, s.expID, limit)
+  AND (payload->>$2 IS NULL
+       OR COALESCE((payload->>$2)::int, -1) < content_version)
+ORDER BY priority DESC, id ASC LIMIT $3`, s.expID, marker, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return scanNodes(rows)
+}
+
+// MarkAutoDecided 记录自动处置轮「已研判过」的版本（auto_reviewed_version），不推 content_version。
+// 自动轮对某条意图明确放行/驳回后由 server 调用；拿不准（未决）的不标记，
+// 下一轮还会重新研判——这是有意的：未决就该保持可被再次判断。
+func (s *ExplorationStore) MarkAutoDecided(id int64, expectedVersion int) (bool, error) {
+	var ok bool
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, e := tx.Exec(`UPDATE exploration_nodes
+SET payload=(payload::jsonb
+    || jsonb_build_object('auto_reviewed_version',$3::int))::json
+WHERE id=$1 AND exploration_id=$2 AND `+ProposedPendingFilter+` AND content_version=$3`,
+			id, s.expID, expectedVersion)
+		if e != nil {
+			return e
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			// CAS 未命中（已被人工处置/正文已变）不算错误：自动轮本就不该覆盖人的决定。
+			return nil
+		}
+		ok = true
+		return nil
+	})
+	return ok, err
 }
 
 // 【二开·审核流 PR3】版本化审核写回（§8.1）：所有审核处置走 expected_version CAS。

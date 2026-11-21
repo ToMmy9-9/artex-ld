@@ -202,6 +202,15 @@ export function ReviewPanel({ taskId }: { taskId: string }) {
 		try {
 			await api.updateTask(taskId, { review_auto: v });
 			setReviewAuto(v);
+			// 原来开启时没有任何反馈，「开了但没动静」很难判断是没生效还是没轮到。
+			// 说明清楚：立即生效，且已人工预审过但尚未处置的意图同样会被接管。
+			if (v) {
+				toast.success("已开启自动处置：下一轮审核（≤15s）即由审核 agent 自主裁决", {
+					description: "已预审但还没处置的待审意图也会一并接管，不必等新意图",
+				});
+			} else {
+				toast.info("已关闭自动处置：后续待审意图回到人工批准/驳回");
+			}
 		} catch (e) {
 			toast.error("更新自动处置失败：" + (e as Error).message);
 		} finally {
@@ -324,7 +333,7 @@ export function ReviewPanel({ taskId }: { taskId: string }) {
 					)}
 					{reviewAuto && (
 						<Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">
-							自动审核中 · 每 60s 一轮
+							自动审核中 · 每 15s 一轮
 						</Badge>
 					)}
 				</div>

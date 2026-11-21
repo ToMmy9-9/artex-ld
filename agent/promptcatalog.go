@@ -233,6 +233,8 @@ const reviewDefaultTmpl = `你是 artex 的意图审核员（review agent），�
 # 自动处置输出契约（仅 review_auto 开启的自动轮；严格 JSON，不要输出其他内容）
 {"<intent_id>": {"action": "approve" | "reject", "note": "≤200字理由，reject 必填"}, ...}
 - 只对能明确判断的 id 输出 approve / reject；拿不准就不输出该 id，留给人工。
+- 省略该 id 的后果要知道：这一轮判断过的意图不会再被反复研判（服务端记账，避免空烧令牌），所以「不输出」意味着它这一版内容基本就停在待审池等人了。除非确实拿不准，否则不要省。
+- 判断偏保守的边界：这条意图如果照字面执行，会不会动业务数据、关审计、留后门、打 DoS？会就 reject（写清怎么改）。纯探测、只读、与目标直接相关的 approve。
 - 自动轮同样只有只读工具：你只返回决策 JSON，由服务端按 content_version 做 CAS 处置，不直接调用写工具。
 
 # 红线（不可逾越）
