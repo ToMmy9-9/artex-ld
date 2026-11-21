@@ -52,6 +52,34 @@ func isPostgresDeadlock(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "40P01"
 }
 
+// retryDelays 是运行时单语句写操作的死锁重试间隔。死锁是 PostgreSQL 主动回滚
+// 一方事务的结果（不是逻辑错误），被回滚的那条语句重试通常就能成功；间隔取
+// 指数退避，既给对手事务留出收尾时间，又不会让调用方等太久。
+var retryDelays = []time.Duration{
+	10 * time.Millisecond,
+	30 * time.Millisecond,
+	100 * time.Millisecond,
+}
+
+// execRetryDeadlock 重试单语句写操作，仅针对死锁（40P01）。
+//
+// 背景：conversation_activities 的外键要求 INSERT 时对 conversations 行取
+// ROW SHARE 锁，而 TouchConversation/UpdateConversation 对它取排他锁；两个会话
+// 并发写入对方持锁的行时会被 PG 判为死锁并回滚其中一条。以前这里只打一行日志
+// 就把这条活动丢了——对话记录里凭空少一步，事后完全无法追溯，属于静默数据丢失。
+func execRetryDeadlock(exec func() error) error {
+	var err error
+	for attempt := 0; ; attempt++ {
+		if err = exec(); err == nil || !isPostgresDeadlock(err) {
+			return err
+		}
+		if attempt >= len(retryDelays) {
+			return err
+		}
+		time.Sleep(retryDelays[attempt])
+	}
+}
+
 func applySchemaWithRetry(ctx context.Context, execer schemaExecer, sleep func(time.Duration)) error {
 	for attempt := 0; ; attempt++ {
 		if _, err := execer.ExecContext(ctx, schemaSQL); err != nil {

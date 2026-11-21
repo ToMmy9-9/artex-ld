@@ -81,6 +81,10 @@ type Server struct {
 	// reportMu/reportJobs 跟踪「生成交付报告」异步任务（docx/markdown）。
 	reportMu   sync.Mutex
 	reportJobs map[string]*reportJob
+	// docxProbe 缓存「本机能否渲染 docx」的探测结果（python3 + python-docx）。
+	// 探测要 fork 子进程，不能每次点生成都做；once 保证只探一次。
+	docxProbe sync.Once
+	docxOK    bool
 
 	cfgMu     sync.Mutex
 	chatAgent *agent.ChatAgent // conversational runner for the chat page; nil w/o LLM

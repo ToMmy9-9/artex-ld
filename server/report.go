@@ -26,6 +26,13 @@ type reportJob struct {
 	path      string    // absolute path (not serialized)
 }
 
+// docxReady 报告本机 docx 渲染能力（python3 + python-docx），结果缓存在 Server 上：
+// 探测要 fork 子进程，不能每次点生成都做一次。
+func (s *Server) docxReady() bool {
+	s.docxProbe.Do(func() { s.docxOK = reportx.PythonAvailable() })
+	return s.docxOK
+}
+
 // POST /api/report/generate?task=&company=&client=&title= — start async docx build.
 func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
@@ -33,6 +40,22 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no active task")
 		return
 	}
+
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format"))) // ""/docx | md
+	wantDocx := !(format == "md" || format == "markdown")
+
+	// docx 依赖 python3 + python-docx。缺依赖时必须在这里挡下：否则会先返回 202、
+	// 几秒后才在后台失败，用户看到的是整段 Python traceback（ModuleNotFoundError），
+	// 既看不懂也不知道该装什么。守卫放在组装报告输入之前——那是几百次 DB 查询，
+	// 明知必失败就不该白跑一遍。（PythonAvailable 要 fork 子进程，结果缓存到 Server。）
+	if wantDocx {
+		if ok := s.docxReady(); !ok {
+			writeErr(w, 501, "本机缺少 docx 报告依赖（python3 + python-docx），无法生成 Word 报告。"+
+				"请先执行 pip install python-docx，或改用 Markdown 格式导出。")
+			return
+		}
+	}
+
 	s.reportMu.Lock()
 	if j := s.reportJobs[t.ID]; j != nil && j.Status == "generating" {
 		snap := *j // copy under lock; the goroutine mutates *j concurrently
@@ -48,7 +71,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	in := s.buildReportInput(t, r.URL.Query())
 	taskID := t.ID
 	taskDesc := t.Description
-	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format"))) // ""/docx | md
+
 	go func() {
 		// A panic in the builder must not leave the job stuck in "generating" forever.
 		defer func() {
@@ -61,7 +84,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		}()
 		var outPath string
 		var err error
-		if format == "md" || format == "markdown" {
+		if !wantDocx {
 			outPath, err = reportx.GenerateMarkdownFile(s.ctx, s.m.pg, in, filepath.Join(s.dataDir, "reports"), taskID)
 		} else {
 			outPath, err = reportx.GenerateDocx(s.ctx, s.m.pg, in, filepath.Join(s.dataDir, "reports"), taskID)
@@ -251,10 +274,17 @@ func (s *Server) buildReportInput(t *Task, q map[string][]string) *reportx.GenIn
 	if strings.TrimSpace(logoRel) != "" {
 		logoPath = filepath.Join(s.dataDir, logoRel) // stored relative → absolute for python
 	}
+	// 客户名称：前端（misc.ts reportGenerate）传 client_name，历史手工调用传 client。
+	// 两个都认，client_name 优先——下游 reportx meta 与 python 封面模板用的都是
+	// client_name，参数名对不上会让用户填的客户名被静默丢弃、封面只剩占位文案。
+	clientName := get("client_name")
+	if clientName == "" {
+		clientName = get("client")
+	}
 	return &reportx.GenInput{
 		CompanyName:   defaultStrSrv(get("company"), companyName),
 		CompanyNameEn: companyEn,
-		ClientName:    get("client"),
+		ClientName:    clientName,
 		ProjectName:   defaultStrSrv(get("project"), project),
 		Scope:         strings.TrimSpace(t.Description), // 完整目标系统清单/范围→喂 AI 叙述,不上封面
 

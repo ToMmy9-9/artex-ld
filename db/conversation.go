@@ -253,11 +253,16 @@ func (d *DB) DeleteConversations(ids []int64) ([]int64, error) {
 // keyed by conversation_id. Reuses the Activity struct (NodeID is ignored here).
 func (d *DB) AppendConvActivity(convID int64, a Activity) (int64, error) {
 	var id int64
-	err := d.QueryRow(`
+	// 这条 INSERT 要对 conversations 行取外键 ROW SHARE 锁，会和并发的
+	// TouchConversation/UpdateConversation（排他锁）撞死锁。死锁会被 PG 回滚，
+	// 重试即可；不重试就等于静默丢一条对话步骤（见 execRetryDeadlock 注释）。
+	err := execRetryDeadlock(func() error {
+		return d.QueryRow(`
 INSERT INTO conversation_activities(conversation_id, worker, kind, tool, tool_use_id, is_error, summary, detail, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
 VALUES ($1,NULLIF($2,''),NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6,NULLIF($7,''),NULLIF($8,''),$9,$10,$11,$12)
 RETURNING id`, convID, utf8Clean(a.Worker), utf8Clean(a.Kind), utf8Clean(a.Tool), utf8Clean(a.ToolUseID), a.IsError,
-		utf8Clean(a.Summary), utf8Clean(a.Detail), a.InputTokens, a.OutputTokens, a.CacheReadTokens, a.CacheWriteTokens).Scan(&id)
+			utf8Clean(a.Summary), utf8Clean(a.Detail), a.InputTokens, a.OutputTokens, a.CacheReadTokens, a.CacheWriteTokens).Scan(&id)
+	})
 	return id, err
 }
 
