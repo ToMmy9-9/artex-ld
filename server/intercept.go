@@ -38,17 +38,50 @@ func (s *Server) chatGuard() *guard.Guard {
 	return guard.NewWithInterceptor(s.m.interceptor)
 }
 
+// resolveJudgeProfileID 把「裁判模型」的配置解析成一个真实可用的 profile id。
+//
+// 入参是 llm_judge_profile_id 的设置值，0 表示「跟随全局默认」。这里必须把 0
+// 展开成具体的 id，因为下游 ProfileByID(0) 恒查无此行。
+//
+// 解析顺序：显式配置 → is_default → LLM 池。
+//
+// 最后一级池兜底不是防御性冗余，而是修掉一个真实故障模式：库里完全可以只有
+// 优先级档、没有任何 is_default（实测 llm_profiles 有 2 条、is_default=0 条时
+// 就是这种状态，测试污染也会造成它）。此时 ActiveProfile() 返回 nil，若无兜底
+// 就直接报「未配置可用的裁判模型」，于是**所有工具审批全线失败** —— 而池里明明
+// 躺着可用模型。这与 reviewProvider 的池兜底是同一类修复，两处必须保持一致。
+//
+// 注意 jev 档位：它在池里是合法的裁判模型（SetActiveProfile 只是禁止把它设为
+// 全局默认），所以池兜底命中 jev 是允许的，由调用方按 Format 走 jev 分支。
+func (s *Server) resolveJudgeProfileID(configured int64) int64 {
+	if configured > 0 {
+		return configured
+	}
+	if p, err := s.m.pg.ActiveProfile(); err == nil && p != nil {
+		return p.ID
+	} else if err != nil {
+		log.Printf("[intercept] 读取全局默认 LLM 配置失败: %v", err)
+	}
+	pool, err := s.m.pg.PoolProfiles()
+	if err != nil {
+		log.Printf("[intercept] 裁判模型无 is_default 且读取 LLM 池失败: %v", err)
+		return 0
+	}
+	for _, p := range pool {
+		log.Printf("[intercept] 裁判模型回落到 LLM 池档位 id=%d（%s）：未配置裁判模型且无 is_default", p.ID, p.Name)
+		return p.ID
+	}
+	log.Printf("[intercept] 无可用裁判模型：未配置 llm_judge_profile_id、无 is_default、池内 %d 条档位均不可用", len(pool))
+	return 0
+}
+
 // wireInterceptReviewer installs the LLM fallback judge into the interceptor. The
 // judge runs only on tool calls that matched no rule (see intercept.Judge). It
 // resolves the configured judge profile (0 → active/default), builds a provider,
 // runs a one-shot JSON classification with an explanation for every verdict.
 func (s *Server) wireInterceptReviewer() {
 	s.m.interceptor.SetReviewer(func(ctx context.Context, profileID int64, prompt string, input intercept.ReviewInput) (intercept.Decision, error) {
-		if profileID == 0 {
-			if p, err := s.m.pg.ActiveProfile(); err == nil && p != nil {
-				profileID = p.ID
-			}
-		}
+		profileID = s.resolveJudgeProfileID(profileID)
 		if profileID == 0 {
 			return intercept.Decision{}, fmt.Errorf("未配置可用的裁判模型")
 		}

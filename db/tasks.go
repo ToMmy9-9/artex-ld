@@ -231,6 +231,10 @@ type TaskCreateOptions struct {
 	WorkerTemplateID int64
 	// ReviewEnabled 任务级意图审核总开关（m03934/D2c）；false=默认关。
 	ReviewEnabled bool
+	// ReviewAuto 任务级自动处置开关。只在 ReviewEnabled=true 时有意义；
+	// spawn_task 派生内网子任务时随父任务一起继承，否则父任务开着自动处置、
+	// 子任务的意图却全堆到人工面板（与「开了自动处置却不生效」同型）。
+	ReviewAuto bool
 	// AssetMode 资产图模式标签（m04039/D12）；空=建任务时从分类带出再兜底 pentest。
 	AssetMode string
 	// DispatchAssetKeys 是内网子任务实际目标的规范化主机键，不是继承资产。
@@ -323,12 +327,13 @@ VALUES ($1, 'fact', $2, 0, 'origin', 'system')`, expID, string(originPayload)); 
 		WorkerPromptOverride:  opts.WorkerPrompt,
 		WorkerCount:           opts.WorkerCount,
 		ReviewEnabled:         opts.ReviewEnabled,
+		ReviewAuto:            opts.ReviewAuto,
 		AssetMode:             opts.AssetMode,
 	}
 	if err := tx.QueryRow(`
-INSERT INTO tasks(name, remark, category_id, description, goal, exploration_id, llm_profile_id, active_llm_profile_id, timeout_seconds, plan_heartbeat_seconds, coverage_enabled, share_global_assets, worker_count, planner_prompt_override, worker_prompt_override, review_enabled, asset_mode)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-RETURNING id, status, paused, created_at`, opts.Name, opts.Remark, opts.CategoryID, description, goal, expID, active, opts.TimeoutSeconds, opts.PlanHeartbeatSeconds, coverageEnabled, opts.ShareGlobalAssets, opts.WorkerCount, opts.PlannerPrompt, opts.WorkerPrompt, opts.ReviewEnabled, opts.AssetMode).Scan(&t.ID, &t.Status, &t.Paused, &t.CreatedAt); err != nil {
+INSERT INTO tasks(name, remark, category_id, description, goal, exploration_id, llm_profile_id, active_llm_profile_id, timeout_seconds, plan_heartbeat_seconds, coverage_enabled, share_global_assets, worker_count, planner_prompt_override, worker_prompt_override, review_enabled, asset_mode, review_auto)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+RETURNING id, status, paused, created_at`, opts.Name, opts.Remark, opts.CategoryID, description, goal, expID, active, opts.TimeoutSeconds, opts.PlanHeartbeatSeconds, coverageEnabled, opts.ShareGlobalAssets, opts.WorkerCount, opts.PlannerPrompt, opts.WorkerPrompt, opts.ReviewEnabled, opts.AssetMode, opts.ReviewAuto).Scan(&t.ID, &t.Status, &t.Paused, &t.CreatedAt); err != nil {
 		return nil, err
 	}
 	// 【二开·P-INTENT·D7】内网派发：分发目标资产登记（唯一键防跨父任务/并发的同资产重复派发）。

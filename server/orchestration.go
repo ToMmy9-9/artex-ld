@@ -428,9 +428,15 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			// 兑底（内网渗透/权限提升/漏洞利用分类默认 t）。父开仍强制开（只能加强不能减弱）。
 			// dispatcher 依旧无发言权：review_enabled 参数不下放，值只来自人设定的两级默认。
 			reviewEnabled := false
+			// reviewAuto 跟随父任务：父任务开着自动处置时，子任务也必须开，否则
+			// 派出去的内网子任务会把意图全堆到人工面板 —— 父任务那边已经全自动了，
+			// 子任务却要人一条条点，属「开了自动处置却不生效」的同型故障。
+			// 只在 reviewEnabled 最终为 true 时才有意义，故下面按结果收敛。
+			reviewAuto := false
 			if a.ParentRef != "" {
 				if pt, ok := s.m.Task(a.ParentRef); ok {
 					reviewEnabled = pt.ReviewEnabled
+					reviewAuto = pt.ReviewAuto
 				}
 			}
 			inheritedReview := reviewEnabled
@@ -441,6 +447,11 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			reviewEnabled = resolvedReview
 			if !inheritedReview && reviewEnabled {
 				xlog.Infof("[spawn] spawn_task 审核开关按分类默认开启：场景 %s default_review_enabled=t", scenarioNKey)
+			}
+			// 审核没开时自动处置无意义（审核轮根本不会拾取该任务），收敛成 false
+			// 避免落库就带一个僵尸开关。
+			if !reviewEnabled {
+				reviewAuto = false
 			}
 			var dispatchAssetKeys []string
 			if scenarioNKey == "内网渗透" {
@@ -497,6 +508,7 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 				WorkerCount:   a.WorkerCount, // 0=跟随全局；03 册 S12 Engine.Run 读列
 				// 【二开·P-ORCH·S8】止
 				ReviewEnabled:     reviewEnabled, // 【二开·P-DISPATCH·阶段0①】硬继承父任务审核总开关（人定，无参数）
+				ReviewAuto:        reviewAuto,    // 连同自动处置一起继承，否则子任务意图全堆人工面板
 				DispatchAssetKeys: dispatchAssetKeys,
 				DispatchFindingID: a.FindingID,
 			})

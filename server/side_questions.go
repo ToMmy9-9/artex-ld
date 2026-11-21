@@ -177,9 +177,10 @@ func (s *Server) buildApprovalSideSnapshot(ctx context.Context, p sidequestion.P
 		profileID = s.m.interceptor.GetJudgeConfig().ProfileID
 	}
 	if profileID == 0 {
-		if active, err := s.m.pg.ActiveProfile(); err == nil && active != nil {
-			profileID = active.ID
-		}
+		// 与 intercept 的裁判模型共用同一套解析（含 LLM 池兜底）：这两处取的是
+		// 同一个「审查模型」，只查 ActiveProfile 会在库里没有 is_default 时
+		// 直接报「审查模型配置不可用」，而池里明明有可用档。
+		profileID = s.resolveJudgeProfileID(0)
 	}
 	prov, cfg, ok := s.providerForProfile(profileID)
 	if !ok || prov == nil {
