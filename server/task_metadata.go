@@ -81,6 +81,11 @@ func (s *Server) updateTaskMetadata(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// 关闭审核时一并关掉自动处置：自动处置完全依赖审核轮（sweep 只拾取
+		// review_enabled 的任务），留着 true 就是个再也不生效的僵尸开关 ——
+		// 面板上显示"自动审核中"却永远不动，正是「开了但没反应」的经典误判来源。
+		off := false
+		request.ReviewAuto = &off
 	}
 	task, err := s.m.UpdateTaskMetadata(taskID, db.TaskPatch{Name: request.Name, Pinned: request.Pinned, Remark: request.Remark, ShareGlobalAssets: request.ShareGlobalAssets, ReviewAuto: request.ReviewAuto, ReviewEnabled: request.ReviewEnabled})
 	if err != nil {

@@ -318,3 +318,41 @@ func TestReviewMessagesIncludeDetail(t *testing.T) {
 	}
 	t.Fatalf("inserted review activity %d not returned", activityID)
 }
+
+// TestTaskCloseReviewAlsoClearsAuto 关闭意图审核时必须一并关掉自动处置。
+// 自动处置完全依赖审核轮（sweep 只拾取 review_enabled 的任务），若留着
+// review_auto=true，面板会显示「自动审核中」却永远不动 —— 用户会把这种
+// 僵尸开关误判成「开了自动处置但不生效」。
+func TestTaskCloseReviewAlsoClearsAuto(t *testing.T) {
+	_, h, token, task := setupReviewHTTPServer(t)
+	patch := func(body string) *httptest.ResponseRecorder {
+		return doAuthed(t, h, token, http.MethodPatch, fmt.Sprintf("/api/tasks/%s", task.ID), body)
+	}
+
+	// 先同时开启审核与自动处置。
+	if rec := patch(`{"review_enabled":true,"review_auto":true}`); rec.Code != 200 {
+		t.Fatalf("enable review+auto must 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	if !task.ReviewEnabled || !task.ReviewAuto {
+		t.Fatalf("内存态未同步：enabled=%v auto=%v", task.ReviewEnabled, task.ReviewAuto)
+	}
+
+	// 队列为空时关闭审核 → 自动处置必须跟着归零。
+	if rec := patch(`{"review_enabled":false}`); rec.Code != 200 {
+		t.Fatalf("close review must 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	if task.ReviewEnabled {
+		t.Fatalf("审核应已关闭")
+	}
+	if task.ReviewAuto {
+		t.Fatalf("关闭审核后 review_auto 必须一并归零，否则是永远不生效的僵尸开关")
+	}
+	// 落库也要一致（不能只改内存）。
+	var auto bool
+	if err := task.Store.DB().QueryRow(`SELECT review_auto FROM tasks WHERE id=$1`, task.ID).Scan(&auto); err != nil {
+		t.Skipf("直接查库不可用（%v），仅验证内存态", err)
+	}
+	if auto {
+		t.Fatalf("库中 review_auto 仍为 true，与内存态不一致")
+	}
+}
