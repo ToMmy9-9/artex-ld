@@ -27,23 +27,14 @@ func BuildMarkdown(ctx context.Context, pg *db.DB, in *GenInput) (string, map[st
 	var b strings.Builder
 
 	// ── 信息头 ──
-	b.WriteString("# " + doc.Meta.ReportTitle + "\n\n")
-	b.WriteString("> **" + L("出具方", "出具方", "Prepared by") + "**：" + doc.Meta.CompanyName + "  \n")
-	b.WriteString("> **" + L("报告日期", "報告日期", "Date") + "**：" + doc.Meta.Date +
-		"　·　**" + L("版本", "版本", "Version") + "**：" + doc.Meta.Version + "  \n")
-	var crit, high, med, low int
+	crit, high, med, low := 0, 0, 0, 0
 	for _, s := range doc.Summary.Systems {
 		crit += s.Crit
 		high += s.High
 		med += s.Med
 		low += s.Low
 	}
-	b.WriteString("> **" + L("漏洞统计", "漏洞統計", "Findings") + "**：" +
-		fmt.Sprintf("%s %d · %s %d · %s %d · %s %d（%s %d）\n",
-			L("严重", "嚴重", "Critical"), crit, L("高危", "高危", "High"), high,
-			L("中危", "中危", "Medium"), med, L("低危", "低危", "Low"), low,
-			L("共", "共", "total"), crit+high+med+low))
-	b.WriteString("\n---\n\n")
+	b.WriteString(markdownHeader(doc.Meta, mdCounts{crit, high, med, low}))
 
 	s1 := L("漏洞描述", "漏洞描述", "Description")
 	s3 := L("所属模块", "所屬模組", "Module")
@@ -126,6 +117,42 @@ func BuildMarkdown(ctx context.Context, pg *db.DB, in *GenInput) (string, map[st
 		L("本报告由 %s 于 %s 出具。", "本報告由 %s 於 %s 出具。", "Report prepared by %s on %s."),
 		doc.Meta.CompanyName, doc.Meta.Date) + "*\n")
 	return b.String(), assets
+}
+
+// mdCounts 是信息头「漏洞统计」行要用的四档计数。
+type mdCounts struct{ Crit, High, Med, Low int }
+
+// markdownHeader 渲染 MD 交付稿的信息头。
+//
+// 单独拆出来是因为它承载一条对外契约：docx 封面有「客户名称 / 项目名称 / 报告版本 /
+// 报告日期」四行（见 pybuilder/report_builder.py 的 info 表），MD 必须给同样的信息。
+// 历史上 MD 只写了出具方/日期/版本/漏洞统计，客户名与项目名双双缺失——而本机缺
+// python-docx 时 docx 会 501、MD 是唯一可导出的格式，于是"越缺依赖，导出的报告越缺
+// 受测方信息"。空值直接省略，不写「项目名称：—」这种空行噪音。
+func markdownHeader(meta docMeta, c mdCounts) string {
+	loc := meta.Locale
+	L := func(zh, tw, en string) string { return pick(loc, zh, tw, en) }
+
+	var b strings.Builder
+	b.WriteString("# " + meta.ReportTitle + "\n\n")
+	if s := strings.TrimSpace(meta.ClientName); s != "" {
+		b.WriteString("> **" + L("客户名称", "客戶名稱", "Client") + "**：" + s + "  \n")
+	}
+	if s := strings.TrimSpace(meta.ProjectName); s != "" {
+		b.WriteString("> **" + L("项目名称", "專案名稱", "Project") + "**：" + s + "  \n")
+	}
+	if s := strings.TrimSpace(meta.CompanyName); s != "" {
+		b.WriteString("> **" + L("出具方", "出具方", "Prepared by") + "**：" + s + "  \n")
+	}
+	b.WriteString("> **" + L("报告日期", "報告日期", "Date") + "**：" + meta.Date +
+		"　·　**" + L("版本", "版本", "Version") + "**：" + meta.Version + "  \n")
+	b.WriteString("> **" + L("漏洞统计", "漏洞統計", "Findings") + "**：" +
+		fmt.Sprintf("%s %d · %s %d · %s %d · %s %d（%s %d）\n",
+			L("严重", "嚴重", "Critical"), c.Crit, L("高危", "高危", "High"), c.High,
+			L("中危", "中危", "Medium"), c.Med, L("低危", "低危", "Low"), c.Low,
+			L("共", "共", "total"), c.Crit+c.High+c.Med+c.Low))
+	b.WriteString("\n---\n\n")
+	return b.String()
 }
 
 // GenerateMarkdownFile 生成 MD 交付包 zip（report.md + assets/ 证据图），返回 zip 路径。
