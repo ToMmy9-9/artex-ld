@@ -41,26 +41,9 @@ func setupReviewProviderEnv(t *testing.T) *reviewProviderTestEnv {
 		_, _ = pg.Exec(`UPDATE agents SET enabled=$1 WHERE key='review'`, origEnabled)
 	})
 
-	// 快照并清空 is_default（回落链的第三级）。
-	rows, err := pg.Query(`SELECT id FROM llm_profiles WHERE is_default`)
-	if err != nil {
-		t.Fatalf("snapshot defaults: %v", err)
-	}
-	var defaultIDs []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			t.Fatalf("scan default id: %v", err)
-		}
-		defaultIDs = append(defaultIDs, id)
-	}
-	rows.Close()
-	t.Cleanup(func() {
-		_, _ = pg.Exec(`UPDATE llm_profiles SET is_default=false`)
-		for _, id := range defaultIDs {
-			_, _ = pg.Exec(`UPDATE llm_profiles SET is_default=true WHERE id=$1`, id)
-		}
-	})
+	// 快照并清空 is_default（回落链的第三级）。cleanup 会还原原默认，
+	// 不能只清掉不清回来 —— 那会把运维的默认档永久关掉。
+	snapshotActiveLLMProfile(t, pg)
 	if _, err := pg.Exec(`UPDATE llm_profiles SET is_default=false`); err != nil {
 		t.Fatalf("clear defaults: %v", err)
 	}

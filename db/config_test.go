@@ -71,6 +71,10 @@ func TestConfigStores(t *testing.T) {
 	}
 	t.Cleanup(func() { d.Close() })
 
+	// SetActiveProfile below wipes every is_default row in the database, so the
+	// operator's real default must be snapshotted or it never comes back.
+	snapshotActiveLLMProfile(t, d)
+
 	// LLM profile: save, active, key never serialized
 	pid, err := d.SaveProfile(&LLMProfile{Name: "t-default", Format: "openai", Model: "gpt-x", APIKey: "secret123"})
 	if err != nil {

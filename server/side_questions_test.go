@@ -418,6 +418,10 @@ func TestSideTaskContextModelUnavailableIsDistinct(t *testing.T) {
 	// 本测试需要一个「已激活」的 LLM 配置，但库里是否存在默认 profile 取决于
 	// 同包其它测试的执行顺序（有的测试会清空 profile 表）。这里自建一个并保证
 	// 清理，让本用例不再依赖测试顺序。
+	//
+	// 注意 SetActiveProfile 会先清掉库里所有 is_default，所以必须快照原默认
+	// 并在 cleanup 里还原，否则本用例跑完就把运维自己的默认档关掉了。
+	snapshotActiveLLMProfile(t, f.m.pg)
 	profileID, err := f.m.pg.SaveProfile(&db.LLMProfile{Name: "side-ctx-profile", Format: "openai", Model: "side-ctx", APIKey: "sk-side-ctx"})
 	if err != nil {
 		t.Fatal(err)
