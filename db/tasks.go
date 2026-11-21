@@ -925,6 +925,13 @@ DELETE FROM assets a USING deletable d WHERE a.id=d.id`, id, expID)
 		}
 		result.LLMRecordsDeleted, _ = res.RowsAffected()
 	}
+	// intercept_pending.task_id 是 text 且没有指向 tasks 的外键，任务删除时不会级联，
+	// 于是记录全部退化成"孤儿"：依然出现在「审批记录」页，状态停在 pending，
+	// 点进去是个已不存在的任务，既无法处置也无法收敛（实测 1659 行里 1393 行是孤儿）。
+	// 归档恢复路径（task_archives_restore.go）本来就清这张表，这里补齐同一处理。
+	if _, err := tx.Exec(`DELETE FROM intercept_pending WHERE COALESCE(task_id,'')=$1`, strconv.FormatInt(id, 10)); err != nil {
+		return result, err
+	}
 	// llm_usage (the token metering ledger) is intentionally NOT deleted with the
 	// task — it is kept as historical accounting even after the task is gone.
 	if _, err := tx.Exec(`DELETE FROM tasks WHERE id=$1`, id); err != nil {

@@ -91,6 +91,17 @@ func (s *Server) toolDispatchFindingToAgent() actool.CoreTool {
 	})
 }
 
+// errFindingInvocationPermanent 标记"再重试也不会成功"的派发失败：
+// finding 归属已变、目标任务已删、目标 agent 不存在/已禁用/内置。
+// 补发 sweeper 见到它应当放弃该行而不是排进队尾再等 10 分钟。
+// 包装时用 %w 保留哨兵，瞬时故障（读库失败、队列不可用）不带这个哨兵。
+var errFindingInvocationPermanent = errors.New("finding 派发永久失败")
+
+// permanentInvocationErr 把一条永久性原因包装成可被 errors.Is 识别的错误。
+func permanentInvocationErr(msg string) error {
+	return fmt.Errorf("%w: %s", errFindingInvocationPermanent, msg)
+}
+
 // enqueueFindingInvocation is shared by the initial tool call and the durable
 // retry sweep. It revalidates all mutable state before using the trigger queue.
 func (s *Server) enqueueFindingInvocation(inv db.FindingInvocation) (bool, error) {
@@ -102,30 +113,32 @@ func (s *Server) enqueueFindingInvocation(inv db.FindingInvocation) (bool, error
 		return false, fmt.Errorf("读取 Finding 失败: %w", err)
 	}
 	if finding == nil {
-		return false, errors.New("finding 不存在")
+		return false, permanentInvocationErr("finding 不存在")
 	}
 	if finding.TaskID == nil || *finding.TaskID != inv.TaskID {
-		return false, errors.New("finding 与调用记录的任务归属不一致")
+		// findings.task_id 是 ON DELETE SET NULL：任务一删，task_id 变 NULL，
+		// 这条派发就永远过不了这道校验。
+		return false, permanentInvocationErr("finding 与调用记录的任务归属不一致")
 	}
 	task, err := s.m.pg.GetTask(inv.TaskID)
 	if err != nil {
 		return false, fmt.Errorf("读取任务失败: %w", err)
 	}
 	if task == nil {
-		return false, errors.New("任务不存在")
+		return false, permanentInvocationErr("任务不存在")
 	}
 	target, err := s.m.pg.GetAgentByKey(inv.AgentKey)
 	if err != nil {
 		return false, fmt.Errorf("读取目标 Agent 失败: %w", err)
 	}
 	if target == nil {
-		return false, errors.New("目标 Agent 不存在")
+		return false, permanentInvocationErr("目标 Agent 不存在")
 	}
 	if !target.Enabled {
-		return false, errors.New("目标 Agent 已禁用")
+		return false, permanentInvocationErr("目标 Agent 已禁用")
 	}
 	if target.Builtin {
-		return false, errors.New("目标 Agent 不能是内置 Agent")
+		return false, permanentInvocationErr("目标 Agent 不能是内置 Agent")
 	}
 	triggers, err := s.m.pg.ListTriggersFor(inv.AgentKey)
 	if err != nil {

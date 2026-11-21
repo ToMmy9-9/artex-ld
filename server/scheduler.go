@@ -12,6 +12,7 @@ import (
 	"artex/xlog" // 【P-LOG·M1】step 吞错修复
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -171,6 +172,19 @@ func (sc *Scheduler) retryFindingInvocations(now time.Time) {
 		}
 		accepted, err := sc.s.enqueueFindingInvocation(inv)
 		if err != nil {
+			// 永久失败（finding 归属已变 / 任务或 agent 已没了）必须就地放弃：
+			// 否则 claim 已经把 last_retry_at 推进了，10 分钟后同样失败一次，
+			// 永远收敛不了；而且按 created_at 升序取前 N 条，这些老行会长期
+			// 占满队头，把真正需要补发的新派发饿到看不见。
+			if errors.Is(err, errFindingInvocationPermanent) {
+				if abandonErr := sc.pg.AbandonFindingInvocation(inv.AgentKey, inv.FindingID, err.Error()); abandonErr != nil {
+					log.Printf("[finding-dispatch] abandon failed: agent=%s finding=%d err=%v", inv.AgentKey, inv.FindingID, abandonErr)
+					continue
+				}
+				log.Printf("[finding-dispatch] ✅ 已放弃永久失败的派发: agent=%s finding=%d 原因=%v", inv.AgentKey, inv.FindingID, err)
+				continue
+			}
+			// 瞬时故障（读库超时、队列不可用）：保持可重试，下个周期再来。
 			log.Printf("[finding-dispatch] retry failed: agent=%s finding=%d err=%v", inv.AgentKey, inv.FindingID, err)
 			continue
 		}

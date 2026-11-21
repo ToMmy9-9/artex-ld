@@ -1345,13 +1345,25 @@ CREATE TABLE IF NOT EXISTS finding_agent_invocations (
     conversation_id BIGINT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_retry_at   TIMESTAMPTZ,
+    -- abandoned_at 非空 = 这次派发已被判定为永久失败（finding 归属不一致、
+    -- 目标任务已删、目标 agent 已禁用等），补发 sweeper 不再拾取。
+    -- 在此之前这类行会被无限重试：每次 claim 都推进 last_retry_at 从而"看起来
+    -- 在动"，但 revalidate 每次都失败，10 分钟后原样再来一遍，永不收敛；
+    -- 而 PendingFindingInvocations 按 created_at 升序取前 N 条，这些老僵尸会长期
+    -- 霸占队头，把真正需要补发的新派发饿死。
+    abandoned_at    TIMESTAMPTZ,
+    abandon_reason  TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (agent_key, finding_id)
 );
+-- 已建表的老库不会走上面的 CREATE，靠这两条幂等 ALTER 补列。
+ALTER TABLE finding_agent_invocations ADD COLUMN IF NOT EXISTS abandoned_at TIMESTAMPTZ;
+ALTER TABLE finding_agent_invocations ADD COLUMN IF NOT EXISTS abandon_reason TEXT NOT NULL DEFAULT '';
 -- 只索引待补发行；COALESCE(last_retry_at, created_at) 让首次调用与每次补发
--- 共用同一条 10 分钟节流时间线。
+-- 共用同一条 10 分钟节流时间线。已放弃的行（abandoned_at 非空）必须排除，
+-- 否则它们会一直留在待补发集合里空转。
 CREATE INDEX IF NOT EXISTS idx_finding_agent_invocations_pending
     ON finding_agent_invocations (COALESCE(last_retry_at, created_at))
-    WHERE conversation_id IS NULL;
+    WHERE conversation_id IS NULL AND abandoned_at IS NULL;
 
 -- =====================================================================
 -- M. 后端日志持久化

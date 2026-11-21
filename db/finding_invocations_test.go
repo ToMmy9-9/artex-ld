@@ -192,3 +192,65 @@ func TestFindingInvocationPendingSelection(t *testing.T) {
 		}
 	}
 }
+
+// 永久失败的派发必须能被就地放弃，否则 sweeper 每 10 分钟原样重试一次，
+// 永不收敛，还会按 created_at 升序长期霸占队头把新派发饿死。
+func TestFindingInvocationAbandonExcludedFromPending(t *testing.T) {
+	d, fid := invocationDB(t)
+	mustRecordInvocation(t, d, "agent_zombie", fid, 999, "永不成功的派发")
+
+	// 造一条早就到期、本来会被 sweeper 拾取的行。
+	if _, err := d.Exec(`UPDATE finding_agent_invocations
+		SET created_at=now() - interval '2 hours', last_retry_at=NULL
+		WHERE agent_key='agent_zombie' AND finding_id=$1`, fid); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := d.PendingFindingInvocations(10*time.Minute, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, inv := range pending {
+		if inv.AgentKey == "agent_zombie" && inv.FindingID == fid {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("到期行必须先在待补发集合里，否则本用例证明不了放弃生效")
+	}
+
+	if err := d.AbandonFindingInvocation("agent_zombie", fid, "finding 与调用记录的任务归属不一致"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = d.PendingFindingInvocations(10*time.Minute, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, inv := range pending {
+		if inv.AgentKey == "agent_zombie" && inv.FindingID == fid {
+			t.Fatal("已放弃的派发不得再出现在待补发集合里", inv)
+		}
+	}
+
+	// 认领也要拒绝：否则正常调用路径还能把它重新排进队。
+	ok, err := d.ClaimFindingInvocationRetry("agent_zombie", fid, 10*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("已放弃的派发不得被认领")
+	}
+
+	// 放弃要幂等，且不得覆盖已回填（已启动）的会话归属。
+	if err := d.AbandonFindingInvocation("agent_zombie", fid, "重复上报"); err != nil {
+		t.Fatal(err)
+	}
+	var reason string
+	if err := d.QueryRow(`SELECT abandon_reason FROM finding_agent_invocations
+		WHERE agent_key='agent_zombie' AND finding_id=$1`, fid).Scan(&reason); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "finding 与调用记录的任务归属不一致" {
+		t.Fatalf("重复放弃不得改写首次原因，得到 %q", reason)
+	}
+}

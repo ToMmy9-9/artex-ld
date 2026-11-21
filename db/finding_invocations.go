@@ -81,9 +81,13 @@ func (d *DB) SetFindingInvocationConversation(agentKey string, findingID, conver
 // PendingFindingInvocations lists dispatches whose conversation does not exist
 // yet and whose COALESCE(last_retry_at, created_at) is at least olderThan old,
 // oldest first, capped at limit. Rows already backfilled are never replayed.
+//
+// abandoned_at IS NOT NULL 的行被排除：那是已判定为永久失败的派发，继续拾取
+// 只会每 10 分钟原样失败一次，并且按 created_at 升序会长期霸占队头。
 func (d *DB) PendingFindingInvocations(olderThan time.Duration, limit int) ([]FindingInvocation, error) {
 	rows, err := d.Query(`SELECT `+findingInvocationCols+` FROM finding_agent_invocations
-		WHERE conversation_id IS NULL AND COALESCE(last_retry_at, created_at) <= now() - ($1 * interval '1 microsecond')
+		WHERE conversation_id IS NULL AND abandoned_at IS NULL
+		AND COALESCE(last_retry_at, created_at) <= now() - ($1 * interval '1 microsecond')
 		ORDER BY created_at ASC LIMIT $2`, olderThan.Microseconds(), limit)
 	if err != nil {
 		return nil, err
@@ -106,7 +110,7 @@ func (d *DB) PendingFindingInvocations(olderThan time.Duration, limit int) ([]Fi
 // dispatch and sweeper pass therefore cannot double-enqueue the same finding.
 func (d *DB) ClaimFindingInvocationRetry(agentKey string, findingID int64, olderThan time.Duration) (bool, error) {
 	res, err := d.Exec(`UPDATE finding_agent_invocations SET last_retry_at=now()
-		WHERE agent_key=$1 AND finding_id=$2 AND conversation_id IS NULL
+		WHERE agent_key=$1 AND finding_id=$2 AND conversation_id IS NULL AND abandoned_at IS NULL
 		AND COALESCE(last_retry_at, created_at) <= now() - ($3 * interval '1 microsecond')`,
 		agentKey, findingID, olderThan.Microseconds())
 	if err != nil {
@@ -114,4 +118,21 @@ func (d *DB) ClaimFindingInvocationRetry(agentKey string, findingID int64, older
 	}
 	n, err := res.RowsAffected()
 	return n == 1, err
+}
+
+// AbandonFindingInvocation permanently retires a dispatch that can never
+// succeed. Without it a rejected revalidation (finding 归属已变、目标任务已删、
+// 目标 agent 已禁用/内置) is retried forever: ClaimFindingInvocationRetry keeps
+// advancing last_retry_at so the row looks alive, while every attempt fails
+// identically ten minutes later.
+//
+// It only touches rows that have not started (conversation_id IS NULL) and were
+// not already abandoned, so a late success can never be clobbered and repeated
+// reports stay idempotent.
+func (d *DB) AbandonFindingInvocation(agentKey string, findingID int64, reason string) error {
+	_, err := d.Exec(`UPDATE finding_agent_invocations
+		SET abandoned_at=now(), abandon_reason=$3
+		WHERE agent_key=$1 AND finding_id=$2 AND conversation_id IS NULL AND abandoned_at IS NULL`,
+		agentKey, findingID, reason)
+	return err
 }

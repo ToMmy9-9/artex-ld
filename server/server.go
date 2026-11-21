@@ -1850,6 +1850,34 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true, "latency_ms": lat.Milliseconds(), "model": model, "reply": truncateReply(reply)})
 		return
 	}
+	// 已存 profile 兜底：表单留空的字段一律取库里存的值，不只是 key。
+	// 前端"测试已保存配置"只传 {profile_id}，provider/model/base_url 全留空；
+	// 早期只补 api_key 与 session_header_key，于是拿默认 provider(anthropic)
+	// 去打 openai 兼容端点 —— 实测 profile 268 因此返回
+	// "anthropic: status 403 Request not allowed"，看着像配置坏了，
+	// 实际带全字段测是 ok=true / 2915ms。空表单绝不能盖掉库里的真实配置。
+	if req.ProfileID != nil {
+		if p, err := s.m.pg.ProfileByID(*req.ProfileID); err == nil && p != nil {
+			if strings.TrimSpace(req.Provider) == "" {
+				req.Provider = p.Format
+			}
+			if strings.TrimSpace(req.APIKey) == "" {
+				req.APIKey = p.APIKey
+			}
+			if strings.TrimSpace(req.Model) == "" {
+				req.Model = p.Model
+			}
+			if strings.TrimSpace(req.BaseURL) == "" {
+				req.BaseURL = p.BaseURL
+			}
+			if strings.TrimSpace(req.Proxy) == "" {
+				req.Proxy = p.Proxy
+			}
+			if strings.TrimSpace(req.SessionHeaderKey) == "" {
+				req.SessionHeaderKey = p.SessionHeaderKey
+			}
+		}
+	}
 	cfg := agent.ConfigFrom(req.Provider, req.Model, req.BaseURL, req.APIKey, req.Proxy)
 	// mirror production: send the SAME thinking params so a provider that rejects the
 	// reasoning_effort/thinking field fails the test too (no false "test ok, run 400").
@@ -1864,19 +1892,6 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 	// 见 TestConnection)。opencode zen 等强制要求 x-opencode-session 的端点，缺了它
 	// 直接 400，必须在测试路径上也带上，否则"对话通、测试 400"。
 	cfg.SessionHeaderKey = req.SessionHeaderKey
-	// API Key 解析优先级：表单输入 > 指定 profile 存的 key > 全局配置的 key。
-	// 已存 profile 的 key 不回传浏览器，所以测试已存配置时表单为空，需从 DB 取。
-	// 会话头名同理：表单未带时用已存 profile 的值兜底。
-	if req.ProfileID != nil && (cfg.APIKey == "" || cfg.SessionHeaderKey == "") {
-		if p, err := s.m.pg.ProfileByID(*req.ProfileID); err == nil && p != nil {
-			if cfg.APIKey == "" {
-				cfg.APIKey = p.APIKey
-			}
-			if cfg.SessionHeaderKey == "" {
-				cfg.SessionHeaderKey = p.SessionHeaderKey
-			}
-		}
-	}
 	if cfg.APIKey == "" {
 		s.cfgMu.Lock()
 		cfg.APIKey = s.llmCfg.APIKey
