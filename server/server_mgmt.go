@@ -1676,6 +1676,12 @@ func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 	if err := decode(r, &body); err != nil {
+		// 同 wsWrite：这个接口用 JSON 传整个文件正文，超 16MB 全局上限时
+		// 若不单独判断，用户只会看到裸的 "http: request body too large" 400。
+		if maxBytesExceeded(err) {
+			writeErr(w, 413, "文件内容超过 16MB 上限，请改用上传接口")
+			return
+		}
 		writeErr(w, 400, err.Error())
 		return
 	}
