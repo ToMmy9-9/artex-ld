@@ -93,3 +93,6 @@ Thumbs.db
 .workbuddy-run.ps1
 .run-probe.ps1
 .run-ui.ps1
+
+# 生产库清理前的数据快照（含真实漏洞内容，不得入库）
+.backup/

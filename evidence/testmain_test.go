@@ -14,6 +14,12 @@ func TestMain(m *testing.M) {
 	if os.Getenv("ARTEX_PG_DSN") == "" {
 		os.Exit(m.Run())
 	}
+	if err := db.CheckTestDSN(os.Getenv("ARTEX_PG_DSN")); err != nil {
+		// 打到疑似生产库就整包停下。这里不能退化成 skip：
+		// skip 只会让人觉得"测试都过了"，而库里的 fixture 已经放进去了。
+		os.Stderr.WriteString("\n" + err.Error() + "\n\n")
+		os.Exit(1)
+	}
 	os.Exit(runEvidenceSuite(m))
 }
 func runEvidenceSuite(m *testing.M) int {
