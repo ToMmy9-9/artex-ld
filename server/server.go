@@ -1646,12 +1646,12 @@ func (s *Server) rerunIntent(w http.ResponseWriter, r *http.Request) {
 	defer s.engine.decInflight(t.ID)
 	before, err := t.Store.GetNode(iid)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	reopened, err := t.Store.ReopenIntent(iid)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if !reopened {
@@ -1663,7 +1663,7 @@ func (s *Server) rerunIntent(w http.ResponseWriter, r *http.Request) {
 		if rollbackErr := restoreRerunIntent(t, before); rollbackErr != nil {
 			err = fmt.Errorf("%w; restore intent %d after admission failure: %v", err, iid, rollbackErr)
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	log.Printf("[task] #%s 意图 #%d 已重开(重跑)", t.ID, iid)
@@ -1685,7 +1685,7 @@ func (s *Server) rerunBlocked(w http.ResponseWriter, r *http.Request) {
 	defer s.engine.decInflight(t.ID)
 	intents, err := t.Store.ListByKind(db.KindIntent, 1000000)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	before := make([]*db.Node, 0)
@@ -1697,7 +1697,7 @@ func (s *Server) rerunBlocked(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := t.Store.ReopenBlockedIntents()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	queued := false
@@ -1713,7 +1713,7 @@ func (s *Server) rerunBlocked(w http.ResponseWriter, r *http.Request) {
 			if len(rollbackErrors) > 0 {
 				err = fmt.Errorf("%w; restore blocked intents after admission failure: %s", err, strings.Join(rollbackErrors, "; "))
 			}
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		log.Printf("[task] #%s 批量重开 %d 条 blocked 意图", t.ID, n)
@@ -2089,7 +2089,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	} else if req.PlannerTemplateID > 0 {
 		tpl, err := pg.GetPlannerTemplate(req.PlannerTemplateID)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if tpl == nil {
@@ -2107,7 +2107,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	} else {
 		body, err := defaultPlannerPrompt(pg)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		plannerPrompt = body // 默认模板（首任=内置默认）快照；表为空则 ''，落 A4 运行时链兜底
@@ -2124,7 +2124,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	} else if req.WorkerTemplateID > 0 {
 		tpl, err := pg.GetWorkerTemplate(req.WorkerTemplateID)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if tpl == nil {
@@ -2136,7 +2136,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	} else {
 		body, err := defaultWorkerPrompt(pg)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		workerPrompt = body
@@ -2190,7 +2190,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "关联企业不存在或无效")
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// 【二开·P-LOG·S13】INFO 记建任务全貌（在既有 [task] 行上补二开字段）。
@@ -2442,7 +2442,7 @@ func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	cov, err := as.TaskCoverageWithSources(taskID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	cov.Enabled = true
@@ -2465,7 +2465,7 @@ func (s *Server) taskCoverageGraph(w http.ResponseWriter, r *http.Request) {
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	g, err := as.BuildCoverageGraph(taskID, t.ExpID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, g)
@@ -2486,7 +2486,7 @@ func (s *Server) taskAssetRefs(w http.ResponseWriter, r *http.Request) {
 	}
 	refs, err := t.Store.AssetRefsWithSources(assetID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	intents := []CoverageAssetRefDTO{}
@@ -2521,7 +2521,7 @@ func (s *Server) taskScopeList(w http.ResponseWriter, r *http.Request) {
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	rows, err := as.ListTaskScopeWithSources(taskID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"scope": rows})
@@ -2575,7 +2575,7 @@ func (s *Server) taskScopeDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	deleted, err := as.DeleteTaskScope(taskID, scopeID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if !deleted {
@@ -2617,7 +2617,7 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 		limit := findingPaginationParam(q.Get("limit"), 20, 200)
 		fs, total, err := s.m.pg.ListFindingsPage(findingFilterFromQuery(q), page, limit)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		assets := s.resolveFindingAssets(fs)
@@ -2635,7 +2635,7 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := t.Store.ListByKind(db.KindFinding, 200)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	tid, _ := strconv.ParseInt(t.ID, 10, 64)
@@ -2654,7 +2654,7 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 	// the task UI suppress mutation affordances while retaining stable ids.
 	sources, err := t.Store.DirectSourceStores()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	for _, source := range sources {
@@ -2734,12 +2734,12 @@ func (s *Server) resolveAssetIDs(ids []int64) map[int64]*db.Asset {
 func (s *Server) findingStats(w http.ResponseWriter, r *http.Request) {
 	st, err := s.m.pg.FindingStats()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	st.Distinct, err = s.m.pg.DistinctFindingStats("")
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, st)
@@ -2755,7 +2755,7 @@ func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := s.m.pg.GetFinding(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if f == nil {
@@ -2766,7 +2766,7 @@ func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
 	dto := findingFromDB(f, assets)
 	cid, err := s.m.pg.FindingCaseID(f.ID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if cid > 0 {
@@ -2832,7 +2832,7 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 
 	fs, err := s.m.pg.ListFindingsForExport(filter, ids)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 
@@ -2840,13 +2840,13 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 	if q.Get("mode") == "consolidated" {
 		fs, casePlan, err = s.prepareFindingCaseExport(fs)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	stage, err := os.MkdirTemp("", "artex-finding-export-")
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	defer os.RemoveAll(stage)
@@ -2857,7 +2857,7 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 	if casePlan != nil {
 		fs, err = s.consolidateFindingCaseExport(fs, casePlan, q.Get("include_originals") == "true")
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -2878,12 +2878,12 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 	case "md-zip":
 		path := filepath.Join(stage, "findings.zip")
 		if err := buildFindingsEvidenceZip(path, fs, stage, now, s.m.dir); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		file, err := os.Open(path)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		defer file.Close()
@@ -2942,7 +2942,7 @@ func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := s.m.pg.GetFinding(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if f == nil {
@@ -2961,7 +2961,7 @@ func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
 	}
 	nodes, edges, err := t.Store.FindingLineage(*f.NodeID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"nodes": taskNodeDTOs(nodes), "edges": edgeDTOs(edges)})
@@ -3001,7 +3001,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		// 所以只记日志、不向调用方报错。
 		from, found, notified, err := s.m.pg.SetFindingStatusWithNotify(r.Context(), id, *body.Status)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if !found {
@@ -3019,7 +3019,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		}
 		n, err := s.m.pg.SetFindingSeverity(id, *body.Severity)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if n == 0 {
@@ -3030,7 +3030,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 	if body.Name != nil {
 		n, err := s.m.pg.SetFindingName(id, strings.TrimSpace(*body.Name))
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if n == 0 {
@@ -3041,7 +3041,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 	if body.VulnClass != nil {
 		n, err := s.m.pg.SetFindingVulnClass(id, strings.TrimSpace(*body.VulnClass))
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if n == 0 {
@@ -3051,7 +3051,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := s.m.pg.GetFinding(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if f == nil {
@@ -3071,7 +3071,7 @@ func (s *Server) deleteFinding(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := s.m.pg.DeleteFinding(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if n == 0 {
@@ -3096,7 +3096,7 @@ func (s *Server) intents(w http.ResponseWriter, r *http.Request) {
 		in, err := t.Store.ListByKind(db.KindIntent, limit)
 		if err != nil {
 			log.Printf("[intents] task=%s limit=%d: %v", t.ID, limit, err)
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		writeJSON(w, 200, taskNodeDTOs(in))
@@ -3110,12 +3110,12 @@ func (s *Server) intents(w http.ResponseWriter, r *http.Request) {
 	in, hasMore, err := taskIntentHistoryPage(t.Store, before, limit, false, 0)
 	if err != nil {
 		log.Printf("[intents] task=%s before=%d limit=%d: %v", t.ID, before, limit, err)
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	sources, err := t.Store.DirectSourceStores()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	for _, source := range sources {
@@ -3214,17 +3214,17 @@ func (s *Server) explorationGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	nodes, err := t.Store.Nodes(2000)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	edges, err := t.Store.Edges(5000)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	sources, err := t.Store.DirectSourceStores()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	for _, source := range sources {
@@ -3272,7 +3272,7 @@ func (s *Server) explorationNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	nodes, total, err := t.Store.NodesPage(filter, page, size)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	ids := make([]int64, 0, len(nodes))
@@ -3283,7 +3283,7 @@ func (s *Server) explorationNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	edges, err := t.Store.EdgesTouching(ids)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	neighbourSet := map[int64]bool{}
@@ -3301,7 +3301,7 @@ func (s *Server) explorationNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	neighbours, err := t.Store.NodesByIDs(neighbourIDs)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	refs := make(map[string]TaskNodeDTO, len(neighbours))
@@ -3381,7 +3381,7 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("[activity] task=%s since=%d limit=%d intent=%v: %v", t.ID, since, limit, intentPtr, err)
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor})
@@ -3466,7 +3466,7 @@ func (s *Server) activityHistory(w http.ResponseWriter, r *http.Request) {
 	if filter.Main && filter.MainSeg == nil { // bare "main" → the current segment
 		seg, err := t.Store.CurrentMainSeg()
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		filter.MainSeg = &seg
@@ -3475,7 +3475,7 @@ func (s *Server) activityHistory(w http.ResponseWriter, r *http.Request) {
 	limit := min(atoiDefault(q.Get("limit"), 200), 500) // cap so one request can't pull an unbounded slice
 	store, sourceTaskID, err := activitySessionStore(t, filter)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if store == nil {
@@ -3487,7 +3487,7 @@ func (s *Server) activityHistory(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := t.Store.ActivityMaxID()
 	if err != nil {
 		log.Printf("[activity/history] task=%s session=%s snapshot: %v", t.ID, sess, err)
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	var items []db.Activity
@@ -3501,7 +3501,7 @@ func (s *Server) activityHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("[activity/history] task=%s session=%s before=%d limit=%d: %v", t.ID, sess, before, limit, err)
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if sourceTaskID > 0 {
@@ -3536,17 +3536,17 @@ func (s *Server) tokenStats(w http.ResponseWriter, r *http.Request) {
 	}
 	stats, err := t.Store.TokenStatsByWorker()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	sessions, err := t.Store.TokenStatsBySession()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	total, err := t.Store.TokenTotal() // whole-task total (all agents)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"workers": stats, "sessions": sessions, "total": tokenTotalDTO(total)})
@@ -3562,7 +3562,7 @@ func (s *Server) tokenDailyStats(w http.ResponseWriter, r *http.Request) {
 	}
 	buckets, err := s.m.pg.TokenDailyAll(days)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if buckets == nil {
@@ -3581,7 +3581,7 @@ func (s *Server) conversationTokens(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.m.pg.ConversationTokenSummaries()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, rows)
@@ -3810,7 +3810,7 @@ func (s *Server) activityDetail(w http.ResponseWriter, r *http.Request) {
 	seq, _ := strconv.ParseInt(r.PathValue("seq"), 10, 64)
 	d, err := taskActivityDetail(t, seq)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"detail": d})
@@ -3934,7 +3934,7 @@ func (s *Server) getTrafficHosts(w http.ResponseWriter, r *http.Request) {
 		result, err = tr.Hosts()
 	}
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"hosts": result})
@@ -3958,7 +3958,7 @@ func (s *Server) deleteTraffic(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := tr.DeleteHost(host)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": n})
@@ -3993,7 +3993,7 @@ func (s *Server) deleteTrafficHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := tr.DeleteHostsExact(hosts)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": n})
@@ -4012,7 +4012,7 @@ func (s *Server) deleteAllTraffic(w http.ResponseWriter, r *http.Request) {
 	}
 	n, reclaimed, err := tr.DeleteAll()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": n, "reclaimed": reclaimed})
@@ -4174,7 +4174,7 @@ func (s *Server) pgDetectPython(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.m.pg.SetSetting(settingPythonInterp, p); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"python_interpreter": p})
@@ -4274,27 +4274,27 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ConstraintsInjectPlanner != nil {
 		if err := s.m.pg.SetBool(settingConstraintsInjectPlanner, *req.ConstraintsInjectPlanner); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.ConstraintsInjectWorker != nil {
 		if err := s.m.pg.SetBool(settingConstraintsInjectWorker, *req.ConstraintsInjectWorker); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.NoaCompaction != nil {
 		// 每 run 读的解析器,切换即时对之后启动的 run 生效,无需 applyLLM 重建。
 		if err := s.m.SetNoaCompaction(*req.NoaCompaction); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	// 推送全局项:投递引擎每轮重新读取,所以即时生效、无需重启。
 	if req.NotifyEnabled != nil {
 		if err := s.m.pg.SetBool(settingNotifyEnabled, *req.NotifyEnabled); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -4307,7 +4307,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.m.pg.SetSetting(settingNotifyPublicBaseURL, base); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -4318,7 +4318,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.m.pg.SetSetting(settingNotifyDigestMinutes, strconv.Itoa(*req.NotifyDigestMins)); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -4378,28 +4378,28 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.m.pg.SetSetting(settingPythonInterp, p); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.LLMRecord != nil {
 		// 录制器每次调用读取该标志，切换即时生效，无需 applyLLM 重建。
 		if err := s.m.SetLLMRecordEnabled(*req.LLMRecord); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	changed := false
 	if req.LLMPoolEnabled != nil {
 		if err := s.m.SetLLMPoolEnabled(*req.LLMPoolEnabled); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		changed = true // the provider chain itself changes shape → rebuild
 	}
 	if req.LLMPoolBindFallback != nil {
 		if err := s.m.SetLLMPoolBindFallback(*req.LLMPoolBindFallback); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		changed = true
@@ -4417,29 +4417,29 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TaskAutoTitle != nil {
 		if err := s.m.pg.SetBool(db.SettingTaskAutoTitle, *req.TaskAutoTitle); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.ChatAutoTitle != nil {
 		if err := s.m.pg.SetBool(db.SettingChatAutoTitle, *req.ChatAutoTitle); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.AgentTrafficBinding != nil {
 		if err := s.m.pg.SetBool(settingAgentTrafficBinding, *req.AgentTrafficBinding); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.BrowserScreenshot != nil {
 		if err := s.setReporterBrowserScreenshotVisibility(*req.BrowserScreenshot); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if err := s.m.pg.SetBool(settingBrowserScreenshot, *req.BrowserScreenshot); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		// The reporter's MCP visibility and prompt are assembled when agents are
@@ -4449,19 +4449,19 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ScreenshotTimestamp != nil {
 		if err := s.m.pg.SetBool(settingScreenshotTimestamp, *req.ScreenshotTimestamp); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.OpsecEnabled != nil {
 		if err := s.m.pg.SetBool(settingOpsecEnabled, *req.OpsecEnabled); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.TrafficCapture != nil {
 		if err := s.m.SetTrafficEnabled(*req.TrafficCapture); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		changed = true
@@ -4525,13 +4525,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.EgressProbeURL != nil {
 		if err := s.m.pg.SetSetting(settingEgressProbeURL, *req.EgressProbeURL); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.ShowEgressIP != nil {
 		if err := s.m.pg.SetBool(settingShowEgressIP, *req.ShowEgressIP); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -4549,7 +4549,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			req.WebSearchProxy = &savedSearchProxy
 		}
 		if err := s.m.SetWebSearch(on, backend, req.BraveKey, req.TavilyKey, req.WebSearchProxy); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		changed = true
@@ -4559,7 +4559,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			*req.DeepSeekSearchKey = s.m.deepSeekSearchKey()
 		}
 		if err := s.m.setDeepSeekSearchKey(*req.DeepSeekSearchKey); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		changed = true
@@ -4571,7 +4571,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		s.cfgMu.Unlock()
 		if on {
 			if err := s.applyLLM(cfg); err != nil {
-				writeErr(w, 500, err.Error())
+				writeErrRedacted(w, 500, err.Error())
 				return
 			}
 		}
@@ -4689,7 +4689,7 @@ func (s *Server) mainSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := t.Store.ListMainSessions()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	current := 0
@@ -4714,7 +4714,7 @@ func (s *Server) newMainSession(w http.ResponseWriter, r *http.Request) {
 	}
 	m, err := t.Store.NewMainSession()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"seq": m.Seq, "created_at": rfc3339(m.CreatedAt), "current": m.Seq})
@@ -4996,6 +4996,24 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 		xlog.Errorf("[api] 5xx: %s", msg)
 	}
 	writeJSON(w, code, map[string]any{"error": msg})
+}
+
+// writeErrRedacted 用于「错误来自数据库/上游、文案会泄漏 schema」的 5xx 出口。
+//
+// 为什么需要它：336 处 5xx 直接 writeErrRedacted(w, 500, err.Error())，把驱动原文回吐给
+// 客户端。实测 agent_id=0 时返回：
+//   插入或更新表 "agent_skill_visibility" 违反外键约束
+//   "agent_skill_visibility_agent_id_fkey" (SQLSTATE 23503)
+// 表名、约束名、SQLSTATE 全在里面。这类信息对客户端毫无用处（它不能据此修复），
+// 对攻击者却是现成的 schema 图谱。
+//
+// 所以这里把详细原文只写进日志（排障照旧），响应只给一句固定文案。
+// 注意不要用它替换 writeErr 里那些「有意义的固定文案」（如 database unavailable、
+// 数据源暂时不可用），那些本来就该告诉用户；本函数只用在直接把 err.Error() 回吐的位置。
+func writeErrRedacted(w http.ResponseWriter, code int, detail string) {
+	// 日志保留完整原文，并标注 req 以便和 accessLog 那一行对照。
+	xlog.Errorf("[api] 5xx（详情仅入日志，不回客户端）: %s", detail)
+	writeJSON(w, code, map[string]any{"error": errDataSourceUnavailable})
 }
 
 func atoiDefault(s string, d int) int {

@@ -77,7 +77,7 @@ func (s *Server) toolEnvPrepList(w http.ResponseWriter, r *http.Request) {
 		preps, err = pg.ListToolEnvPreps(limit)
 	}
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if preps == nil {

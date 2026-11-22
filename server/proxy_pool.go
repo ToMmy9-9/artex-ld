@@ -800,7 +800,7 @@ func (s *Server) importProxyPool(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.m.setProxyPoolEntries(entries, active); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if req.Interval != nil || req.TimedEnabled != nil || req.OnFailure != nil || req.Strategy != nil || req.Threshold != nil || req.Cooldown != nil || req.HealthInterval != nil {
@@ -999,7 +999,7 @@ func (s *Server) updateProxyPool(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.m.persistProxyPoolLocked(); err != nil {
 			s.m.proxyPool.mu.Unlock()
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		out := e.ProxyPoolEntry
@@ -1099,7 +1099,7 @@ func (s *Server) deleteProxyPool(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.m.persistProxyPoolLocked(); err != nil {
 		s.m.proxyPool.mu.Unlock()
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	s.m.proxyPool.mu.Unlock()

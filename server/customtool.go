@@ -87,7 +87,7 @@ func (s *Server) pgCreateCustomTool(w http.ResponseWriter, r *http.Request) {
 		Key: req.Key, Description: req.Description, Schema: req.Schema, Agents: req.Agents,
 		Enabled: req.Enabled, Kind: req.Kind, Exec: req.Exec, Deferred: req.Deferred,
 	}); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"key": req.Key})
@@ -101,7 +101,7 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	existing, err := pg.GetTool(key)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if existing == nil || existing.System {
@@ -131,7 +131,7 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 		Key: key, Description: req.Description, Schema: req.Schema, Agents: req.Agents,
 		Enabled: req.Enabled, Kind: req.Kind, Exec: req.Exec, Deferred: req.Deferred,
 	}); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -144,7 +144,7 @@ func (s *Server) pgDeleteCustomTool(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.PathValue("key")
 	if err := pg.DeleteCustomTool(key); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": key})

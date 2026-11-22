@@ -557,7 +557,7 @@ func (s *Server) reviewListProposed(w http.ResponseWriter, r *http.Request) {
 	}
 	ns, err := t.Store.ProposedIntents(100) // D3
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	out := make([]map[string]any, 0, len(ns))
@@ -617,7 +617,7 @@ func (s *Server) reviewApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	ver, err := resolveReviewVersion(t.Store, intentID, body.ExpectedVersion)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	ok2, err := t.Store.ApproveIntentAt(intentID, ver) // 批准时确定执行器。
@@ -629,7 +629,7 @@ func (s *Server) reviewApprove(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 409, "意图已被处理（并发冲突）")
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if !ok2 { // CAS 冲突：已不在待审池（并发重复处置）
@@ -679,7 +679,7 @@ func (s *Server) reviewReject(w http.ResponseWriter, r *http.Request) {
 	}
 	ver, err := resolveReviewVersion(t.Store, intentID, body.ExpectedVersion)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// 驳回保持 proposed 并标记 rejected，等待修订后重新送审。
@@ -691,7 +691,7 @@ func (s *Server) reviewReject(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 409, "意图已被处理（并发冲突）")
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if !ok2 { // CAS 冲突：已不在待审池（并发重复处置）
@@ -825,7 +825,7 @@ func (s *Server) reviewMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	acts, _, err := t.Store.ActivityPageWithDetail(db.ActivitySessionFilter{Worker: "review"}, 0, 200) // 审核域消息统一打 worker="review"
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	out := make([]map[string]any, 0, len(acts))

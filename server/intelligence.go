@@ -15,7 +15,7 @@ func intelligenceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, db.ErrIntelligenceNotFound):
 		writeErr(w, 404, "情报不存在或不属于当前范围")
 	default:
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 	}
 }
 func (s *Server) intelligenceFilter(w http.ResponseWriter, r *http.Request) (db.IntelligenceFilter, bool) {

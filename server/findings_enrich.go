@@ -148,7 +148,7 @@ func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := s.m.pg.GetFindingByNodeID(nodeID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if f == nil {

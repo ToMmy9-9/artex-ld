@@ -205,7 +205,7 @@ func (s *Server) interceptListRules(w http.ResponseWriter, r *http.Request) {
 	}
 	rules, err := pg.ListInterceptRules()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if rules == nil {
@@ -230,7 +230,7 @@ func (s *Server) interceptCreateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	rule, err := pg.CreateInterceptRule(req.Name, req.MatchTarget, req.MatchType, req.Pattern, req.Action, req.Message, req.Priority, req.Enabled, req.TimeoutEnabled, req.TimeoutSeconds, req.TimeoutAction)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	s.m.interceptor.Invalidate()
@@ -258,7 +258,7 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	rule, err := pg.UpdateInterceptRule(id, req.Name, req.MatchTarget, req.MatchType, req.Pattern, req.Action, req.Message, req.Priority, req.Enabled, req.TimeoutEnabled, req.TimeoutSeconds, req.TimeoutAction)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	s.m.interceptor.Invalidate()
@@ -276,7 +276,7 @@ func (s *Server) interceptDeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.DeleteInterceptRule(id); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	s.m.interceptor.Invalidate()
@@ -301,7 +301,7 @@ func (s *Server) interceptToggleRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.ToggleInterceptRule(id, req.Enabled); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	s.m.interceptor.Invalidate()
@@ -317,7 +317,7 @@ func (s *Server) interceptListPending(w http.ResponseWriter, r *http.Request) {
 	}
 	pending, err := pg.ListPendingIntercepts()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if pending == nil {
@@ -338,7 +338,7 @@ func (s *Server) interceptGetOne(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := pg.GetInterceptPending(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if p == nil {
@@ -367,7 +367,7 @@ func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) 
 	if q.Get("page") == "" && q.Get("size") == "" && filter == (db.InterceptApprovalFilter{}) {
 		items, err := pg.ListTaskIntercepts(taskID)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if items == nil {
@@ -379,7 +379,7 @@ func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) 
 	page, size := interceptPageParams(q)
 	items, total, err := pg.ListTaskInterceptsPage(taskID, page, size, filter)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if items == nil {
@@ -402,7 +402,7 @@ func (s *Server) interceptHistory(w http.ResponseWriter, r *http.Request) {
 	if q.Get("page") == "" && q.Get("size") == "" && filter == (db.InterceptApprovalFilter{}) {
 		items, err := pg.ListAllIntercepts(200)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if items == nil {
@@ -414,7 +414,7 @@ func (s *Server) interceptHistory(w http.ResponseWriter, r *http.Request) {
 	page, size := interceptPageParams(q)
 	items, total, err := pg.ListAllInterceptsPage(page, size, filter)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if items == nil {
@@ -501,7 +501,7 @@ func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 409, err.Error())
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -514,7 +514,7 @@ func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 func (s *Server) interceptGetToolConfig(w http.ResponseWriter, r *http.Request) {
 	tools, err := s.m.interceptor.GetEnabledTools()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"enabled_tools": tools})
@@ -534,7 +534,7 @@ func (s *Server) interceptSetToolConfig(w http.ResponseWriter, r *http.Request) 
 		req.EnabledTools = []string{}
 	}
 	if err := s.m.interceptor.SetEnabledTools(req.EnabledTools); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -599,7 +599,7 @@ func (s *Server) interceptSetJudgeConfig(w http.ResponseWriter, r *http.Request)
 		if strings.Contains(err.Error(), "confidence_threshold") {
 			writeErr(w, 400, err.Error())
 		} else {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 		}
 		return
 	}
@@ -617,7 +617,7 @@ func (s *Server) interceptJudgeUsage(w http.ResponseWriter, r *http.Request) {
 	days := atoiDefault(r.URL.Query().Get("days"), 30)
 	usage, err := pg.JudgeUsageStats(days)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, usage)
@@ -681,7 +681,7 @@ func (s *Server) interceptDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	detail, err := pg.GetInterceptDetail(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if detail == nil {
@@ -712,7 +712,7 @@ func (s *Server) interceptExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if target == nil {

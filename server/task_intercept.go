@@ -73,7 +73,7 @@ func (s *Server) taskInterceptListRules(w http.ResponseWriter, r *http.Request) 
 	}
 	rules, err := pg.Assets().ListTaskInterceptRules(taskID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if rules == nil {
@@ -103,7 +103,7 @@ func (s *Server) taskInterceptCreateRule(w http.ResponseWriter, r *http.Request)
 	}
 	rule, err := pg.Assets().CreateTaskInterceptRule(taskID, req.Action, req.Kind, req.Pattern, req.Note, req.Enabled)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, rule)
@@ -135,7 +135,7 @@ func (s *Server) taskInterceptUpdateRule(w http.ResponseWriter, r *http.Request)
 	}
 	rule, err := pg.Assets().UpdateTaskInterceptRule(taskID, ruleID, req.Action, req.Kind, req.Pattern, req.Note, req.Enabled)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, rule)
@@ -158,7 +158,7 @@ func (s *Server) taskInterceptDeleteRule(w http.ResponseWriter, r *http.Request)
 	}
 	deleted, err := pg.Assets().DeleteTaskInterceptRule(taskID, ruleID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": deleted})
@@ -187,7 +187,7 @@ func (s *Server) taskInterceptToggleRule(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := pg.Assets().ToggleTaskInterceptRule(taskID, ruleID, req.Enabled); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "enabled": req.Enabled})

@@ -197,7 +197,7 @@ func (s *Server) pgDeleteTask(w http.ResponseWriter, r *http.Request) {
 			writeCommittedTaskDelete(w, result, err)
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// Manager has removed the task from the registry, so no new API operation can
@@ -243,7 +243,7 @@ func (s *Server) pgListAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	ags, err := pg.ListAgents()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	dtos := agentDTOs(ags)
@@ -285,7 +285,7 @@ func (s *Server) pgCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := pg.CreateAgent(req.Key, req.Name, req.Description)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// starter prompt so the editor shows something editable from the start.
@@ -316,7 +316,7 @@ func (s *Server) pgUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.UpdateAgentMeta(a.Key, req.Name, req.Description); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -334,7 +334,7 @@ func (s *Server) pgDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.DeleteAgent(a.Key); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if err := pg.RemoveAgentFromToolBindings(a.Key); err != nil {
@@ -353,7 +353,7 @@ func (s *Server) agentByKey(w http.ResponseWriter, r *http.Request) (*db.DB, *db
 	}
 	a, err := pg.GetAgentByKey(r.PathValue("key"))
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return nil, nil, false
 	}
 	if a == nil {
@@ -409,7 +409,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, 400, err.Error())
 				return
 			}
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		profileChanged = true
@@ -420,7 +420,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 			mt = 0
 		}
 		if err := pg.SetAgentMaxTurns(a.Key, mt); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -430,19 +430,19 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 			rs = 0
 		}
 		if err := pg.SetAgentRunSeconds(a.Key, rs); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.WebSearch != nil {
 		if err := pg.SetAgentWebSearch(a.Key, *req.WebSearch); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if req.InteractiveShell != nil {
 		if err := pg.SetAgentInteractiveShell(a.Key, *req.InteractiveShell); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -465,7 +465,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err := pg.SetAgentExecutorKey(a.Key, ek); err != nil { // 既有 setter（config.go:543）：格式/内置校验+NULLIF 清除
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -483,7 +483,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 			maxPar = *req.TriggerMaxParallel
 		}
 		if err := pg.SetAgentTriggerBehavior(a.Key, runMode, mergeMode, maxPar); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -575,7 +575,7 @@ func (s *Server) pgSavePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	ver, err := pg.SavePrompt(a.ID, body.Template, body.Note, "ui")
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"version": ver})
@@ -595,7 +595,7 @@ func (s *Server) pgResetPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	ver, err := pg.ResetPromptToDefault(a.ID, tmpl)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"version": ver})
@@ -618,7 +618,7 @@ func (s *Server) pgSaveWrapup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.SetAgentWrapupPrompt(a.Key, body.Prompt); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if body.MaxTurns != nil {
@@ -627,7 +627,7 @@ func (s *Server) pgSaveWrapup(w http.ResponseWriter, r *http.Request) {
 			n = 0
 		}
 		if err := pg.SetAgentWrapupMaxTurns(a.Key, n); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -642,11 +642,11 @@ func (s *Server) pgResetWrapup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.SetAgentWrapupPrompt(a.Key, ""); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if err := pg.SetAgentWrapupMaxTurns(a.Key, 0); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{
@@ -679,7 +679,7 @@ func (s *Server) pgSaveTaskTimeoutWrapup(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	if err := pg.SetAgentTaskTimeoutWrapup(a.Key, body.Prompt, turns); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -692,7 +692,7 @@ func (s *Server) pgResetTaskTimeoutWrapup(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := pg.SetAgentTaskTimeoutWrapup(a.Key, "", 0); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{
@@ -709,7 +709,7 @@ func (s *Server) pgListPromptVersions(w http.ResponseWriter, r *http.Request) {
 	}
 	vers, err := pg.ListPromptVersions(a.ID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"versions": vers})
@@ -722,7 +722,7 @@ func (s *Server) pgPromptVars(w http.ResponseWriter, r *http.Request) {
 	}
 	vars, err := pg.PromptVars(a.ID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"variables": withGlobalVars(vars)})
@@ -777,11 +777,11 @@ func (s *Server) pgSetAgentVisibility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.SetAgentVisibilityKind(a.ID, "mcp", body.MCP); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if err := pg.SetAgentSkillVisibility(a.ID, body.Skill); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -796,7 +796,7 @@ func (s *Server) pgListTools(w http.ResponseWriter, r *http.Request) {
 	}
 	ts, err := pg.ListTools()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if ts == nil {
@@ -827,7 +827,7 @@ func (s *Server) pgUpdateTool(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	cur, err := pg.GetTool(key)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if cur == nil {
@@ -846,7 +846,7 @@ func (s *Server) pgUpdateTool(w http.ResponseWriter, r *http.Request) {
 	}
 	agents, _ := json.Marshal(body.Agents)
 	if err := pg.UpdateTool(key, body.Description, body.Schema, agents, body.Enabled); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -868,7 +868,7 @@ func (s *Server) pgResetTool(w http.ResponseWriter, r *http.Request) {
 		schema, _ := json.Marshal(sd.Schema)
 		agents, _ := json.Marshal(sd.Agents)
 		if err := pg.UpsertToolForce(sd.Key, sd.Desc, schema, agents); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true})
@@ -882,7 +882,7 @@ func (s *Server) pgResetTool(w http.ResponseWriter, r *http.Request) {
 		}
 		schema, _ := json.Marshal(t.InputSchema())
 		if err := pg.UpsertToolForce(t.Name(), t.Description(), schema, autoAgents); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true})
@@ -900,7 +900,7 @@ func (s *Server) pgListMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	ms, err := pg.ListMCP()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if ms == nil {
@@ -922,7 +922,7 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 	isNew := m.ID == 0
 	id, err := pg.SaveMCP(&m)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// On initial add, auto-discover + cache the tool list so the UI shows it right
@@ -946,7 +946,7 @@ func (s *Server) pgDeleteMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := pathInt(r, "id")
 	if err := pg.DeleteMCP(id); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": id})
@@ -962,7 +962,7 @@ func (s *Server) pgRefreshMCP(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathInt(r, "id")
 	all, err := pg.ListMCP()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	var target *db.MCPServer
@@ -995,7 +995,7 @@ func (s *Server) pgMCPTools(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathInt(r, "id")
 	tools, err := pg.MCPToolsDetailed(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if tools == nil {
@@ -1034,7 +1034,7 @@ func (s *Server) fsListSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := os.ReadDir(s.skillDir)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// Usage is best-effort decoration: a ledger read failure leaves the counts at
@@ -1088,7 +1088,7 @@ func (s *Server) fsSkillUsage(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	calls, err := pg.RecentSkillCalls(name, limit)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"calls": calls})
@@ -1104,7 +1104,7 @@ func (s *Server) fsMissingSkills(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	missing, err := pg.MissingSkillStats(limit)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"missing": missing})
@@ -1148,7 +1148,7 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.MkdirAll(skillPath, 0o755); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// Build a spec-compliant SKILL.md (agentskills.io format):
@@ -1180,7 +1180,7 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := os.WriteFile(filepath.Join(skillPath, "SKILL.md"), []byte(sb.String()), 0o644); err != nil {
 		_ = os.RemoveAll(skillPath)
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 201, map[string]any{"name": body.Name})
@@ -1219,7 +1219,7 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.WriteFile(skillMD, updated, 0o644); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -1416,7 +1416,7 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 	_ = os.MkdirAll(s.skillDir, 0o755)
 	tmp, err := os.MkdirTemp(s.skillDir, ".upload-*")
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	defer os.RemoveAll(tmp) // no-op after a successful rename
@@ -1448,25 +1448,25 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		}
 		dst := filepath.Join(tmp, clean)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		rc, err := f.Open()
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		out, err := os.Create(dst)
 		if err != nil {
 			rc.Close()
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		n, err := io.Copy(out, io.LimitReader(rc, maxSkillFileBytes+1))
 		out.Close()
 		rc.Close()
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		total += n
@@ -1512,11 +1512,11 @@ func (s *Server) fsDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.DeleteSkillVisibility(name); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if err := os.RemoveAll(filepath.Join(s.skillDir, name)); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": name})
@@ -1629,7 +1629,7 @@ func (s *Server) fsListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	files, err := walkSkillFiles(dirPath)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if files == nil {
@@ -1655,7 +1655,7 @@ func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"content": string(data), "file": file})
@@ -1687,11 +1687,11 @@ func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 	fullPath := filepath.Join(skillPath, file)
 	// create parent subdirectory if needed (e.g. scripts/, references/, assets/)
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if err := os.WriteFile(fullPath, []byte(body.Content), 0o644); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -1721,7 +1721,7 @@ func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.MkdirAll(filepath.Join(skillPath, dir), 0o755); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 201, map[string]any{"dir": dir})
@@ -1744,7 +1744,7 @@ func (s *Server) fsDeletePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.RemoveAll(fullPath); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": file})
@@ -1759,7 +1759,7 @@ func (s *Server) pgSkillVisibility(w http.ResponseWriter, r *http.Request) {
 	}
 	agents, err := pg.SkillAgents(r.PathValue("name"))
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"agents": idStrings(agents)})
@@ -1805,7 +1805,7 @@ func (s *Server) pgToggleSkillVisibility(w http.ResponseWriter, r *http.Request)
 			writeErr(w, 404, "agent 不存在")
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -1821,7 +1821,7 @@ func (s *Server) pgResourceVisibility(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathInt(r, "id")
 	agents, err := pg.ResourceAgents(r.PathValue("kind"), id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"agents": idStrings(agents)})
@@ -1843,7 +1843,7 @@ func (s *Server) pgToggleVisibility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.ToggleVisibility(body.AgentID, body.Kind, body.ResourceID, body.Visible); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -1858,7 +1858,7 @@ func (s *Server) pgListProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	ps, err := pg.ListProfiles()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"profiles": llmProfileDTOs(ps)})
@@ -1901,7 +1901,7 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// Editing a profile rebuilds any task pinned to it on its next round. Reapply
@@ -1939,7 +1939,7 @@ func (s *Server) pgSaveLLMRetryPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.SetLLMRetryPolicy(pol); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	s.applyRetryPolicy()
@@ -1965,7 +1965,7 @@ func (s *Server) pgDeleteProfile(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, db.ErrLLMProfileNotFound):
 			writeErr(w, 404, err.Error())
 		default:
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 		}
 		return
 	}
@@ -2019,7 +2019,7 @@ func (s *Server) pgActivateProfile(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 404, "LLM 配置不存在")
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	s.invalidateProfileAgents() // active change may affect pinned-task fallbacks

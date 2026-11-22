@@ -613,7 +613,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 	if kind == "approval" {
 		detail, err := s.m.pg.GetInterceptDetail(id)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return p, false
 		}
 		if detail == nil {
@@ -626,7 +626,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 	if kind == "conversation" {
 		c, err := s.m.pg.GetConversation(id)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return p, false
 		}
 		if c == nil {
@@ -643,7 +643,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 	}
 	pt, err := s.m.pg.GetTask(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return p, false
 	}
 	if pt == nil || s.engine.IsDeleting(t.ID) {
@@ -659,7 +659,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 		}
 		n, err := t.Store.GetNode(iid)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return p, false
 		}
 		if n == nil || n.Kind != db.KindIntent {
@@ -703,7 +703,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		}
 		s.side.mu.Unlock()
 		if err := s.m.pg.ClearSideHistory(r.Context(), key); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		writeJSON(w, 200, map[string]bool{"cleared": true})
@@ -725,7 +725,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 			}
 		}
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
@@ -733,7 +733,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 		items, err := s.m.pg.SideHistory(r.Context(), key, before, 21)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		var next int64
@@ -743,7 +743,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		}
 		current, err := s.m.pg.CurrentSideRequest(r.Context(), key)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		var meta any
@@ -783,7 +783,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		return
 	}
 	if existing, err := s.m.pg.ExistingSideRequest(r.Context(), key, in.ClientID); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	} else if existing != nil {
 		if existing.Question != in.Question {
@@ -824,7 +824,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		return
 	}
 	if err = s.m.pg.SaveSideSnapshot(r.Context(), *snap); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	e, created, err := s.m.pg.StartSideRequest(r.Context(), *snap, in.ClientID, in.Question)
@@ -934,7 +934,7 @@ func (s *Server) runSide(ctx context.Context, cancel context.CancelFunc, e sideq
 func (s *Server) cancelSideRequest(w http.ResponseWriter, r *http.Request) {
 	e, err := s.m.pg.SideRequest(r.Context(), r.PathValue("requestID"))
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if e == nil {
@@ -958,7 +958,7 @@ func (s *Server) sideEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("requestID")
 	first, err := s.m.pg.SideRequest(r.Context(), id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if first == nil {

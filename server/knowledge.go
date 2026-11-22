@@ -45,7 +45,7 @@ func (s *Server) getKnowledge(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	doc, err := s.m.pg.GetKnowledgeDoc(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if doc == nil {
@@ -97,7 +97,7 @@ func (s *Server) updateKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.m.pg.UpdateKnowledgeDoc(id, b.Category, b.Title, b.Content); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	go s.indexKnowledgeAsync(id)
@@ -109,7 +109,7 @@ func (s *Server) updateKnowledge(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteKnowledge(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err := s.m.pg.DeleteKnowledgeDoc(id); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -185,7 +185,7 @@ func (s *Server) knowledgeCategories(w http.ResponseWriter, r *http.Request) {
 	taskID, _ := strconv.ParseInt(r.URL.Query().Get("task"), 10, 64)
 	cats, err := s.m.pg.ListKnowledgeCategories(taskID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, cats)
@@ -204,7 +204,7 @@ func (s *Server) searchKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 	hits, mode, err := s.kb().SearchAndLog(s.ctx, b.Query, b.TaskID, b.TopK, "手动检索")
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"mode": mode, "hits": hits})
@@ -214,7 +214,7 @@ func (s *Server) searchKnowledge(w http.ResponseWriter, r *http.Request) {
 func (s *Server) knowledgeLogs(w http.ResponseWriter, r *http.Request) {
 	logs, err := s.m.pg.ListKnowledgeRetrievalLogs(200)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, logs)
@@ -224,7 +224,7 @@ func (s *Server) knowledgeLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.m.pg.GetKnowledgeConfig()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	global, task, _ := s.m.pg.KnowledgeDocCount()
@@ -255,7 +255,7 @@ func (s *Server) saveKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.m.pg.SaveKnowledgeConfig(b.Enabled, b.BaseURL, b.Model, b.APIKey, b.Dim); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})

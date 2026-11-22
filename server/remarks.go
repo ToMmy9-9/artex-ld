@@ -62,7 +62,7 @@ func (s *Server) updateScheduleMetadata(w http.ResponseWriter, r *http.Request) 
 	}
 	item, err := s.m.pg.UpdateTaskScheduleMetadata(id, db.TaskSchedulePatch{Name: request.Name, Remark: request.Remark})
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if item == nil {

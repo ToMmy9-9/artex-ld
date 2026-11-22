@@ -32,7 +32,7 @@ func (s *Server) listActiveFindingRetests(w http.ResponseWriter, r *http.Request
 	}
 	items, err := pg.ListActiveFindingRetests(r.Context())
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"retests": items})
@@ -50,7 +50,7 @@ func (s *Server) listFindingRetests(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := pg.GetFinding(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if f == nil {
@@ -59,7 +59,7 @@ func (s *Server) listFindingRetests(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := pg.ListFindingRetests(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"retests": items})
@@ -88,7 +88,7 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := pg.GetFinding(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if f == nil {
@@ -97,7 +97,7 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := pg.GetAgentByKey(db.FindingRetestAgentKey)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if a == nil || !a.Enabled {
@@ -107,7 +107,7 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 	for _, key := range []string{"get_finding_retest_context", "record_finding_retest_result"} {
 		t, err := pg.GetTool(key)
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if t == nil || !t.Enabled || !slices.Contains(t.Agents, a.Key) {
@@ -129,7 +129,7 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if created {

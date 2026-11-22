@@ -25,7 +25,7 @@ func (s *Server) assetInterceptListRules(w http.ResponseWriter, r *http.Request)
 	}
 	rules, err := pg.ListAssetInterceptRules()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if rules == nil {
@@ -50,7 +50,7 @@ func (s *Server) assetInterceptCreateRule(w http.ResponseWriter, r *http.Request
 	}
 	rule, err := pg.CreateAssetInterceptRule(req.Kind, req.Pattern, req.Note, req.Enabled)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, rule)
@@ -77,7 +77,7 @@ func (s *Server) assetInterceptUpdateRule(w http.ResponseWriter, r *http.Request
 	}
 	rule, err := pg.UpdateAssetInterceptRule(id, req.Kind, req.Pattern, req.Note, req.Enabled)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, rule)
@@ -94,7 +94,7 @@ func (s *Server) assetInterceptDeleteRule(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := pg.DeleteAssetInterceptRule(id); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": id})
@@ -118,7 +118,7 @@ func (s *Server) assetInterceptToggleRule(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := pg.ToggleAssetInterceptRule(id, req.Enabled); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "enabled": req.Enabled})

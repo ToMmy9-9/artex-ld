@@ -448,7 +448,7 @@ func (s *Server) listTaskArchives(w http.ResponseWriter, r *http.Request) {
 	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
 	result, err := s.m.pg.ListTaskArchives(r.URL.Query().Get("q"), r.URL.Query().Get("state"), page, size)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, result)
@@ -462,7 +462,7 @@ func (s *Server) getTaskArchive(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := s.m.pg.GetTaskArchive(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if item == nil {

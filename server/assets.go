@@ -88,7 +88,7 @@ func (s *Server) listCompanies(w http.ResponseWriter, r *http.Request) {
 	}
 	companies, err := cs.ListCompanies()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, companies)
@@ -165,7 +165,7 @@ func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := cs.GetCompany(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if c == nil {
@@ -174,7 +174,7 @@ func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 	}
 	scope, err := cs.GetScope(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"company": c, "scope": scope})
@@ -290,7 +290,7 @@ func (s *Server) deleteCompany(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "company not found")
 			return
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": 1, "assets_deleted": assetsDeleted})
@@ -307,7 +307,7 @@ func (s *Server) reattribute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := cs.RecomputeAttribution(); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -431,7 +431,7 @@ func (s *Server) assetCounts(w http.ResponseWriter, r *http.Request) {
 		counts, err = as.CountsByType()
 	}
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, counts)
@@ -460,7 +460,7 @@ func (s *Server) deleteAssets(w http.ResponseWriter, r *http.Request) {
 	}
 	deleted, err := as.DeleteByIDs(req.IDs)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": deleted})

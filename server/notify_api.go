@@ -136,7 +136,7 @@ func (s *Server) notifyMeta(w http.ResponseWriter, r *http.Request) {
 	digest, _, _ := pg.GetSetting(settingNotifyDigestMinutes)
 	stats, err := pg.NotificationStatsSnapshot(r.Context())
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{
@@ -158,7 +158,7 @@ func (s *Server) notifyListChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	channels, err := pg.ListNotificationChannels(r.Context())
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	out := make([]notifyChannelDTO, 0, len(channels))
@@ -252,7 +252,7 @@ func (s *Server) notifyCreateChannel(w http.ResponseWriter, r *http.Request) {
 
 	id, err := pg.SaveNotificationChannel(r.Context(), ch)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"id": id})
@@ -364,18 +364,18 @@ func (s *Server) notifyUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		prev := ch.Enabled
 		ch.Enabled = current.Enabled
 		if _, err := pg.SaveNotificationChannel(r.Context(), ch); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		if err := pg.SetNotificationChannelEnabled(r.Context(), id, *prev); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		writeJSON(w, 200, map[string]any{"id": id})
 		return
 	}
 	if _, err := pg.SaveNotificationChannel(r.Context(), ch); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"id": id})
@@ -437,7 +437,7 @@ func (s *Server) notifyTestChannel(w http.ResponseWriter, r *http.Request) {
 	// 由截断兜底，不涉及分段）。
 	if _, err := channel.Send(r.Context(), cfg, msg); err != nil {
 		// 把渠道返回的原始错误如实回给用户——这是他们调试配置的唯一线索。
-		writeErr(w, 502, err.Error())
+		writeErrRedacted(w, 502, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{
@@ -485,7 +485,7 @@ func (s *Server) notifyListDeliveries(w http.ResponseWriter, r *http.Request) {
 	pageSize := queryInt(r, "page_size", 50)
 	items, total, err := pg.ListNotificationDeliveries(r.Context(), f, page, pageSize)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	out := make([]notifyDeliveryDTO, 0, len(items))
@@ -518,5 +518,5 @@ func notifyChannelLookupErr(w http.ResponseWriter, err error) {
 		writeErr(w, 404, "通知渠道不存在")
 		return
 	}
-	writeErr(w, 500, err.Error())
+	writeErrRedacted(w, 500, err.Error())
 }

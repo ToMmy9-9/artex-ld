@@ -26,7 +26,7 @@ func (s *Server) listGoals(w http.ResponseWriter, r *http.Request) {
 	}
 	goals, err := t.Store.ListByKind(db.KindGoal, 10000)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"goals": goalDTOs(goals)})
@@ -65,7 +65,7 @@ func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := t.Store.AddGoal(payload, "human")
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if of, _ := t.Store.OriginFactID(); of > 0 && id > 0 {
@@ -115,7 +115,7 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	node, err := t.Store.GetNode(gid)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if node == nil || node.Kind != db.KindGoal {
@@ -124,7 +124,7 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	oldText := goalDTO(node).Text
 	if err := t.Store.UpdateGoalPayload(gid, text, strings.TrimSpace(body.VulnClass)); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	t.NotifyGoalEdited(oldText, text) // 记「人修改了目标由 old 变为 new」触发并唤醒 planner
@@ -158,7 +158,7 @@ func (s *Server) deleteGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	node, err := t.Store.GetNode(gid)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if node == nil || node.Kind != db.KindGoal {
@@ -167,7 +167,7 @@ func (s *Server) deleteGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	text := goalDTO(node).Text
 	if err := t.Store.DeleteGoal(gid); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	t.NotifyGoalDeleted(text) // 记「人删除了该目标:…」触发并唤醒 planner(不复活任务)

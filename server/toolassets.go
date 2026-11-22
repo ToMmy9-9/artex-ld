@@ -276,7 +276,7 @@ func (s *Server) toolAssetList(w http.ResponseWriter, r *http.Request) {
 	}
 	assets, err := pg.ListToolAssets()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if assets == nil {
@@ -341,7 +341,7 @@ func (s *Server) toolAssetDelete(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(dst)
 	}
 	if err := pg.DeleteToolAsset(id); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": id})
@@ -374,7 +374,7 @@ func (s *Server) toolAssetSetState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.UpdateToolAssetState(id, req.State); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"id": id, "state": req.State})
@@ -393,7 +393,7 @@ func (s *Server) toolAssetRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, err := pg.ListToolAssetRuns(id, 100)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if runs == nil {
@@ -601,13 +601,13 @@ func (s *Server) toolAssetClaim(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := pg.SetToolAssetContract(id, raw); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}
 	if err := pg.UpdateToolAssetMeta(id, req.Category, req.RiskLevel, req.Summary,
 		req.UsageExample, req.ProbeOutput, "tool_keeper"); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	updated, _ := pg.ToolAssetByID(id)
@@ -649,7 +649,7 @@ func (s *Server) toolAssetSetLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.SetToolAssetLimits(id, raw); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// Re-validate the existing contract against the new ceiling: tightening

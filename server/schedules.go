@@ -64,7 +64,7 @@ func (s *Server) scheduleDTO(item *db.TaskSchedule) map[string]any {
 func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
 	items, err := s.m.pg.ListTaskSchedules()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	dtos := []map[string]any{}
@@ -87,7 +87,7 @@ func (s *Server) getSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	history, err := s.m.pg.ListScheduleHistory(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	dto := s.scheduleDTO(item)
@@ -155,7 +155,7 @@ func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.m.pg.DeleteTaskSchedule(id); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -168,7 +168,7 @@ func (s *Server) setScheduleEnabled(w http.ResponseWriter, r *http.Request, enab
 		return
 	}
 	if err := s.m.pg.SetTaskScheduleEnabled(id, enabled); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if enabled {

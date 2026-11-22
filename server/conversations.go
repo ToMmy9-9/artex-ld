@@ -66,7 +66,7 @@ func (s *Server) pgListConversations(w http.ResponseWriter, r *http.Request) {
 	}
 	cs, err := pg.ListConversations()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	items := make([]conversationListItem, 0, len(cs))
@@ -102,7 +102,7 @@ func (s *Server) pgCreateConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := pg.GetAgentByKey(req.AgentKey)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if a == nil {
@@ -129,7 +129,7 @@ func (s *Server) pgCreateConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := pg.CreateConversation(req.AgentKey, title, req.LLMProfileID)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, c)
@@ -157,7 +157,7 @@ func (s *Server) pgUpdateConversation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := pg.UpdateConversationProfile(c.ID, req.LLMProfileID); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -176,7 +176,7 @@ func (s *Server) convByID(w http.ResponseWriter, r *http.Request) (*db.DB, *db.C
 	}
 	c, err := pg.GetConversation(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return nil, nil, false
 	}
 	if c == nil {
@@ -216,7 +216,7 @@ func (s *Server) pgRenameConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, err := pg.UpdateConversation(c.ID, db.ConversationPatch{Title: req.Title, Pinned: req.Pinned})
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if updated == nil {
@@ -234,7 +234,7 @@ func (s *Server) pgDeleteConversation(w http.ResponseWriter, r *http.Request) {
 	s.cancelConversation(c.ID)
 	s.cancelSideWhere(func(p sidequestion.Parent) bool { return p.ConversationID == c.ID })
 	if err := pg.DeleteConversation(c.ID); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": c.ID})
@@ -336,7 +336,7 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 		since, _ := strconv.ParseInt(sv, 10, 64)
 		items, cursor, err := pg.ConvActivityList(c.ID, since, max(limit, 1000))
 		if err != nil {
-			writeErr(w, 500, err.Error())
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 		writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "hasMore": false})
@@ -349,7 +349,7 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
 	items, hasMore, err := pg.ConvActivityPage(c.ID, before, limit)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	cursor := before
@@ -372,7 +372,7 @@ func (s *Server) pgConversationMsgDetail(w http.ResponseWriter, r *http.Request)
 	}
 	detail, err := pg.ConvActivityDetail(c.ID, seq)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"detail": detail})

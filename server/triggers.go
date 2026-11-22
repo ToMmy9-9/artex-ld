@@ -19,7 +19,7 @@ func (s *Server) pgListTriggers(w http.ResponseWriter, r *http.Request) {
 	}
 	trs, err := pg.ListTriggersFor(a.Key)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"triggers": trs})
@@ -83,7 +83,7 @@ func (s *Server) pgCreateTrigger(w http.ResponseWriter, r *http.Request) {
 		ToolCallMessage: req.ToolCallMessage, TaskCreateMessage: req.TaskCreateMessage, ToolNames: req.ToolNames,
 	})
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, tr)
@@ -118,7 +118,7 @@ func (s *Server) pgUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 		GoalMessage: req.GoalMessage, TaskTimeoutMessage: req.TaskTimeoutMessage,
 		ToolCallMessage: req.ToolCallMessage, TaskCreateMessage: req.TaskCreateMessage, ToolNames: req.ToolNames,
 	}); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -135,7 +135,7 @@ func (s *Server) pgDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.DeleteTrigger(id); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": id})

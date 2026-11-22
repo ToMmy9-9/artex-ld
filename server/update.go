@@ -291,7 +291,7 @@ func (s *Server) updateApply(w http.ResponseWriter, r *http.Request) {
 	defer client.CloseIdleConnections()
 	rel, err := relCache.get(r.Context(), client, false, network)
 	if err != nil {
-		writeErr(w, 502, err.Error())
+		writeErrRedacted(w, 502, err.Error())
 		return
 	}
 	cmp, comparable := selfupdate.CompareVersions(current, rel.TagName)

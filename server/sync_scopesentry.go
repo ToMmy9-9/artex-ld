@@ -100,7 +100,7 @@ func (s *Server) syncSSStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	m, err := s.findMCPByName(scopeSentryMCPName)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	resp := map[string]any{
@@ -153,7 +153,7 @@ func (s *Server) syncSSDatasource(w http.ResponseWriter, r *http.Request) {
 
 	m, err := s.findMCPByName(scopeSentryMCPName)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if m == nil {
@@ -171,7 +171,7 @@ func (s *Server) syncSSDatasource(w http.ResponseWriter, r *http.Request) {
 
 	id, err := pg.SaveMCP(m)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	m.ID = id

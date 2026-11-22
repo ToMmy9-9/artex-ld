@@ -43,7 +43,7 @@ func (s *Server) loadUpdateSettings() (updateSettings, error) {
 func (s *Server) getUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.loadUpdateSettings()
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, cfg)
@@ -61,7 +61,7 @@ func (s *Server) putUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if err := s.m.pg.SetSettingContext(r.Context(), updateSettingsKey, string(raw)); err != nil {

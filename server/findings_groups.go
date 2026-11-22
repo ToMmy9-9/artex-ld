@@ -61,7 +61,7 @@ func findingFilterFromQuery(q url.Values) db.FindingFilter {
 func (s *Server) findingAssetTree(w http.ResponseWriter, r *http.Request) {
 	tree, err := s.m.pg.BuildFindingAssetTree(findingFilterFromQuery(r.URL.Query()))
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, tree)
@@ -77,7 +77,7 @@ func (s *Server) findingGroups(w http.ResponseWriter, r *http.Request) {
 	limit := findingPaginationParam(q.Get("limit"), 10, 100)
 	groups, total, findingTotal, err := s.m.pg.ListFindingGroups(findingFilterFromQuery(q), page, limit)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// PostgreSQL owns paused/queued persistence. The live engine adds the same
@@ -136,7 +136,7 @@ func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 
 	finding, err := s.m.pg.GetFinding(id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	if finding == nil {
@@ -170,7 +170,7 @@ func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	queued, err := s.admitTask(t, "resume")
@@ -178,7 +178,7 @@ func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 		if rollbackErr := t.Store.DiscardOpenIntent(intentID); rollbackErr != nil {
 			err = errors.Join(err, fmt.Errorf("discard follow-up intent %d: %w", intentID, rollbackErr))
 		}
-		writeErr(w, 500, err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// The audit row committed atomically with the intent. Publish that exact row;
