@@ -30,6 +30,26 @@ import (
 // 定义在这里而非投递引擎里：它是状态机自身的策略，引擎只是执行者。
 const MaxNotifyAttempts = 3
 
+// NotificationDeliveryStates 是 state 的全部合法取值，顺序与界面筛选项一致。
+// 取值本身定义在 notification.go 的 NotifyState* 常量里，这里只负责枚举与校验。
+var NotificationDeliveryStates = []string{
+	NotifyStatePending, NotifyStateSending, NotifyStateSent, NotifyStateFailed, NotifyStateSkipped,
+}
+
+// IsNotificationDeliveryState 判断筛选参数是不是一个真实存在的投递状态。
+//
+// 存在的理由与 IsTaskArchiveState 相同：ListNotificationDeliveries 的 state 是
+// 精确匹配（state=$n），传进来一个不认识的词不会报错、只会返回空列表，
+// 界面上看起来就是"投递记录全没了"。
+func IsNotificationDeliveryState(state string) bool {
+	for _, s := range NotificationDeliveryStates {
+		if s == state {
+			return true
+		}
+	}
+	return false
+}
+
 // MaxDigestBatchSize 是单个汇总批次一次最多合并多少条投递。
 //
 // 存在的理由是资源：一个汇总周期内如果扫出几万个漏洞（完全可能——一次全量扫描

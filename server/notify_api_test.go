@@ -949,3 +949,62 @@ func TestNotifyTickBudgetFitsWithinLease(t *testing.T) {
 			worst, notifyLease, notifyMaxSendsPerChannelPerTick, notifySendTimeout)
 	}
 }
+
+// TestNotifyDeliveriesRejectsUnknownFilter 守住投递记录列表的筛选参数。
+//
+// state / event_kind 在 SQL 里都是精确匹配（state=$n），传进一个不认识的词
+// 既不报错也不匹配任何行，接口返回 total=0 —— 界面上看起来就是"投递记录全没了"。
+// 这与归档列表的 state 是同一类问题，处理方式也保持一致：白名单 + 400。
+func TestNotifyDeliveriesRejectsUnknownFilter(t *testing.T) {
+	f := newNotifyFixture(t)
+	f.createChannel(t, map[string]any{
+		"name":   "筛选校验",
+		"kind":   notify.KindDingTalk,
+		"config": map[string]any{"webhook": "http://127.0.0.1:1/hook"},
+	})
+	f.record(t, "筛选校验用漏洞", "high")
+	if _, _, err := f.pg.FanOutPendingEvents(context.Background(), 500); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ query, want string }{
+		{"state=bogus", "不支持的投递状态筛选"},
+		{"event_kind=bogus", "不支持的事件类型筛选"},
+	} {
+		r := f.request("GET", "/api/notify/deliveries?"+tc.query, "")
+		if r.Code != http.StatusBadRequest {
+			t.Fatalf("%s 应报 400，得到 %d：%s", tc.query, r.Code, r.Body)
+		}
+		if !strings.Contains(r.Body.String(), tc.want) {
+			t.Fatalf("%s 的提示应说明原因，得到 %s", tc.query, r.Body)
+		}
+	}
+
+	totalOf := func(body []byte) int {
+		var v struct {
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal(body, &v); err != nil {
+			t.Fatalf("解析响应失败：%v（%s）", err, body)
+		}
+		return v.Total
+	}
+
+	// "all" 是界面筛选下拉里的「全部状态」，必须等价于不传，不能被白名单当成非法值。
+	all := f.request("GET", "/api/notify/deliveries?state=all", "")
+	none := f.request("GET", "/api/notify/deliveries", "")
+	if all.Code != http.StatusOK || none.Code != http.StatusOK {
+		t.Fatalf("state=all 与不传都应 200，得到 %d / %d", all.Code, none.Code)
+	}
+	if totalOf(all.Body.Bytes()) != totalOf(none.Body.Bytes()) {
+		t.Fatalf("state=all 应与不传等价：all=%d none=%d",
+			totalOf(all.Body.Bytes()), totalOf(none.Body.Bytes()))
+	}
+
+	// 每个白名单里的状态都要真能筛：防止"白名单有、SQL 取值对不上"的错位。
+	for _, s := range db.NotificationDeliveryStates {
+		if r := f.request("GET", "/api/notify/deliveries?state="+s, ""); r.Code != http.StatusOK {
+			t.Fatalf("合法状态 %s 应可筛，得到 %d：%s", s, r.Code, r.Body)
+		}
+	}
+}

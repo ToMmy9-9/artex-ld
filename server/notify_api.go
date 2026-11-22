@@ -474,9 +474,25 @@ func (s *Server) notifyListDeliveries(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
+	// state / event_kind 在 SQL 里是精确匹配（state=$n），拼错的词既不报错也不匹配行，
+	// 返回 total=0 看起来就像"投递记录全没了"。所以这里先校验再查。
+	// "all" 是页面筛选下拉里的「全部」，等价于不传。
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	if state == "all" {
+		state = ""
+	}
+	if state != "" && !db.IsNotificationDeliveryState(state) {
+		writeErr(w, 400, "不支持的投递状态筛选："+state+"，请重新选择")
+		return
+	}
+	kind := strings.TrimSpace(r.URL.Query().Get("event_kind"))
+	if kind != "" && kind != notify.EventFindingCreated && kind != notify.EventFindingStatusChanged {
+		writeErr(w, 400, "不支持的事件类型筛选："+kind+"，请重新选择")
+		return
+	}
 	f := db.NotificationDeliveryFilter{
-		State:     r.URL.Query().Get("state"),
-		EventKind: r.URL.Query().Get("event_kind"),
+		State:     state,
+		EventKind: kind,
 	}
 	if v := r.URL.Query().Get("channel_id"); v != "" {
 		f.ChannelID = int64(atoiDefault(v, 0))

@@ -45,13 +45,30 @@ export interface CategoryLike {
 /** URL：带 scheme 的完整地址，取 host 部分。 */
 const RE_URL =
   /\bhttps?:\/\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?::\d{1,5})?(?:\/[^\s，。；、）)]*)?)/gi;
-/** CIDR：如 10.0.0.0/8。 */
-const RE_CIDR = /\b(?:\d{1,3}\.){3}\d{1,3}\/\d{1,2}\b/g;
+
+/**
+ * IPv4 单段：0-255，且不允许前导零（01.2.3.4 不是合法写法）。
+ *
+ * 必须校验范围，不能图省事写 \d{1,3}：那样 `999.999.999.999` 会被当成测试对象
+ * 写进任务的「测试对象」里，agent 会照着去测一个不存在的地址，白跑一轮。
+ */
+const OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+/** CIDR：如 10.0.0.0/8，掩码长度也要校验（0-32）。 */
+const RE_CIDR = new RegExp(`\\b${OCTET}(?:\\.${OCTET}){3}\\/(?:3[0-2]|[12]?\\d)\\b`, "g");
 /** 裸 IPv4（排除已作为 CIDR 一部分的情况由去重与顺序处理）。 */
-const RE_IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+const RE_IPV4 = new RegExp(`\\b${OCTET}(?:\\.${OCTET}){3}\\b`, "g");
 /** 域名：至少两段，最后一段是常见 TLD；允许前缀通配符与端口。 */
 const RE_DOMAIN =
   /\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|cn|net|org|io|co|gov|edu|info|biz|me|dev|app|xyz|top|site|online|tech|cloud|vip|cc|tv|hk|tw|jp|us|uk|de|ru|in|br|au|ca|fr)(?::\d{1,5})?\b/gi;
+
+/**
+ * 版本号抑制：紧邻在四段数字前面的「版本 / version / ver」说明它是版本号。
+ *
+ * 例：「版本 1.2.3.4 里面的逻辑有问题吗」—— 1.2.3.4 完全合法，单看格式分不出来，
+ * 只能看前文。注意 v1.2.3.4 这种写法本来就匹配不到（v 与 1 之间没有词边界），
+ * 所以这里只需处理带空格的中文/英文写法。
+ */
+const RE_VERSION_LEAD = /(?:版本号?|version|ver\.?)\s*$/i;
 
 /**
  * 从需求文本抽取目标资产，按在原文中出现的先后顺序返回。
@@ -88,8 +105,10 @@ export function extractAssets(text: string): string[] {
   });
 
   // 第二轮：裸 IPv4 与域名，扫的是被抹过的文本，但位置仍与原文一致
+  // （抹白是等长替换，所以 rest 的 offset 可以直接用来切 text）
   rest.replace(RE_IPV4, (full: string, offset: number) => {
-    take(full, offset);
+    const lead = text.slice(Math.max(0, offset - 10), offset);
+    if (!RE_VERSION_LEAD.test(lead)) take(full, offset);
     return full;
   });
   rest.replace(RE_DOMAIN, (full: string, offset: number) => {
@@ -142,6 +161,14 @@ const SCENE_HINTS: Array<{ scene: string; keywords: string[] }> = [
   {
     scene: "内网渗透",
     keywords: ["内网", "横向", "域控", "域内", "代理", "隧道", "frp", "c2", "免杀", "横向移动", "smb", "rdp"],
+  },
+  {
+    // 库里自带的「外网渗透」分类此前没有对应簇，等于永远不会被推荐：
+    // 「外网渗透一下 test.cn」「对 example.com 做渗透」都落到"不推荐"。
+    // 「渗透」单独放这里而不放进「漏洞挖掘」：后者已有更明确的「渗透测试」，
+    // 这样并列命中时（做渗透测试）仍按数组顺序归到漏洞挖掘。
+    scene: "外网渗透",
+    keywords: ["外网渗透", "外网", "渗透", "资产梳理", "资产测绘", "信息收集", "攻击面", "子域", "子域名"],
   },
   {
     scene: "权限提升",
@@ -224,7 +251,9 @@ export function buildDescriptionAndGoal(raw: string, assets: string[]): { descri
     // 原句里往往已经点了名（"测试 example.com 的登录接口…"）。此时再套一层
     // "对 example.com 完成…" 会变成 "对 example.com 完成example.com 的登录接口" ——
     // 重复一遍测试对象，读起来像机器拼接的。已经提过就直接接结论要求。
-    goal = text.includes(target) ? `${text}，并给出可复现的漏洞结论` : `对 ${target} 完成${text}，并给出可复现的漏洞结论`;
+    goal = text.includes(target)
+      ? `${text}，并给出可复现的漏洞结论`
+      : `对 ${target} 完成${text}，并给出可复现的漏洞结论`;
   } else {
     goal = text;
   }

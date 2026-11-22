@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "@/lib/api";
 import { type ParsedIntent, parseIntent } from "@/lib/intent-parse";
 import type { TaskCategory } from "@/lib/types";
@@ -50,7 +51,8 @@ export function IntentLauncher({ onAdvanced }: { onAdvanced?: () => void }) {
   const [editedGoal, setEditedGoal] = React.useState<string | null>(null);
   const [editedDesc, setEditedDesc] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState(false);
-  const [categoryId, setCategoryId] = React.useState<number | null>(null);
+  // null = 跟随系统推荐；"" = 用户明确选了"不指定"；其他 = 用户手选的分类 id
+  const [catPick, setCatPick] = React.useState<string | null>(null);
 
   // 场景列表用于推荐。失败不影响主流程（只是不推荐场景），所以静默降级。
   React.useEffect(() => {
@@ -66,16 +68,30 @@ export function IntentLauncher({ onAdvanced }: { onAdvanced?: () => void }) {
     const t = text.trim();
     if (!t) {
       setParsed(null);
-      setCategoryId(null);
+      setCatPick(null);
       return;
     }
     const p = parseIntent(t, categories);
     setParsed(p);
-    setCategoryId(p.suggestedCategoryId);
     // 用户尚未手工编辑时，跟着重新解析走（避免上次的编辑粘在新文本上）
+    setCatPick(null);
     setEditedGoal(null);
     setEditedDesc(null);
   }, [text, categories]);
+
+  const suggestedCategoryId = parsed?.suggestedCategoryId ?? null;
+  // 场景取值的优先级：用户手选 > 系统推荐 > 无
+  let categoryId: number | null = suggestedCategoryId;
+  if (catPick !== null) categoryId = catPick === "" ? null : Number(catPick);
+  const categoryOverridden = catPick !== null;
+  // ToggleGroup 的受控值："跟随推荐"时要映射成推荐项的 id，没有推荐就是空串（全不选）
+  let catValue = "";
+  if (catPick !== null) catValue = catPick;
+  else if (suggestedCategoryId !== null) catValue = String(suggestedCategoryId);
+  // 场景那一行右侧的说明，按"当前最该说的一句"来选
+  let sceneHint = "没识别到场景，可手选";
+  if (categoryOverridden) sceneHint = "已按你选的场景";
+  else if (suggestedCategoryId !== null) sceneHint = "系统推荐，可改";
 
   const finalGoal = editedGoal ?? parsed?.goal ?? "";
   const finalDesc = editedDesc ?? parsed?.description ?? "";
@@ -113,7 +129,7 @@ export function IntentLauncher({ onAdvanced }: { onAdvanced?: () => void }) {
           <div className="flex items-center gap-2">
             <SparklesIcon className="size-4 text-primary" />
             <div>
-              <div className="text-sm font-medium">说一句话，让它自己干</div>
+              <div className="font-medium text-sm">说一句话，让它自己干</div>
               <div className="text-[11px] text-muted-foreground">
                 写清「测什么 + 想要什么结果」即可，其余配置由系统按场景自动带出
               </div>
@@ -183,15 +199,37 @@ export function IntentLauncher({ onAdvanced }: { onAdvanced?: () => void }) {
               )}
             </div>
 
-            {parsed.suggestedReason && (
+            {/* 场景：推荐只是默认值。猜错了要能当场改掉，否则用户只能退到
+                「高级配置」重填一遍，这个入口的意义就没了。再点一次已选中的项
+                等于「不指定场景」。 */}
+            {categories.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-[11px] text-muted-foreground">场景</span>
+                <ToggleGroup
+                  type="single"
+                  value={catValue}
+                  onValueChange={(v) => setCatPick(v)}
+                  variant="outline"
+                  size="sm"
+                  spacing={0}
+                  className="flex-wrap"
+                  aria-label="任务场景"
+                >
+                  {categories.map((c) => (
+                    <ToggleGroupItem key={c.id} value={String(c.id)} className="h-6 px-2 text-[11px]">
+                      {c.name}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+                <span className="text-[10px] text-muted-foreground">{sceneHint}</span>
+              </div>
+            )}
+
+            {/* 为什么推荐 —— 只在推荐还生效时解释；用户已经改过就不用再解释原推荐 */}
+            {!categoryOverridden && parsed.suggestedReason && (
               <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                 <SparklesIcon className="size-3" />
                 {parsed.suggestedReason}
-                {categoryId !== null && (
-                  <Badge variant="outline" className="text-[10px]">
-                    {categories.find((c) => c.id === categoryId)?.name ?? "已选场景"}
-                  </Badge>
-                )}
                 {parsed.matchedKeywords.length > 0 && (
                   <span className="text-[10px] opacity-70">（{parsed.matchedKeywords.slice(0, 4).join("、")}）</span>
                 )}
