@@ -26,7 +26,8 @@
 ### Changed
 
 - `docs/开发环境注意事项.md` 补全本机 Go 环境的四个坑：`go vet` 卡死（必须 `-vet=off`）、
-  `D:\GoCache` 目录项 stat 退化到 116ms、跑大包测试应直接用测试二进制且 CWD 必须在包目录、
+  编译慢的真因是链接阶段遇上系统提交内存吃紧（附 hello-world 判别实验）、
+  跑大包测试应直接用测试二进制且 CWD 必须在包目录、
   `server` 包测试需要独立的 `ARTEX_PG_DSN` 库（含 psql 的真实路径）。
 
 
