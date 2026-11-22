@@ -221,7 +221,7 @@ func (s *Server) interceptCreateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	var req interceptRuleReq
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := validateInterceptRuleReq(req); err != nil {
@@ -249,7 +249,7 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	var req interceptRuleReq
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := validateInterceptRuleReq(req); err != nil {
@@ -297,7 +297,7 @@ func (s *Server) interceptToggleRule(w http.ResponseWriter, r *http.Request) {
 		Enabled bool `json:"enabled"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := pg.ToggleInterceptRule(id, req.Enabled); err != nil {
@@ -489,7 +489,7 @@ func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 		Decision string `json:"decision"` // "allowed" | "denied"
 	}
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if req.Decision != "allowed" && req.Decision != "denied" {
@@ -527,7 +527,7 @@ func (s *Server) interceptSetToolConfig(w http.ResponseWriter, r *http.Request) 
 		EnabledTools []string `json:"enabled_tools"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if req.EnabledTools == nil {
@@ -552,7 +552,7 @@ func (s *Server) interceptGetJudgeConfig(w http.ResponseWriter, r *http.Request)
 func (s *Server) interceptSetJudgeConfig(w http.ResponseWriter, r *http.Request) {
 	var raw json.RawMessage
 	if err := decode(r, &raw); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	var req intercept.JudgeConfig

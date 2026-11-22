@@ -267,7 +267,7 @@ func (s *Server) pgCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Key, Name, Description string }
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	req.Key, req.Name = strings.TrimSpace(req.Key), strings.TrimSpace(req.Name)
@@ -307,7 +307,7 @@ func (s *Server) pgUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Name, Description string }
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
@@ -565,7 +565,7 @@ func (s *Server) pgSavePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct{ Template, Note string }
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	vars, _ := pg.PromptVars(a.ID)
@@ -614,7 +614,7 @@ func (s *Server) pgSaveWrapup(w http.ResponseWriter, r *http.Request) {
 		MaxTurns *int   `json:"max_turns"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := pg.SetAgentWrapupPrompt(a.Key, body.Prompt); err != nil {
@@ -668,7 +668,7 @@ func (s *Server) pgSaveTaskTimeoutWrapup(w http.ResponseWriter, r *http.Request)
 		MaxTurns *int   `json:"max_turns"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	turns := a.TaskTimeoutWrapupMaxTurns // 未传则保留原值
@@ -773,7 +773,7 @@ func (s *Server) pgSetAgentVisibility(w http.ResponseWriter, r *http.Request) {
 		Skill []string `json:"skill"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := pg.SetAgentVisibilityKind(a.ID, "mcp", body.MCP); err != nil {
@@ -841,7 +841,7 @@ func (s *Server) pgUpdateTool(w http.ResponseWriter, r *http.Request) {
 		Enabled     bool            `json:"enabled"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	agents, _ := json.Marshal(body.Agents)
@@ -916,7 +916,7 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	var m db.MCPServer
 	if err := decode(r, &m); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	isNew := m.ID == 0
@@ -1131,7 +1131,7 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 		Instructions  string   `json:"instructions"`  // optional; scaffolded if empty
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if !validSkillName(body.Name) {
@@ -1204,7 +1204,7 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 		Compatibility *string   `json:"compatibility"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	skillMD := filepath.Join(s.skillDir, name, "SKILL.md")
@@ -1676,13 +1676,8 @@ func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 	if err := decode(r, &body); err != nil {
-		// 同 wsWrite：这个接口用 JSON 传整个文件正文，超 16MB 全局上限时
-		// 若不单独判断，用户只会看到裸的 "http: request body too large" 400。
-		if maxBytesExceeded(err) {
-			writeErr(w, 413, "文件内容超过 16MB 上限，请改用上传接口")
-			return
-		}
-		writeErr(w, 400, err.Error())
+		// 这个接口用 JSON 传整个文件正文，超限要报 413 而不是裸的解析错误。
+		writeDecodeErr(w, err)
 		return
 	}
 	skillPath := filepath.Join(s.skillDir, name)
@@ -1713,7 +1708,7 @@ func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	dir, errMsg := skillRelPath(body.Path)
@@ -1782,7 +1777,7 @@ func (s *Server) pgToggleSkillVisibility(w http.ResponseWriter, r *http.Request)
 		Visible   bool   `json:"visible"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	// 空/非法的 skill_name 与不存在的 agent_id 必须显式拒绝：此前会一路走到
@@ -1845,7 +1840,7 @@ func (s *Server) pgToggleVisibility(w http.ResponseWriter, r *http.Request) {
 		Visible    bool   `json:"visible"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := pg.ToggleVisibility(body.AgentID, body.Kind, body.ResourceID, body.Visible); err != nil {
@@ -1886,7 +1881,7 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 		Streaming *bool  `json:"streaming"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	p := body.LLMProfile
@@ -1941,7 +1936,7 @@ func (s *Server) pgSaveLLMRetryPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	var pol db.LLMRetryPolicy
 	if err := decode(r, &pol); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := pg.SetLLMRetryPolicy(pol); err != nil {
@@ -2013,7 +2008,7 @@ func (s *Server) pgActivateProfile(w http.ResponseWriter, r *http.Request) {
 		ID int64 `json:"id"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := pg.SetActiveProfile(body.ID); err != nil {
@@ -2054,7 +2049,7 @@ func (s *Server) pgLLMPoolReset(w http.ResponseWriter, r *http.Request) {
 		ID int64 `json:"id"` // 0 / omitted = all
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if body.ID > 0 {
@@ -2080,7 +2075,7 @@ func (s *Server) pgListModels(w http.ResponseWriter, r *http.Request) {
 		ProfileID *int64 `json:"profile_id"` // fallback: use stored key from this profile
 	}
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	provider := strings.TrimSpace(req.Provider)

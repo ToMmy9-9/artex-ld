@@ -41,7 +41,7 @@ func (s *Server) assetInterceptCreateRule(w http.ResponseWriter, r *http.Request
 	}
 	var req assetInterceptRuleReq
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := validateAssetInterceptRuleReq(&req); err != nil {
@@ -68,7 +68,7 @@ func (s *Server) assetInterceptUpdateRule(w http.ResponseWriter, r *http.Request
 	}
 	var req assetInterceptRuleReq
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := validateAssetInterceptRuleReq(&req); err != nil {
@@ -114,7 +114,7 @@ func (s *Server) assetInterceptToggleRule(w http.ResponseWriter, r *http.Request
 		Enabled bool `json:"enabled"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := pg.ToggleAssetInterceptRule(id, req.Enabled); err != nil {

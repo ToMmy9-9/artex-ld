@@ -134,3 +134,28 @@ func TestMaxBytesExceededOnlyMatchesLimitErrors(t *testing.T) {
 		t.Fatal("MaxBytesError 必须判定为超限")
 	}
 }
+
+func TestWriteDecodeErrMapsOversizeTo413(t *testing.T) {
+	// writeDecodeErr 是全仓 38 处 handler 的统一解码错误出口。
+	// 它必须把超限归成 413 并点明上限，否则用户看到的还是裸的读错误。
+	w := httptest.NewRecorder()
+	writeDecodeErr(w, &http.MaxBytesError{Limit: maxJSONBody})
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("超限 status=%d want 413", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "16MB") {
+		t.Fatalf("提示应含上限，实际：%s", w.Body.String())
+	}
+}
+
+func TestWriteDecodeErrKeepsOtherErrorsAs400(t *testing.T) {
+	// 反向：普通解析错误必须仍是 400，不能因为统一出口就都变成 413。
+	w := httptest.NewRecorder()
+	writeDecodeErr(w, &json.SyntaxError{})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("语法错误 status=%d want 400", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "16MB") {
+		t.Fatalf("语法错误不应提到体积上限：%s", w.Body.String())
+	}
+}

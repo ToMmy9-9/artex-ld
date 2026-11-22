@@ -65,7 +65,7 @@ func (s *Server) pgCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	var req triggerReq
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if req.IntervalSec < 0 {
@@ -101,7 +101,7 @@ func (s *Server) pgUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	var req triggerReq
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if req.IntervalSec < 0 {

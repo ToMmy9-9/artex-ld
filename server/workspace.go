@@ -148,14 +148,10 @@ func (s *Server) wsWrite(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 	if err := decode(r, &req); err != nil {
-		// 体积超限必须单独说清楚。decode 失败时 req.Path 是空串，会继续走到下面
-		// 的路径校验分支，最终回 "非法路径" —— 用户传了个大文件却被告知路径不对，
-		// 完全指不到真正的原因（实测 20MB 就是回这个）。
-		if maxBytesExceeded(err) {
-			writeErr(w, 413, "文件内容超过 16MB 上限，请改用上传接口")
-			return
-		}
-		writeErr(w, 400, err.Error())
+		// 这里必须早点返回。decode 失败时 req.Path 是空串，若继续往下走会撞上
+		// 路径校验，用户传了个大文件却被告知 "非法路径"，完全指不到真正原因
+		// （实测 20MB 就是回这个）。writeDecodeErr 会把它正确归成 413。
+		writeDecodeErr(w, err)
 		return
 	}
 	abs, ok := s.wsResolve(req.Path)
@@ -184,7 +180,7 @@ func (s *Server) wsMkdir(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	abs, ok := s.wsResolve(req.Path)

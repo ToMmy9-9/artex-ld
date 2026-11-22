@@ -20,6 +20,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -88,4 +89,25 @@ func limitRequestBody(next http.Handler) http.Handler {
 func maxBytesExceeded(err error) bool {
 	var mbe *http.MaxBytesError
 	return errors.As(err, &mbe)
+}
+
+// writeDecodeErr 是 JSON 解码失败的统一出口。
+//
+// 为什么要有它：全仓 38 处 handler 都是
+//
+//	if err := decode(r, &req); err != nil { writeErr(w, 400, err.Error()); return }
+//
+// 而 decode 只把超限暴露成读错误，于是用户传了大请求体时看到的是裸的
+// "http: request body too large" 加 400 —— 既没说是哪个上限，也没说该往哪走，
+// 还会让人误以为是自己写错了格式。逐处补 maxBytesExceeded 判断会在新增接口时
+// 继续漏，所以统一收在这里：超限回 413 并点明上限，其余错误保持原样。
+//
+// 不改变非超限错误的行为，因此调用方可以无脑替换原来那两行。
+func writeDecodeErr(w http.ResponseWriter, err error) {
+	if maxBytesExceeded(err) {
+		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf(
+			"请求正文超过 %dMB 上限，请精简内容或改用上传接口", maxJSONBody>>20))
+		return
+	}
+	writeErr(w, http.StatusBadRequest, err.Error())
 }

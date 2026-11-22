@@ -411,7 +411,7 @@ func (s *Server) pgSendConversationMessage(w http.ResponseWriter, r *http.Reques
 		Attachments []chatAttachment `json:"attachments,omitempty"` // 方式1 上传的文件(路径相对会话工作目录)
 	}
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	msg := strings.TrimSpace(req.Message)
