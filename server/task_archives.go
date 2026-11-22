@@ -548,7 +548,8 @@ func (s *Server) queueTaskArchivesBatch(w http.ResponseWriter, r *http.Request) 
 		archive, err := s.m.pg.QueueTaskArchive(numeric)
 		item := archiveBatchItem{ID: id, OK: err == nil, Queued: err == nil}
 		if err != nil {
-			item.Error = err.Error()
+			// 批量结果会以 "#id（原因）" 拼进 toast，原因同样要能看懂。
+			item.Error = archiveErrorMessage(err)
 		} else {
 			item.Archive = archive.ID
 		}
@@ -721,6 +722,34 @@ func topoTaskIDs(ids []string, sources map[string][]string, restore bool) []stri
 	return ordered
 }
 
+// archiveErrorMessage 把归档相关的哨兵错误翻成用户能照着做的中文。
+//
+// 为什么要翻：这些错误原本直接 err.Error() 透传，前端 toast 拼的是
+// "归档失败：" + 原文，于是中文界面上出现
+//   "归档失败：queued task must be paused before archiving"
+// 用户既看不懂，也不知道下一步该点哪里。这些错误都是可预期的操作前置条件，
+// 不是内部故障，所以逐个说清楚"现在为什么不行、要怎么做"。
+// 未识别的错误保持原文 —— 那才是真正需要照着原文排查的异常。
+func archiveErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, pgdb.ErrTaskArchiveNotFound):
+		return "归档不存在或已被删除"
+	case errors.Is(err, pgdb.ErrTaskArchiveQueued):
+		return "任务还在并发队列里排队，请先暂停它再归档"
+	case errors.Is(err, pgdb.ErrTaskArchiveIneligible):
+		return "任务需要先暂停、或已经结束，才能归档"
+	case errors.Is(err, pgdb.ErrTaskArchiveDependent):
+		return "这个任务的结果正被其它未归档的任务继承，请先处理那些下游任务"
+	case errors.Is(err, pgdb.ErrTaskArchiveDeleteBlocked):
+		return "这个归档仍被其它归档引用，无法删除"
+	case errors.Is(err, pgdb.ErrTaskArchiveFormatMismatch):
+		return "不支持的归档格式"
+	case errors.Is(err, pgdb.ErrTaskArchiveState):
+		return "归档当前状态不允许该操作，请刷新后重试"
+	}
+	return err.Error()
+}
+
 func writeArchiveError(w http.ResponseWriter, err error) {
 	status := http.StatusConflict
 	if errors.Is(err, pgdb.ErrTaskArchiveNotFound) {
@@ -732,5 +761,5 @@ func writeArchiveError(w http.ResponseWriter, err error) {
 		!errors.Is(err, pgdb.ErrTaskArchiveDeleteBlocked) {
 		status = http.StatusInternalServerError
 	}
-	writeErr(w, status, err.Error())
+	writeErr(w, status, archiveErrorMessage(err))
 }

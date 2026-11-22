@@ -47,6 +47,13 @@ func TestAppendFindingToTaskSameAsset(t *testing.T) {
 		t.Fatal(err)
 	}
 	parentID := mustTaskID(t, parent.ID)
+	// 同 dispatch_assets：不清理会以 live+queued 残留，占满准入队列。
+	// 父任务先注册，子任务后注册，清理时（后进先出）先删子再删父。
+	t.Cleanup(func() {
+		if err := m.pg.DeleteTask(parentID); err != nil {
+			t.Errorf("清理父任务 %d 失败：%v", parentID, err)
+		}
+	})
 	if _, err := m.pg.SeedTaskCategoryPresetIfEmpty("内网渗透", true, 0, 0, false, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +87,12 @@ func TestAppendFindingToTaskSameAsset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	childID := mustTaskID(t, child.ID)
+	t.Cleanup(func() {
+		if err := m.pg.DeleteTask(childID); err != nil {
+			t.Errorf("清理子任务 %d 失败：%v", childID, err)
+		}
+	})
 	// 不再要求直接父子血缘；资产登记才是追加依据。
 	child.ParentRef = "999999"
 	child.CategoryName = category.NKey

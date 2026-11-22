@@ -716,6 +716,11 @@ func TestTaskLLMResolutionReportsDatabaseFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 这个用例会主动关闭连接池，所以清理必须赶在 Close 之前做 ——
+	// 否则任务会以 live+queued 留在共享库里，占满准入队列影响后续用例。
+	if err := m.pg.DeleteTask(mustTaskID(t, task.ID)); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.pg.Close(); err != nil {
 		t.Fatal(err)
 	}

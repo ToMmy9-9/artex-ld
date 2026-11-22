@@ -39,6 +39,16 @@ func TestCheckInternalAssetTaskUsesFindingAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	parentID := mustTaskID(t, parent.ID)
+	// 共享同一个 PG 跑测试，不清理的话这些任务会以 live+queued 长期残留，
+	// 占满准入队列，让后续测试新建的任务也被排队（历史上累积过 20 多个）。
+	// t.Cleanup 是后进先出，所以父任务先注册、子任务后注册，清理时先删子再删父。
+	// 用 DeleteTask 而不是裸 DELETE：父子任务有 task_relations 外键，
+	// 裸 DELETE 会静默失败（之前就是被 _, _ = 吞了，残留越积越多）。
+	t.Cleanup(func() {
+		if err := m.pg.DeleteTask(parentID); err != nil {
+			t.Errorf("清理父任务 %d 失败：%v", parentID, err)
+		}
+	})
 	stamp := time.Now().UnixNano()
 	firstIP := fmt.Sprintf("198.51.%d.%d", (stamp/200)%200+1, stamp%200+1)
 	lastOctet := stamp%200 + 2
@@ -103,6 +113,12 @@ func TestCheckInternalAssetTaskUsesFindingAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	childID := mustTaskID(t, child.ID)
+	t.Cleanup(func() {
+		if err := m.pg.DeleteTask(childID); err != nil {
+			t.Errorf("清理子任务 %d 失败：%v", childID, err)
+		}
+	})
 	s.backfillTaskDispatchTargets()
 	res, err := s.toolCheckInternalAssetTask().Call(context.Background(), json.RawMessage(
 		fmt.Sprintf(`{"finding_id":%d,"target_asset":%q}`, findingID, firstIP)), nil)

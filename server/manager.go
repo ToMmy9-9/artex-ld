@@ -1512,12 +1512,28 @@ func (m *Manager) SetTaskPaused(id string, paused bool) error {
 	if err != nil {
 		return err
 	}
+	// 【暂停即出队】用户暂停一个还挂在并发队列里的任务时，必须同时把它摘出队列。
+	// 否则会留下 paused+queued 的组合，而下游两处都拒绝这种状态：
+	//   - QueueTaskArchive 见到 queued 直接回 ErrTaskArchiveQueued，任务永远无法归档；
+	//   - StartTaskRunSegment 的 WHERE 带 NOT queued，恢复运行也起不来。
+	// 再叠加 reconcileConcurrency 会跳过 paused 任务，于是它既不会被自动推进，
+	// 也不会被自动出队 —— 用户只能靠"配好 LLM 让它先跑起来"才能脱身。
+	// clearMode=false 保留 queue_mode，之后恢复时仍能按原语义 bootstrap/resume。
+	if paused {
+		if err := m.pg.Dequeue(n, false); err != nil {
+			return err
+		}
+	}
 	m.mu.Lock()
 	if t := m.tasks[id]; t != nil {
 		t.updateLifecycle(func(state *taskLifecycleState) {
 			state.Paused = paused
 			state.ActiveRunSeconds = active
 			state.RunSegmentStartedAt = unixOrZero(started)
+			if paused {
+				state.Queued = false
+				state.QueuedAt = 0
+			}
 		})
 	}
 	m.mu.Unlock()
