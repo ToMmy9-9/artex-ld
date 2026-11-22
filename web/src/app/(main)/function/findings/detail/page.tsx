@@ -81,7 +81,8 @@ function FindingDetailInner() {
   const [reportGenerating, setReportGenerating] = React.useState(false);
   const [autoChatOpen, setAutoChatOpen] = React.useState(false);
   const [reportChatOpen, setReportChatOpen] = React.useState(false);
-  const title = finding?.name || finding?.vulnclass || "未分类";
+  // 与列表页同一套兜底：name 缺失时用摘要，别让英文 vulnclass 占着标题位置。
+  const title = finding?.name || finding?.summary || finding?.vulnclass || "未分类";
 
   const load = React.useCallback(() => {
     const seq = ++loadSeq.current;

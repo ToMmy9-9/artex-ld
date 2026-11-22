@@ -235,6 +235,12 @@ export function FindingsTable({
           if (row.case) return <FindingFolderTableRows key={`case:${row.case.id}`} row={row} shared={shared} />;
           const f = row.finding;
           if (!f) return null;
+          // 标题兜底：worker 写库时不一定填 name，落到 vulnclass 上就是
+          // unauthorized_api / info_leak 这种英文标识当标题，中文界面里看着
+          // 就像一条"没有内容的漏洞"。摘要至少是人话，优先于分类名。
+          const rowTitle = f.name || f.summary || f.vulnclass || "未分类";
+          // 标题已经用了摘要时不再在下面重复一遍。
+          const summaryLine = f.name ? f.summary : "";
           const rowKey = findingRowKey(f);
           const open = expandedKey === rowKey;
           const retest = f.finding_id ? activeRetests[f.finding_id] : undefined;
@@ -281,12 +287,14 @@ export function FindingsTable({
                         className="truncate font-medium hover:text-primary hover:underline"
                         title="查看发现详情"
                       >
-                        {f.name || f.vulnclass || "未分类"}
+                        {rowTitle}
                       </Link>
                     ) : (
-                      <span className="truncate font-medium">{f.name || f.vulnclass || "未分类"}</span>
+                      <span className="truncate font-medium">{rowTitle}</span>
                     )}
-                    <span className="truncate text-xs text-muted-foreground">{f.summary}</span>
+                    {summaryLine ? (
+                      <span className="truncate text-muted-foreground text-xs">{summaryLine}</span>
+                    ) : null}
                     {matchedIds && !matchedIds.includes(Number(f.finding_id)) ? (
                       <Badge variant="outline" className="w-fit">
                         未命中当前筛选
@@ -372,7 +380,7 @@ export function FindingsTable({
                             <AlertDialogDescription className="break-words">
                               「
                               <span className="break-all">
-                                {f.name || f.vulnclass || f.summary || `#${f.finding_id}`}
+                                {f.name || f.summary || f.vulnclass || `#${f.finding_id}`}
                               </span>
                               」将被永久删除， 同时从发现列表、任务发现 Tab 与探索图中移除，此操作不可撤销。
                             </AlertDialogDescription>

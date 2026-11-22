@@ -1242,7 +1242,7 @@ export default function FindingsPage() {
         <FindingRetestDialog
           key={retestFinding.finding_id}
           findingId={retestFinding.finding_id}
-          findingName={retestFinding.name || retestFinding.vulnclass || retestFinding.summary}
+          findingName={retestFinding.name || retestFinding.summary || retestFinding.vulnclass}
           onStarted={(retest) => {
             const findingId = retestFinding.finding_id;
             if (!findingId || retest.conversation_id == null || !["pending", "running"].includes(retest.status)) return;
@@ -1272,7 +1272,7 @@ export default function FindingsPage() {
             <DialogTitle>深入利用漏洞</DialogTitle>
             <DialogDescription className="break-words">
               将在原任务 #{deepenFinding?.task_id} 中创建优先级 10 的 Worker 意图，基于当前漏洞开展二次验证：
-              {deepenFinding?.name || deepenFinding?.vulnclass || deepenFinding?.summary}
+              {deepenFinding?.name || deepenFinding?.summary || deepenFinding?.vulnclass}
             </DialogDescription>
           </DialogHeader>
           <FieldGroup>
