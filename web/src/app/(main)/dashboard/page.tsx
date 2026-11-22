@@ -11,6 +11,7 @@
 import * as React from "react";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import {
   ActivityIcon,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
+import { IntentLauncher } from "@/app/(main)/dashboard/_components/intent-launcher";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -166,6 +168,7 @@ function SectionTitle({
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const router = useRouter();
   // data state
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [findings, setFindings] = React.useState<Finding[]>([]);
@@ -534,6 +537,11 @@ export default function DashboardPage() {
           <SystemResourceStatus metrics={systemMetrics} />
         </div>
       </div>
+
+      {/* ── 意图入口：一句话开跑，排在状态看板之前 ──
+          顺序是刻意的。落地页原本第一屏是 token 用量与任务统计 —— 那是"系统过得怎么样"，
+          对第一次来的人毫无用处。用户真正要的是"我现在要干一件事"。所以先给入口，再给状态。 */}
+      <IntentLauncher onAdvanced={() => router.push("/function/tasks")} />
 
       {/* ── Row 1: 5 stat cards ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

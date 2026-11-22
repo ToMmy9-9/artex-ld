@@ -92,3 +92,4 @@ Thumbs.db
 # 本地临时启动脚本（本机调试用，不入库）
 .workbuddy-run.ps1
 .run-probe.ps1
+.run-ui.ps1
