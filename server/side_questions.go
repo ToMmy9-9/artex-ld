@@ -257,6 +257,18 @@ func (s *Server) drainTaskSideQuestions(ctx context.Context, taskID string) erro
 	return nil
 }
 
+// sideDrainMessage 把排空失败翻成用户能看懂的一句。
+//
+// drainTaskSideQuestions 只会返回两种原因：等不到收尾（ctx 到期）与最新检查点
+// 还没落盘（本身已是中文）。前者的 "context deadline exceeded" 是 Go 运行时措辞，
+// 不能出现在界面上。
+func sideDrainMessage(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "等待旁路问答收尾超时，操作已取消，请稍后重试"
+	}
+	return err.Error()
+}
+
 func (s *Server) cancelWorkerSide(taskID string, expID, iid int64) {
 	if s.side == nil {
 		return

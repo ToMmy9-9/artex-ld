@@ -180,7 +180,8 @@ func (s *Server) pgDeleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.drainTaskSideQuestions(drainCtx, id); err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
+		// 排空超时原本会把 "context deadline exceeded" 直接甩给用户。
+		writeErr(w, http.StatusConflict, sideDrainMessage(err))
 		return
 	}
 	result, err := s.m.DeleteTask(id, opts)
@@ -212,7 +213,10 @@ func (s *Server) pgDeleteTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeCommittedTaskDelete(w http.ResponseWriter, result DeleteTaskResult, err error) {
-	result.CleanupWarning = err.Error()
+	// 数据库行已经删掉、任务不会复活，这条只是告诉用户外部数据没清干净。
+	// 原文可能带本地绝对路径或驱动措辞，只进日志；给客户端的必须是一句人话。
+	log.Printf("[task-delete] 数据库已提交但外部数据清理未完成: %v", err)
+	result.CleanupWarning = taskDeleteCleanupMessage(err)
 	writeJSON(w, http.StatusOK, result)
 }
 

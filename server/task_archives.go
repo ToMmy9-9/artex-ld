@@ -145,7 +145,9 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 		return errors.New("任务仍有运行中的 Agent，请先暂停后重试归档")
 	}
 	if err := s.drainTaskSideQuestions(drainCtx, taskID); err != nil {
-		return err
+		// 超时原文是 "context deadline exceeded"，这条错误会落到归档作业的
+		// error 列上并被界面渲染，必须先翻成中文。
+		return errors.New(sideDrainMessage(err))
 	}
 	task, err := s.m.pg.GetTask(job.TaskID)
 	if err != nil {
@@ -451,7 +453,18 @@ func validateArchivePath(dataDir, candidate string) error {
 func (s *Server) listTaskArchives(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	result, err := s.m.pg.ListTaskArchives(r.URL.Query().Get("q"), r.URL.Query().Get("state"), page, size)
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	// "all" 是页面筛选下拉里的「全部状态」，等价于不传。
+	if state == "all" {
+		state = ""
+	}
+	// 不认识的取值必须报错。state 是精确匹配，静默放过只会返回 0 条，
+	// 用户看到「0 个归档」会以为归档数据丢了 —— 这比报错难查得多。
+	if state != "" && !pgdb.IsTaskArchiveState(state) {
+		writeErr(w, 400, "不支持的归档状态筛选："+state+"，请重新选择")
+		return
+	}
+	result, err := s.m.pg.ListTaskArchives(r.URL.Query().Get("q"), state, page, size)
 	if err != nil {
 		writeErrRedacted(w, 500, err.Error())
 		return

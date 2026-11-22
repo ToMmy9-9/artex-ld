@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -348,7 +349,10 @@ func TestTaskChatUploadRejectsDeleteBarrierBeforeCreatingDirectory(t *testing.T)
 func TestCommittedTaskDeleteReturnsSuccessWithCleanupWarning(t *testing.T) {
 	rec := httptest.NewRecorder()
 	result := DeleteTaskResult{Deleted: "7", FilesDeleted: true}
-	err := &taskDeleteCommittedError{err: errors.New("remove staged task files: permission denied")}
+	// 生产里这个 cause 由 DeleteTask 用哨兵包过（errCleanupTaskFiles），
+	// 这里照抄那层包装，才能验证到"说清是哪一块没清干净"。
+	err := &taskDeleteCommittedError{err: fmt.Errorf("%w：%w",
+		errCleanupTaskFiles, errors.New("remove staged task files: permission denied"))}
 
 	writeCommittedTaskDelete(rec, result, err)
 	if rec.Code != http.StatusOK {
@@ -358,7 +362,17 @@ func TestCommittedTaskDeleteReturnsSuccessWithCleanupWarning(t *testing.T) {
 	if decodeErr := json.NewDecoder(rec.Body).Decode(&got); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	if got.Deleted != "7" || !got.FilesDeleted || !strings.Contains(got.CleanupWarning, "cleanup incomplete") {
+	if got.Deleted != "7" || !got.FilesDeleted || !hasCJK(got.CleanupWarning) {
 		t.Fatalf("unexpected response: %+v", got)
+	}
+	// 修复前这字段是原文 "task deletion committed; external cleanup incomplete: ..."，
+	// 前端把它拼在「部分外部数据清理未完成：」后面，用户看到的是一句半截英文。
+	for _, leak := range []string{"cleanup incomplete", "task deletion", "permission denied"} {
+		if strings.Contains(got.CleanupWarning, leak) {
+			t.Fatalf("清理告警不该透出英文原文 %q：%q", leak, got.CleanupWarning)
+		}
+	}
+	if !strings.Contains(got.CleanupWarning, "任务文件") {
+		t.Fatalf("应说清是哪一块没清干净：%q", got.CleanupWarning)
 	}
 }

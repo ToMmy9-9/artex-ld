@@ -2155,12 +2155,12 @@ func (m *Manager) DeleteTask(id string, opts DeleteTaskOptions) (DeleteTaskResul
 	var finalizeErrs []error
 	if trafficStage != nil {
 		if err := trafficStage.Commit(); err != nil {
-			finalizeErrs = append(finalizeErrs, fmt.Errorf("finalize traffic deletion: %w", err))
+			finalizeErrs = append(finalizeErrs, fmt.Errorf("%w：%w", errCleanupTrafficHotStore, err))
 		}
 	}
 	if fileStage != nil {
 		if err := fileStage.commit(); err != nil {
-			finalizeErrs = append(finalizeErrs, fmt.Errorf("finalize task file deletion: %w", err))
+			finalizeErrs = append(finalizeErrs, fmt.Errorf("%w：%w", errCleanupTaskFiles, err))
 		}
 	}
 	m.forgetTask(id, n)
@@ -2170,15 +2170,41 @@ func (m *Manager) DeleteTask(id string, opts DeleteTaskOptions) (DeleteTaskResul
 	return result, nil
 }
 
+// 删除已提交（数据库行已经没了）之后，外部存储清理失败的分类。
+// 分门别类是为了让界面能说清"哪一块没清干净"，而不是丢给用户一句英文原文。
+var (
+	errCleanupTrafficHotStore = errors.New("流量热存储未能清理")
+	errCleanupTaskFiles       = errors.New("任务文件未能清理")
+)
+
 // taskDeleteCommittedError means PostgreSQL deletion succeeded but purging one
 // of the recoverable staging directories failed. The task must stay deleted.
 type taskDeleteCommittedError struct{ err error }
 
 func (e *taskDeleteCommittedError) Error() string {
-	return "task deletion committed; external cleanup incomplete: " + e.err.Error()
+	return "任务已从数据库删除，但外部数据清理未完成：" + e.err.Error()
 }
 
 func (e *taskDeleteCommittedError) Unwrap() error { return e.err }
+
+// taskDeleteCleanupMessage 是给界面看的那一句：哪一块没清干净、需不需要人动手。
+//
+// 前端会把它拼在「部分外部数据清理未完成：」后面，所以这里不再重复这半句；
+// 底层 os 错误（常带本地绝对路径）只进日志，不能跟着响应出去。
+func taskDeleteCleanupMessage(err error) string {
+	var detail string
+	switch {
+	case errors.Is(err, errCleanupTrafficHotStore) && errors.Is(err, errCleanupTaskFiles):
+		detail = "流量热存储与任务文件都没能删除"
+	case errors.Is(err, errCleanupTrafficHotStore):
+		detail = "流量热存储没能删除"
+	case errors.Is(err, errCleanupTaskFiles):
+		detail = "任务文件没能删除"
+	default:
+		detail = "外部数据没能删除"
+	}
+	return detail + "，任务本身已删除，残留需手工清理"
+}
 
 func rollbackTaskDelete(cause error, trafficStage *traffic.HostDeleteStage, fileStage *taskFileDeleteStage) error {
 	errs := []error{cause}

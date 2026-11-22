@@ -54,6 +54,27 @@ const (
 	DeleteFailed  = "delete_failed"
 )
 
+// ArchiveStates 是 task_archives.state 的全部合法取值，顺序与页面筛选下拉一致。
+var ArchiveStates = []string{
+	ArchiveQueued, Archiving, ArchiveFailed, ArchiveReady,
+	RestoreQueued, Restoring, RestoreFailed,
+	DeleteQueued, Deleting, DeleteFailed,
+}
+
+// IsTaskArchiveState 判断筛选参数是不是一个真实存在的归档状态。
+//
+// 存在的理由：ListTaskArchives 的 state 是精确匹配，传进来一个不认识的词
+// 不会报错、只会返回空列表，界面上看起来就是"归档全没了"。
+// 所以 HTTP 入口必须先过这个白名单，不许把拼错的词悄悄当成"没有数据"。
+func IsTaskArchiveState(state string) bool {
+	for _, s := range ArchiveStates {
+		if s == state {
+			return true
+		}
+	}
+	return false
+}
+
 var (
 	ErrTaskArchiveNotFound       = errors.New("task archive not found")
 	ErrTaskArchiveIneligible     = errors.New("task must be paused or terminal before archiving")
