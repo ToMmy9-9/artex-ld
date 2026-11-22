@@ -1779,7 +1779,32 @@ func (s *Server) pgToggleSkillVisibility(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if err := pg.ToggleSkillVisibility(body.AgentID, body.SkillName, body.Visible); err != nil {
+	// 空/非法的 skill_name 与不存在的 agent_id 必须显式拒绝：此前会一路走到
+	// ToggleSkillVisibility 并返回 200{"ok":true}，前端据此以为设置成功，实际什么都没写。
+	// 不存在的 agent_id 之前还会把外键冲突的原文（表名、约束名、SQLSTATE）当 500 回吐，
+	// 既泄漏 schema 又用错状态码（这是客户端输入问题，不是服务端故障）。
+	// skill_name 会作为 agent_skill_visibility 的键长期留存，复用 validSkillName 的
+	// 目录名安全约束，避免把带分隔符/点/空白的脏名字写进表里。
+	name := strings.TrimSpace(body.SkillName)
+	if name == "" {
+		writeErr(w, 400, "skill_name 不能为空")
+		return
+	}
+	if !validSkillName(name) {
+		writeErr(w, 400, "skill_name 不合法：需 1-64 字符、以字母开头、仅含字母数字与单个连字符")
+		return
+	}
+	if body.AgentID <= 0 {
+		writeErr(w, 400, "agent_id 必须为正整数")
+		return
+	}
+	if err := pg.ToggleSkillVisibility(body.AgentID, name, body.Visible); err != nil {
+		// 外键冲突 = agent 不存在。走结构化判断（engine.go 的 isFKViolation）而不是
+		// 匹配错误串：驱动改文案、改本地化措辞都会让字符串匹配悄悄失效。
+		if isFKViolation(err) {
+			writeErr(w, 404, "agent 不存在")
+			return
+		}
 		writeErr(w, 500, err.Error())
 		return
 	}
