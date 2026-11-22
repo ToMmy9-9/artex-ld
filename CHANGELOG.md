@@ -4,6 +4,32 @@
 
 版本说明：`artex-ld` 从 `0.1.2` 起使用独立版本序列。Release 名称为 **artex-ld 0.2.0**，Git Tag 为 **v0.2.0**。`0.3.16`–`0.3.18` 是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的上游条目（合并带入）；`0.3.15` 及更早内容是 [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) 历史。
 
+## [Unreleased]
+
+### Fixed
+
+- **新部署不给 worker / pentest 绑定方法论 skill**（`db/db.go`）。移植进来的 6 个 PTS skill
+  （fingerprint-finder / api-tester / sensitive-info-leak / route-guard-bypass /
+  response-modifier / tool-arsenal）只在 `b941a95` 里落了文件，`builtinSkillVisibility`
+  仅登记了 `api-recon`，`seedPlannerSkillVisibility` 也只管 planner。结果是全新部署下
+  worker 与 pentest 的工具集里只有 `api-recon` —— 方法论 skill 文件在磁盘上却永远加载
+  不到，等价于没装；agent 因此不会去派发需要这些方法的子任务。生产库看起来正常，是因为
+  历史上有人在 UI 里手工勾选过，属幸存者偏差。
+  该缺陷从 `b941a95` 起被 `skills_injection_test.go` 的断言覆盖，但那条测试有
+  `ARTEX_PG_DSN` 前置守卫，而仓库不带 `config.json`、本机也从未设过该变量，测试一直
+  静默跳过，所以从未暴露。
+- **Markdown 报告信息头丢失客户名与项目名**（`reportx/md.go`）。docx 通道由
+  `report_builder.py` 渲染封面，客户名 / 项目名齐全；纯 Go 的 md 通道只写了出具方、
+  日期、版本与统计，客户名和项目名两个字段从头到尾没有被写入。抽出 `markdownHeader`
+  纯函数并补 5 条单测覆盖。
+
+### Changed
+
+- `docs/开发环境注意事项.md` 补全本机 Go 环境的四个坑：`go vet` 卡死（必须 `-vet=off`）、
+  `D:\GoCache` 目录项 stat 退化到 116ms、跑大包测试应直接用测试二进制且 CWD 必须在包目录、
+  `server` 包测试需要独立的 `ARTEX_PG_DSN` 库（含 psql 的真实路径）。
+
+
 ## [0.2.0] - 2026-11-20
 
 整合 RuoJi6/ARTEX v0.3.27 与 AntiFox v2.0 的能力进 artex-ld，保留 artex-ld 自身的四个可控点。

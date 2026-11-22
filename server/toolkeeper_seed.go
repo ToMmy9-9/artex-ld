@@ -139,7 +139,6 @@ func (s *Server) seedToolKeeperTools() {
 	}
 }
 
-
 // seedPlannerSkillVisibility binds a small set of method skills to the planner.
 //
 // The planner is the decision maker: it reads the exploration graph and
@@ -149,7 +148,8 @@ func (s *Server) seedToolKeeperTools() {
 // that would use them.
 //
 // Only a few are bound: the planner's context budget goes to the graph, not
-// to methodology. The worker keeps the full set.
+// to methodology. The worker keeps the full set — that binding lives in
+// db.builtinSkillVisibility (applied by db.Open), not here.
 func (s *Server) seedPlannerSkillVisibility() {
 	pg := s.m.pg
 	if pg == nil {

@@ -381,6 +381,20 @@ ON CONFLICT DO NOTHING`, r.kind, r.pattern, r.note); err != nil {
 // that MCP is enabled/configured.
 var builtinSkillVisibility = map[string][]string{
 	"api-recon": {"auto", "pentest", "worker"},
+
+	// 下列 6 个 PTS 方法论 skill 随仓库一起交付（skills/<name>/*.md）。它们必须
+	// 在全新部署时默认绑定到真正执行任务的 worker / pentest，否则文件在磁盘上
+	// 却永远不出现在 agent 的工具集里 —— 等价于没装。auto 是触发式入口，只保留
+	// api-recon 这类轻量侦察能力，不绑方法论大件，避免每轮都塞满上下文预算。
+	//
+	// planner 的绑定不走这张表，见 server.seedPlannerSkillVisibility：planner 的
+	// 上下文预算优先给探索图，只挑其中 5 个（不含 response-modifier）。
+	"fingerprint-finder":  {"pentest", "worker"},
+	"api-tester":          {"pentest", "worker"},
+	"sensitive-info-leak": {"pentest", "worker"},
+	"route-guard-bypass":  {"pentest", "worker"},
+	"response-modifier":   {"pentest", "worker"},
+	"tool-arsenal":        {"pentest", "worker"},
 }
 
 // seedBuiltinSkillVisibility binds the shipped built-in skills to their default
