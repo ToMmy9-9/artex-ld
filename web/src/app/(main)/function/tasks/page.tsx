@@ -175,6 +175,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { archivePhaseLabel } from "@/lib/archive-phase";
 import {
   getLocalStorageValue,
   setLocalStorageValue,
@@ -2702,7 +2703,7 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
                           </p>
                         ))}
                         <span className="text-muted-foreground text-xs">
-                          {archive.phase} · {archive.progress}%
+                          {archivePhaseLabel(archive.phase)} · {archive.progress}%
                         </span>
                       </div>
                     </TableCell>

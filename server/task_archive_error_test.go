@@ -13,8 +13,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	pgdb "artex/db"
@@ -55,11 +57,178 @@ func TestArchiveErrorMessageMentionsDownstreamForDependent(t *testing.T) {
 }
 
 func TestArchiveErrorMessageFallsBackToOriginalForUnknown(t *testing.T) {
-	// 未识别的错误保持原文 —— 那才是需要照着原文排查的真实异常，
-	// 翻成泛化中文反而会丢掉线索。
+	// 纯映射函数对未知错误保持原文 —— 它只用于日志/内部拼装；
+	// 有 HTTP 出口的地方走 archiveRequestMessage / writeArchiveError，不会把原文给用户。
 	err := errors.New("connection reset by peer")
 	if got := archiveErrorMessage(err); got != err.Error() {
 		t.Fatalf("未知错误应保持原文，实际：%q", got)
+	}
+}
+
+func TestArchiveErrorSentinelsAreAllRecognized(t *testing.T) {
+	// 哨兵清单与翻译 switch 必须同步：漏一条就意味着那条错误又会以英文原文出现。
+	// 这里逐个校验，新增哨兵时先红。
+	for _, sentinel := range archiveErrorSentinels {
+		if !isKnownArchiveError(sentinel) {
+			t.Errorf("%v 未被 isKnownArchiveError 识别", sentinel)
+		}
+		if got := archiveErrorMessage(sentinel); got == sentinel.Error() {
+			t.Errorf("%v 没有中文文案", sentinel)
+		}
+	}
+	// 反向：无关错误不能被误认成归档前置条件，否则会被硬塞一句不相干的中文。
+	if isKnownArchiveError(errors.New("connection reset by peer")) {
+		t.Fatal("无关错误被误判为已知归档错误")
+	}
+}
+
+func TestArchiveFailureMessageTranslatesPackageDamage(t *testing.T) {
+	// 归档包坏了是用户唯一能自己动手处理的一类：必须说清后果（不能继续还原）。
+	cases := []struct {
+		raw  error
+		want string
+	}{
+		{errors.New("task archive checksum mismatch"), "校验"},
+		{errors.New("task archive exceeds extraction safety limits"), "体积"},
+		{fmt.Errorf("unsafe task archive path %q", "../../etc/passwd"), "不安全"},
+		{fmt.Errorf("unsupported task archive entry type %d", 7), "不支持"},
+		{pgdb.ErrTaskArchiveFormatMismatch, "不支持的归档格式"},
+	}
+	for _, c := range cases {
+		got := archiveFailureMessage(c.raw)
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%v -> %q，应含 %q", c.raw, got, c.want)
+		}
+		if strings.Contains(got, "checksum") || strings.Contains(got, "archive") {
+			t.Errorf("%v 的失败原因仍含英文原文：%q", c.raw, got)
+		}
+	}
+}
+
+func TestArchiveFailureMessageMapsDiskAndPermission(t *testing.T) {
+	disk := &os.PathError{Op: "write", Path: `D:\data\tasks\12\a.zip`, Err: syscall.ENOSPC}
+	if got := archiveFailureMessage(disk); !strings.Contains(got, "磁盘空间不足") {
+		t.Errorf("磁盘满应提示清理磁盘，实际：%q", got)
+	}
+	perm := &os.PathError{Op: "mkdir", Path: `D:\data\tasks\12`, Err: syscall.EACCES}
+	if got := archiveFailureMessage(perm); !strings.Contains(got, "权限") {
+		t.Errorf("权限不足应提示检查目录权限，实际：%q", got)
+	}
+}
+
+func TestArchiveFailureMessageKeepsChineseFlowReasons(t *testing.T) {
+	// 流程自己写的中文原因（如"任务仍有运行中的 Agent"）本身就是给用户看的，
+	// 不能被兜底文案覆盖掉。
+	raw := errors.New("任务仍有运行中的 Agent，请先暂停后重试归档")
+	if got := archiveFailureMessage(raw); got != raw.Error() {
+		t.Fatalf("中文原因被改写：%q", got)
+	}
+}
+
+func TestArchiveFailureMessageHidesInternalDetail(t *testing.T) {
+	// 这两类原文修复前会直接渲染在归档列表里：本地绝对路径、数据库 schema。
+	for _, raw := range []error{
+		errors.New(`mkdir D:\data\tasks\12\evidence: Access is denied`),
+		errors.New(`pq: relation "task_archives" does not exist`),
+		errors.New("write tcp 127.0.0.1:5432: connection reset by peer"),
+	} {
+		got := archiveFailureMessage(raw)
+		if got != "归档过程中出现内部错误，操作未完成，详情见服务日志" {
+			t.Errorf("%v -> %q，应给统一兜底文案", raw, got)
+		}
+		for _, leak := range []string{"D:\\", "pq:", "tcp", "task_archives", "Access is denied"} {
+			if strings.Contains(got, leak) {
+				t.Errorf("%v 的文案泄漏内部细节 %q：%q", raw, leak, got)
+			}
+		}
+	}
+}
+
+func TestWriteArchiveErrorRedactsUnknownCause(t *testing.T) {
+	// 未识别错误 = 内部故障，按全仓 5xx 约定只回固定文案，详情进日志。
+	rec := httptest.NewRecorder()
+	writeArchiveError(rec, errors.New(`pq: relation "task_archives" does not exist`))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d want 500", rec.Code)
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("响应不是 JSON：%s", rec.Body.String())
+	}
+	if body.Error != errDataSourceUnavailable {
+		t.Fatalf("应回固定文案，实际：%q", body.Error)
+	}
+	if strings.Contains(body.Error, "pq") || strings.Contains(body.Error, "task_archives") {
+		t.Fatalf("5xx 响应泄漏了数据库细节：%q", body.Error)
+	}
+}
+
+func TestWriteArchiveErrorKeepsActionableStatus(t *testing.T) {
+	// 可预期前置条件仍是 409/404 + 中文，不能被 5xx 兜底吞掉。
+	cases := []struct {
+		err  error
+		code int
+	}{
+		{pgdb.ErrTaskArchiveQueued, http.StatusConflict},
+		{pgdb.ErrTaskArchiveDependent, http.StatusConflict},
+		{pgdb.ErrTaskArchiveFormatMismatch, http.StatusConflict},
+		{pgdb.ErrTaskArchiveNotFound, http.StatusNotFound},
+	}
+	for _, c := range cases {
+		rec := httptest.NewRecorder()
+		writeArchiveError(rec, c.err)
+		if rec.Code != c.code {
+			t.Errorf("%v status=%d want %d", c.err, rec.Code, c.code)
+		}
+		var body struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("响应不是 JSON：%s", rec.Body.String())
+		}
+		if !hasCJK(body.Error) {
+			t.Errorf("%v 的响应不是中文：%q", c.err, body.Error)
+		}
+	}
+}
+
+func TestBatchRestoreReportsChineseReason(t *testing.T) {
+	// 端到端：批量还原一个不存在的归档，逐条原因必须是中文。
+	// 修复前这里写的是 err.Error()，toast 里出现 "task archive state does not allow this operation"。
+	m, _ := pausedTaskFixture(t)
+	s := &Server{m: m}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/task-archives/restore/batch",
+		strings.NewReader(`{"archive_ids":[999999999]}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	s.queueTaskArchiveActionBatch(rec, req, "restore")
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d want 202（body=%s）", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Items []archiveBatchItem `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("响应不是 JSON：%s", rec.Body.String())
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("items=%d want 1", len(body.Items))
+	}
+	item := body.Items[0]
+	if item.OK {
+		t.Fatal("不存在的归档不该被认为排队成功")
+	}
+	if !hasCJK(item.Error) {
+		t.Fatalf("逐条原因必须是中文，实际：%q", item.Error)
+	}
+	for _, leak := range []string{"task archive", "does not allow", "sql"} {
+		if strings.Contains(item.Error, leak) {
+			t.Fatalf("逐条原因泄漏英文原文 %q：%q", leak, item.Error)
+		}
 	}
 }
 

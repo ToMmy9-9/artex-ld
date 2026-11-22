@@ -305,7 +305,7 @@ function mockArchiveTask(taskID: string): MockTaskArchive {
     id: nextMockTaskArchiveID++,
     task_id: numericTaskID,
     state: "archive_queued",
-    phase: "等待归档",
+    phase: "queued",
     progress: 0,
     format_version: 1,
     original_size: 0,
@@ -345,14 +345,14 @@ function mockArchiveTask(taskID: string): MockTaskArchive {
   setTimeout(() => {
     if (archive.state !== "archive_queued") return;
     archive.state = "archiving";
-    archive.phase = "压缩任务数据";
+    archive.phase = "compress";
     archive.progress = 55;
     archive.updated_at = new Date().toISOString();
   }, 100);
   setTimeout(() => {
     if (archive.state !== "archiving" && archive.state !== "archive_queued") return;
     archive.state = "ready";
-    archive.phase = "归档完成";
+    archive.phase = "ready";
     archive.progress = 100;
     archive.archived_at = new Date().toISOString();
     archive.updated_at = archive.archived_at;
@@ -373,14 +373,14 @@ function mockArchiveTask(taskID: string): MockTaskArchive {
 function mockRestoreArchive(archive: MockTaskArchive): void {
   if (archive.state !== "ready" && archive.state !== "restore_failed") throw new Error("当前归档状态不可还原");
   archive.state = "restore_queued";
-  archive.phase = "等待还原";
+  archive.phase = "queued";
   archive.progress = 0;
   archive.error = undefined;
   archive.updated_at = new Date().toISOString();
   setTimeout(() => {
     if (archive.state !== "restore_queued") return;
     archive.state = "restoring";
-    archive.phase = "恢复任务数据";
+    archive.phase = "restore_files";
     archive.progress = 60;
     archive.updated_at = new Date().toISOString();
   }, 100);
@@ -411,14 +411,14 @@ function mockDeleteArchive(archive: MockTaskArchive): void {
   );
   if (dependent) throw new Error(`归档仍被任务 #${dependent.task_id} 依赖，无法永久删除`);
   archive.state = "delete_queued";
-  archive.phase = "等待永久删除";
+  archive.phase = "queued";
   archive.progress = 0;
   archive.error = undefined;
   archive.updated_at = new Date().toISOString();
   setTimeout(() => {
     if (archive.state !== "delete_queued") return;
     archive.state = "deleting";
-    archive.phase = "删除归档包";
+    archive.phase = "stage_package_delete";
     archive.progress = 70;
   }, 100);
   setTimeout(() => {

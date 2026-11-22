@@ -445,11 +445,14 @@ func (d *DB) FailTaskArchiveJob(id int64, activeState string, cause error) error
 	if failed == "" {
 		return fmt.Errorf("unknown active archive state %q", activeState)
 	}
-	message := "unknown archive failure"
+	message := "归档过程中出现未知错误，详情见服务日志"
 	if cause != nil {
 		message = cause.Error()
 	}
-	_, err := d.Exec(`UPDATE task_archives SET state=$2,phase='failed',error=$3
+	// 这里不改 phase：保留失败时所处的阶段（stage_files / compress / restore_database…），
+	// 界面上「归档失败」徽章旁边就能直接看出卡在哪一步。以前把 phase 覆盖成 'failed'，
+	// 等于把唯一能定位问题的线索一起抹掉了，而状态本身已经由 state 表达。
+	_, err := d.Exec(`UPDATE task_archives SET state=$2,error=$3
 WHERE id=$1 AND state=$4`, id, failed, message, activeState)
 	return err
 }

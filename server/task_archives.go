@@ -18,7 +18,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unicode"
 
 	"artex/agent"
 	pgdb "artex/db"
@@ -111,7 +113,10 @@ func (s *Server) runOneTaskArchiveJob() error {
 		runErr = fmt.Errorf("unknown claimed archive state %q", job.State)
 	}
 	if runErr != nil {
-		if failErr := s.m.pg.FailTaskArchiveJob(job.ID, job.State, runErr); failErr != nil {
+		// error 列会被归档列表直接渲染，必须是人话；原文只进日志，
+		// 两边都不能丢：用户看中文，排障照着日志里的英文检索。
+		log.Printf("[task-archive] job %d (task %d, %s) 失败: %v", job.ID, job.TaskID, job.State, runErr)
+		if failErr := s.m.pg.FailTaskArchiveJob(job.ID, job.State, errors.New(archiveFailureMessage(runErr))); failErr != nil {
 			return errors.Join(runErr, failErr)
 		}
 		return fmt.Errorf("archive job %d (%s): %w", job.ID, job.State, runErr)
@@ -226,17 +231,17 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 	}
 	committed = true
 	removePackage = false
+	// 清理失败不影响归档结果，但 warnings 会直接显示在归档列表里，
+	// 所以文案只说"发生了什么、还能不能还原"，原始错误（含本地路径）只进日志。
 	if trafficStage != nil {
 		if err := trafficStage.Commit(); err != nil {
-			warning := "归档已完成，但独占流量热存储清理失败（归档包仍可恢复）：" + err.Error()
-			log.Printf("[task-archive] task %s: %s", taskID, warning)
-			_ = s.m.pg.AppendTaskArchiveWarning(job.ID, warning)
+			log.Printf("[task-archive] task %s 流量热存储清理失败: %v", taskID, err)
+			_ = s.m.pg.AppendTaskArchiveWarning(job.ID, "归档已完成，但独占流量热存储清理失败（归档包仍可恢复），详情见服务日志")
 		}
 	}
 	if err := fileStage.commit(); err != nil {
-		warning := "归档已完成，但暂存目录清理失败：" + err.Error()
-		log.Printf("[task-archive] task %s: %s", taskID, warning)
-		_ = s.m.pg.AppendTaskArchiveWarning(job.ID, warning)
+		log.Printf("[task-archive] task %s 暂存目录清理失败: %v", taskID, err)
+		_ = s.m.pg.AppendTaskArchiveWarning(job.ID, "归档已完成，但暂存目录残留未清理，详情见服务日志")
 	}
 	s.engine.StopTask(taskID)
 	s.taskAgentMu.Lock()
@@ -548,8 +553,12 @@ func (s *Server) queueTaskArchivesBatch(w http.ResponseWriter, r *http.Request) 
 		archive, err := s.m.pg.QueueTaskArchive(numeric)
 		item := archiveBatchItem{ID: id, OK: err == nil, Queued: err == nil}
 		if err != nil {
-			// 批量结果会以 "#id（原因）" 拼进 toast，原因同样要能看懂。
-			item.Error = archiveErrorMessage(err)
+			// 批量结果会以 "#id（原因）" 拼进 toast，原因同样要能看懂；
+			// 认不出的错误给可重试提示，原文留日志。
+			if !isKnownArchiveError(err) {
+				log.Printf("[task-archive] batch archive task %d 失败: %v", numeric, err)
+			}
+			item.Error = archiveRequestMessage(err)
 		} else {
 			item.Archive = archive.ID
 		}
@@ -581,7 +590,11 @@ func (s *Server) queueTaskArchiveActionBatch(w http.ResponseWriter, r *http.Requ
 		}
 		item := archiveBatchItem{ID: strconv.FormatInt(id, 10), Archive: id, OK: err == nil, Queued: err == nil}
 		if err != nil {
-			item.Error = err.Error()
+			// 批量结果会被拼成 "#12（原因）" 进 toast，原因同样必须是能看懂的中文。
+			if !isKnownArchiveError(err) {
+				log.Printf("[task-archive] batch %s archive %d 失败: %v", action, id, err)
+			}
+			item.Error = archiveRequestMessage(err)
 		} else if archive != nil {
 			item.Archive = archive.ID
 		}
@@ -722,14 +735,35 @@ func topoTaskIDs(ids []string, sources map[string][]string, restore bool) []stri
 	return ordered
 }
 
+// archiveErrorSentinels 是归档相关「可预期前置条件」的全集。
+// 新增哨兵时这里和 archiveErrorMessage 必须一起补：测试会逐条校验两者对齐，
+// 漏一条就意味着那条错误又变成英文原文直出。
+var archiveErrorSentinels = []error{
+	pgdb.ErrTaskArchiveNotFound,
+	pgdb.ErrTaskArchiveQueued,
+	pgdb.ErrTaskArchiveIneligible,
+	pgdb.ErrTaskArchiveDependent,
+	pgdb.ErrTaskArchiveDeleteBlocked,
+	pgdb.ErrTaskArchiveFormatMismatch,
+	pgdb.ErrTaskArchiveState,
+}
+
+func isKnownArchiveError(err error) bool {
+	for _, target := range archiveErrorSentinels {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
+
 // archiveErrorMessage 把归档相关的哨兵错误翻成用户能照着做的中文。
 //
 // 为什么要翻：这些错误原本直接 err.Error() 透传，前端 toast 拼的是
-// "归档失败：" + 原文，于是中文界面上出现
-//   "归档失败：queued task must be paused before archiving"
+// "归档失败：" + 原文，于是中文界面上出现一句半截英文
+// （"归档失败：queued task must be paused before archiving"）。
 // 用户既看不懂，也不知道下一步该点哪里。这些错误都是可预期的操作前置条件，
 // 不是内部故障，所以逐个说清楚"现在为什么不行、要怎么做"。
-// 未识别的错误保持原文 —— 那才是真正需要照着原文排查的异常。
 func archiveErrorMessage(err error) string {
 	switch {
 	case errors.Is(err, pgdb.ErrTaskArchiveNotFound):
@@ -747,19 +781,79 @@ func archiveErrorMessage(err error) string {
 	case errors.Is(err, pgdb.ErrTaskArchiveState):
 		return "归档当前状态不允许该操作，请刷新后重试"
 	}
+	// 未识别的错误保持原文 —— 只在没有 HTTP 出口的场景（日志、内部拼装）里用得到。
 	return err.Error()
 }
 
+// archiveRequestMessage 用于「用户点了按钮，但请求没被接受」的出口：
+// 单个接口的 4xx、批量结果里的逐条原因。
+//
+// 认得出的前置条件说清楚下一步怎么做；认不出的（数据库抖动之类）给一句能重试的话 ——
+// 批量结果会被拼进 toast，把驱动原文塞进去既看不懂，也等于把 schema 送出去。
+func archiveRequestMessage(err error) string {
+	if isKnownArchiveError(err) {
+		return archiveErrorMessage(err)
+	}
+	return "归档服务暂时不可用，请稍后重试"
+}
+
+// archiveFailureMessage 是后台归档作业失败后写进 task_archives.error 的用户可见原因。
+//
+// 这一列会被归档列表直接渲染（web 侧 <p>{archive.error}</p>），所以它必须是人话：
+// 修复前这里存的是 cause.Error()，页面上出现过 "task archive checksum mismatch"、
+// "mkdir D:\data\tasks\12\...: Access is denied"，甚至驱动返回的 SQL 原文。分四类处理：
+//  1. 可预期前置条件 → 与同步接口同一套中文（同一原因两处说法必须一致）；
+//  2. 归档包本身坏了 → 这是用户唯一能自己动手的，必须说清后果；
+//  3. 磁盘/权限 → 告诉用户去查什么；
+//  4. 其余 → 一句内部错误 + 去查日志。失败阶段不写在这里：FailTaskArchiveJob 保留
+//     原 phase，界面上"归档失败"徽章旁边本来就会显示卡在哪一步。
+func archiveFailureMessage(err error) string {
+	if isKnownArchiveError(err) {
+		return archiveErrorMessage(err)
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "task archive checksum mismatch"):
+		return "归档包校验不通过，文件可能已损坏，无法继续还原"
+	case strings.Contains(msg, "exceeds extraction safety limits"):
+		return "归档包解压后体积异常，已中止还原"
+	case strings.Contains(msg, "unsafe task archive"):
+		return "归档包内含不安全的路径，已中止还原"
+	case strings.Contains(msg, "unsupported task archive entry type"):
+		return "归档包内含不支持的文件类型，已中止还原"
+	case errors.Is(err, syscall.ENOSPC):
+		return "磁盘空间不足，操作已中止，请清理磁盘后重试"
+	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
+		return "没有文件读写权限，操作已中止，请检查数据目录权限"
+	}
+	// 流程里已经写成中文的原因（如"任务仍有运行中的 Agent，请先暂停后重试归档"）
+	// 本身就是给用户看的，原样保留。
+	if hasCJK(msg) {
+		return msg
+	}
+	return "归档过程中出现内部错误，操作未完成，详情见服务日志"
+}
+
+// hasCJK 判断文案里是否已有汉字：用来区分"写给人看的原因"和"Go 运行时原文"。
+func hasCJK(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Han, r) {
+			return true
+		}
+	}
+	return false
+}
+
 func writeArchiveError(w http.ResponseWriter, err error) {
+	// 认不出的错误是内部故障：与全仓 5xx 出口同一约定，详情只进日志，
+	// 客户端拿固定文案，避免把路径/SQL 原文吐出去。
+	if !isKnownArchiveError(err) {
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	status := http.StatusConflict
 	if errors.Is(err, pgdb.ErrTaskArchiveNotFound) {
 		status = http.StatusNotFound
-	} else if !errors.Is(err, pgdb.ErrTaskArchiveIneligible) &&
-		!errors.Is(err, pgdb.ErrTaskArchiveQueued) &&
-		!errors.Is(err, pgdb.ErrTaskArchiveDependent) &&
-		!errors.Is(err, pgdb.ErrTaskArchiveState) &&
-		!errors.Is(err, pgdb.ErrTaskArchiveDeleteBlocked) {
-		status = http.StatusInternalServerError
 	}
 	writeErr(w, status, archiveErrorMessage(err))
 }
