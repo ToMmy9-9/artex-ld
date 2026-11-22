@@ -1344,7 +1344,9 @@ func (s *Server) Handler() http.Handler {
 	// /api/* goes through CORS + JWT; everything else is served by the embedded
 	// frontend (no JWT required; the optional Basic Auth gate wraps both). With the
 	// no-embed build the webui handler just 404s (run `next dev` separately).
-	api := accessLog(cors(s.requireAuth(mux)))
+	// limitRequestBody 放在 requireAuth 之后：未授权请求不必被读完整请求体；
+	// 放在 mux 之前，让所有写接口都拿到有上限的 r.Body（见 bodylimit.go）。
+	api := accessLog(cors(s.requireAuth(limitRequestBody(mux))))
 	root := http.NewServeMux()
 	root.Handle("/api/", api)
 	root.Handle("/", s.webuiHandler())
@@ -1753,6 +1755,10 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		ReasoningEffort string  `json:"reasoning_effort"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if maxBytesExceeded(err) {
+			writeErr(w, 413, "请求正文过大")
+			return
+		}
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -1964,6 +1970,11 @@ type createTaskReq struct {
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req createTaskReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// 超限必须回 413 而不是 400：客户端据此才能区分"我发太大了"和"我发错了"。
+		if maxBytesExceeded(err) {
+			writeErr(w, 413, "请求正文过大：任务描述与目标合计请控制在 16MB 以内")
+			return
+		}
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
@@ -4229,6 +4240,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		LogLevel *string `json:"log_level"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if maxBytesExceeded(err) {
+			writeErr(w, 413, "请求正文过大")
+			return
+		}
 		writeErr(w, 400, err.Error())
 		return
 	}

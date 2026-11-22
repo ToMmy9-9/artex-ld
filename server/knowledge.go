@@ -18,6 +18,10 @@ import (
 
 func (s *Server) kb() *knowledge.Service { return knowledge.NewService(s.m.pg) }
 
+// maxKnowledgeUpload 是知识库上传请求体的硬上限。与下面 io.LimitReader(file, 32<<20)
+// 的单文件上限保持一致：整个请求体（含 multipart 边界与其它表单字段）留 2MB 余量。
+const maxKnowledgeUpload = 34 << 20
+
 func (s *Server) indexKnowledgeAsync(id int64) {
 	if err := s.kb().IndexDoc(s.ctx, id); err != nil {
 		log.Printf("[knowledge] 索引文档 #%d 失败: %v", id, err)
@@ -113,7 +117,16 @@ func (s *Server) deleteKnowledge(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/knowledge/upload — multipart: file + scope + task_id + category.
 func (s *Server) uploadKnowledge(w http.ResponseWriter, r *http.Request) {
+	// ParseMultipartForm 的 32MB 只是「内存阈值」，超过后 Go 会把溢出的部分
+	// 落到临时文件，body 本身仍是无上限的。实测传 80MB 原始 body 时服务端直接
+	// 断连（客户端 WinError 10054），既没有干净的错误响应，也白读了一堆磁盘。
+	// 这里先给 body 一个硬上限，再做解析。
+	r.Body = http.MaxBytesReader(w, r.Body, maxKnowledgeUpload)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		if maxBytesExceeded(err) {
+			writeErr(w, 413, "上传内容超过 32MB 上限")
+			return
+		}
 		writeErr(w, 400, "上传解析失败")
 		return
 	}
