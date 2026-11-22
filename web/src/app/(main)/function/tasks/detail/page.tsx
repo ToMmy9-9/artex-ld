@@ -16,9 +16,9 @@ import { ArchiveIcon, ArrowLeftIcon, BrainIcon, CheckIcon, CircleAlertIcon, Paus
 import { toast } from "sonner";
 
 import { IntelligencePanel } from "@/components/intelligence-panel";
-import { TrafficHistory } from "@/components/traffic-history";
 import { StatusBadge } from "@/components/status-badge";
 import { TaskLLMProfileChain } from "@/components/task-llm-profile-chain";
+import { TrafficHistory } from "@/components/traffic-history";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -46,6 +46,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { defaultTabFor } from "@/lib/task-detail-tab";
 import type { LLMProfile, Task } from "@/lib/types";
 
 import { AssetsTab } from "./_tabs/assets-tab";
@@ -74,6 +75,8 @@ const TABS = [
   { value: "intercept", label: "拦截审批" },
   { value: "report", label: "报告" },
 ];
+
+const TAB_VALUES = new Set(TABS.map((t) => t.value));
 
 function taskProfileIDs(task: Task): string[] {
   if (task.llm_profile_ids && task.llm_profile_ids.length > 0) {
@@ -221,14 +224,20 @@ function TaskDetailInner() {
   const [task, setTask] = React.useState<Task | null>(null);
   const [paused, setPaused] = React.useState(false);
   const [loaded, setLoaded] = React.useState(false);
-  const requestedTab = searchParams.get("tab") ?? "sessions";
+  const requestedTab = searchParams.get("tab") ?? "";
   const normalizedRequestedTab = requestedTab === "http-history" ? "traffic" : requestedTab;
-  const [tab, setTab] = React.useState(
-    TABS.some((item) => item.value === normalizedRequestedTab) ? normalizedRequestedTab : "sessions",
-  );
+  // URL 明确指定（且合法）时以 URL 为准；否则先给会话，等任务数据回来再按状态改默认页。
+  const [tab, setTab] = React.useState(TAB_VALUES.has(normalizedRequestedTab) ? normalizedRequestedTab : "sessions");
+  // 用户是否已经自己点过 tab。点过之后无论数据怎么刷都不再自动跳转 ——
+  // 自动跳转只在"用户还没表达意向"时才有意义，否则就是抢用户的鼠标。
+  const tabPinnedRef = React.useRef(false);
   React.useEffect(() => {
-    if (TABS.some((item) => item.value === normalizedRequestedTab)) setTab(normalizedRequestedTab);
+    if (TAB_VALUES.has(normalizedRequestedTab)) setTab(normalizedRequestedTab);
   }, [normalizedRequestedTab]);
+  React.useEffect(() => {
+    // 换任务时重置"用户已选择"的标记，新任务重新按自己的状态决定默认页。
+    tabPinnedRef.current = false;
+  }, [id]);
   const [interceptPendingCount, setInterceptPendingCount] = React.useState(0);
   const [profiles, setProfiles] = React.useState<LLMProfile[]>([]);
   const [archiving, setArchiving] = React.useState(false);
@@ -297,6 +306,37 @@ function TaskDetailInner() {
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
   }, [load]);
+
+  // 任务数据到位后，若用户没指定过要看哪一页，就按任务状态替他选一个更合适的默认页。
+  // 只跑一次（写在 tabPinnedRef 之外用一个独立 ref 控制），不能在每 5s 轮询后反复纠正：
+  // 那样用户手动切到「会话」看日志，下一轮数据回来就被拽走，非常难用。
+  const autoTabAppliedRef = React.useRef<string>("");
+  React.useEffect(() => {
+    if (!task) return;
+    if (tabPinnedRef.current) return; // 用户已自己选过
+    if (TAB_VALUES.has(normalizedRequestedTab)) return; // URL 已明确指定
+    if (autoTabAppliedRef.current === task.id) return; // 本任务已经应用过
+    autoTabAppliedRef.current = task.id;
+
+    let alive = true;
+    // 只为判断"查没查出东西"，取 1 条足矣，不要为此拉全量列表。
+    api
+      .findingsPage({ page: 1, pageSize: 1, task: task.id })
+      .then((page) => {
+        if (!alive || tabPinnedRef.current) return;
+        const preferred = defaultTabFor(task, page.total);
+        if (preferred !== "sessions") setTab(preferred);
+      })
+      .catch(() => {
+        // 查不到发现数就按状态推断，不因此卡住页面。
+        if (!alive || tabPinnedRef.current) return;
+        const preferred = defaultTabFor(task, 0);
+        if (preferred !== "sessions") setTab(preferred);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [task, normalizedRequestedTab]);
 
   async function togglePause() {
     if (task && ["done", "failed", "timeout"].includes(task.status)) return;
@@ -377,6 +417,8 @@ function TaskDetailInner() {
     <Tabs
       value={tab}
       onValueChange={(value) => {
+        // 用户亲手选了哪一页，就锁住，后续数据刷新不再自动跳转。
+        tabPinnedRef.current = true;
         setTab(value);
         const params = new URLSearchParams(searchParams.toString());
         params.set("tab", value);
@@ -437,9 +479,39 @@ function TaskDetailInner() {
         {task.paused && task.pause_reason && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-amber-600">
             <span>暂停原因：{task.pause_reason === "paused_by_proxy" ? "全局代理异常" : task.pause_reason}</span>
-            {task.reconnect && <span>重连 {task.reconnect.attempt}/{task.reconnect.max} {task.reconnect.exhausted ? "已耗尽" : task.reconnect.next_at ? `下次 ${new Date(task.reconnect.next_at * 1000).toLocaleTimeString()}` : "探测中"}</span>}
-            {task.reconnect?.last_error && <span className="max-w-full truncate" title={task.reconnect.last_error}>原因：{task.reconnect.last_error}</span>}
-            {task.pause_reason === "paused_by_proxy" && <Button size="sm" variant="outline" onClick={() => api.testTaskProxy(task.id).then((r) => r.ok ? (toast.success("代理已恢复，任务将自动继续"), load()) : toast.error(r.error || "代理探测失败")).catch((e) => toast.error((e as Error).message))}>测试代理</Button>}
+            {task.reconnect && (
+              <span>
+                重连 {task.reconnect.attempt}/{task.reconnect.max}{" "}
+                {task.reconnect.exhausted
+                  ? "已耗尽"
+                  : task.reconnect.next_at
+                    ? `下次 ${new Date(task.reconnect.next_at * 1000).toLocaleTimeString()}`
+                    : "探测中"}
+              </span>
+            )}
+            {task.reconnect?.last_error && (
+              <span className="max-w-full truncate" title={task.reconnect.last_error}>
+                原因：{task.reconnect.last_error}
+              </span>
+            )}
+            {task.pause_reason === "paused_by_proxy" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  api
+                    .testTaskProxy(task.id)
+                    .then((r) =>
+                      r.ok
+                        ? (toast.success("代理已恢复，任务将自动继续"), load())
+                        : toast.error(r.error || "代理探测失败"),
+                    )
+                    .catch((e) => toast.error((e as Error).message))
+                }
+              >
+                测试代理
+              </Button>
+            )}
           </div>
         )}
         {task.remark ? (
