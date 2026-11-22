@@ -10,6 +10,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -49,6 +50,11 @@ func (s *Server) findMCPByName(name string) (*db.MCPServer, error) {
 	return nil, nil
 }
 
+// errSSNotConfigured 表示数据源尚未创建/未填 URL，属于「客户端前置条件不满足」，
+// 不是「上游网关返回了坏响应」。调用方必须用 errors.Is 判断后回 412，而不是一律 502：
+// 前端会把 502 当成上游故障（"数据源挂了"），把用户引向完全错误的排查方向。
+var errSSNotConfigured = errors.New("scopesentry 未配置")
+
 // scopeSentryClient dials the configured ScopeSentry MCP (http transport). The env
 // map doubles as HTTP headers (X-API-Key). Callers must Close the client.
 func (s *Server) scopeSentryClient(ctx context.Context) (*mcphttp.Client, error) {
@@ -57,12 +63,22 @@ func (s *Server) scopeSentryClient(ctx context.Context) (*mcphttp.Client, error)
 		return nil, err
 	}
 	if m == nil {
-		return nil, fmt.Errorf("数据源 %s 不存在，请先创建", scopeSentryMCPName)
+		return nil, fmt.Errorf("%w：数据源 %s 不存在，请先创建", errSSNotConfigured, scopeSentryMCPName)
 	}
 	if m.URL == "" {
-		return nil, fmt.Errorf("数据源 %s 未配置 URL，请先配置", scopeSentryMCPName)
+		return nil, fmt.Errorf("%w：数据源 %s 未配置 URL，请先配置", errSSNotConfigured, scopeSentryMCPName)
 	}
 	return mcphttp.New(ctx, m.Name, m.URL, jsonStrMap(m.Env), m.Insecure)
+}
+
+// writeSSClientErr 把 scopeSentryClient 的错误映射成合适的状态码：
+// 未配置 → 412（前置条件不满足），其余 → 502（确实是上游调用失败）。
+func writeSSClientErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, errSSNotConfigured) {
+		writeErr(w, http.StatusPreconditionFailed, err.Error())
+		return
+	}
+	writeErr(w, http.StatusBadGateway, err.Error())
 }
 
 // envHasValue reports whether the env/header map has any non-empty value
@@ -178,7 +194,7 @@ func (s *Server) syncSSProjects(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	cl, err := s.scopeSentryClient(ctx)
 	if err != nil {
-		writeErr(w, 502, err.Error())
+		writeSSClientErr(w, err)
 		return
 	}
 	defer cl.Close()
@@ -221,7 +237,7 @@ func (s *Server) syncSSTasks(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	cl, err := s.scopeSentryClient(ctx)
 	if err != nil {
-		writeErr(w, 502, err.Error())
+		writeSSClientErr(w, err)
 		return
 	}
 	defer cl.Close()
@@ -297,7 +313,7 @@ func (s *Server) syncSSRun(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	cl, err := s.scopeSentryClient(ctx)
 	if err != nil {
-		writeErr(w, 502, err.Error())
+		writeSSClientErr(w, err)
 		return
 	}
 	defer cl.Close()
