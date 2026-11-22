@@ -96,7 +96,7 @@ func (s *Server) pgUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad trigger id")
+		writeErr(w, 400, "触发器 id 无效")
 		return
 	}
 	var req triggerReq
@@ -131,7 +131,7 @@ func (s *Server) pgDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad trigger id")
+		writeErr(w, 400, "触发器 id 无效")
 		return
 	}
 	if err := pg.DeleteTrigger(id); err != nil {

@@ -21,6 +21,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -109,5 +110,9 @@ func writeDecodeErr(w http.ResponseWriter, err error) {
 			"请求正文超过 %dMB 上限，请精简内容或改用上传接口", maxJSONBody>>20))
 		return
 	}
-	writeErr(w, http.StatusBadRequest, err.Error())
+	// Go 的 json 解码错误是英文运行时措辞（"unexpected end of JSON input"），
+	// 中文界面上看它等于看天书，里面的偏移量对用户也毫无用处。原文进日志，
+	// 客户端只拿一句能懂的。
+	log.Printf("[api] 请求体解析失败: %v", err)
+	writeErr(w, http.StatusBadRequest, "请求体不是合法的 JSON")
 }

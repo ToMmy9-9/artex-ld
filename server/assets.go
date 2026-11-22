@@ -31,7 +31,7 @@ func decodeCompanyMutationRequest(w http.ResponseWriter, r *http.Request, value 
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")
 		} else {
-			writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			writeDecodeErr(w, err)
 		}
 		return false
 	}
@@ -83,7 +83,7 @@ func (s *Server) companyStore() *db.CompanyStore {
 func (s *Server) listCompanies(w http.ResponseWriter, r *http.Request) {
 	cs := s.companyStore()
 	if cs == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	companies, err := cs.ListCompanies()
@@ -101,7 +101,7 @@ func (s *Server) listCompanies(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createCompany(w http.ResponseWriter, r *http.Request) {
 	cs := s.companyStore()
 	if cs == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	var req struct {
@@ -114,7 +114,7 @@ func (s *Server) createCompany(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		writeErr(w, 400, "name required")
+		writeErr(w, 400, "名称不能为空")
 		return
 	}
 	if err := db.ValidateCompanyScopeInputBounds(req.Scope); err != nil {
@@ -132,7 +132,7 @@ func (s *Server) createCompany(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, validationErr.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	out := map[string]any{
@@ -155,12 +155,12 @@ func (s *Server) createCompany(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 	cs := s.companyStore()
 	if cs == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeErr(w, 400, "invalid id")
+		writeErr(w, 400, "id 无效")
 		return
 	}
 	c, err := cs.GetCompany(id)
@@ -169,7 +169,7 @@ func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c == nil {
-		writeErr(w, 404, "company not found")
+		writeErr(w, 404, "企业不存在")
 		return
 	}
 	scope, err := cs.GetScope(id)
@@ -187,12 +187,12 @@ func (s *Server) getCompany(w http.ResponseWriter, r *http.Request) {
 func (s *Server) addCompanyScope(w http.ResponseWriter, r *http.Request) {
 	cs := s.companyStore()
 	if cs == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeErr(w, 400, "invalid company id")
+		writeErr(w, 400, "企业 id 无效")
 		return
 	}
 	var req struct {
@@ -217,7 +217,7 @@ func (s *Server) addCompanyScope(w http.ResponseWriter, r *http.Request) {
 	}
 	if mutationErr != nil {
 		if errors.Is(mutationErr, db.ErrCompanyNotFound) {
-			writeErr(w, http.StatusNotFound, "company not found")
+			writeErr(w, http.StatusNotFound, "企业不存在")
 			return
 		}
 		var validationErr *db.CompanyScopeValidationError
@@ -225,7 +225,7 @@ func (s *Server) addCompanyScope(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, validationErr.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, mutationErr.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, mutationErr.Error())
 		return
 	}
 	out := map[string]any{
@@ -253,12 +253,12 @@ func (s *Server) addCompanyScope(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteCompany(w http.ResponseWriter, r *http.Request) {
 	cs := s.companyStore()
 	if cs == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeErr(w, 400, "invalid id")
+		writeErr(w, 400, "id 无效")
 		return
 	}
 	var req struct {
@@ -269,16 +269,16 @@ func (s *Server) deleteCompany(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
 		if !errors.Is(err, io.EOF) {
-			writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			writeDecodeErr(w, err)
 			return
 		}
 	} else {
 		var trailing any
 		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 			if err == nil {
-				writeErr(w, http.StatusBadRequest, "invalid JSON: multiple values")
+				writeErr(w, http.StatusBadRequest, "请求体里出现了多个 JSON 值")
 			} else {
-				writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+				writeDecodeErr(w, err)
 			}
 			return
 		}
@@ -287,7 +287,7 @@ func (s *Server) deleteCompany(w http.ResponseWriter, r *http.Request) {
 	assetsDeleted, err := s.m.DeleteCompanyWithAssets(id, req.DeleteAssets)
 	if err != nil {
 		if errors.Is(err, db.ErrCompanyNotFound) {
-			writeErr(w, http.StatusNotFound, "company not found")
+			writeErr(w, http.StatusNotFound, "企业不存在")
 			return
 		}
 		writeErrRedacted(w, 500, err.Error())
@@ -303,7 +303,7 @@ func (s *Server) deleteCompany(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reattribute(w http.ResponseWriter, r *http.Request) {
 	cs := s.companyStore()
 	if cs == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	if err := cs.RecomputeAttribution(); err != nil {
@@ -325,7 +325,7 @@ const (
 func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 	as := s.assetStore()
 	if as == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	q := r.URL.Query()
@@ -352,7 +352,7 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 		}
 		hosts, total, err := as.QueryHosts(db.AssetHostFilter{CompanyID: companyID, TaskID: taskID, DSL: dsl, Limit: limit, Offset: offset})
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		writeJSON(w, 200, map[string]any{"count": len(hosts), "total": total, "hosts": hosts})
@@ -403,7 +403,7 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{
@@ -420,7 +420,7 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) assetCounts(w http.ResponseWriter, r *http.Request) {
 	as := s.assetStore()
 	if as == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	var counts map[string]int
@@ -444,18 +444,18 @@ func (s *Server) assetCounts(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteAssets(w http.ResponseWriter, r *http.Request) {
 	as := s.assetStore()
 	if as == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	var req struct {
 		IDs []int64 `json:"ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if len(req.IDs) == 0 {
-		writeErr(w, 400, "ids required")
+		writeErr(w, 400, "缺少 ids")
 		return
 	}
 	deleted, err := as.DeleteByIDs(req.IDs)
@@ -473,7 +473,7 @@ func (s *Server) deleteAssets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) insertAssets(w http.ResponseWriter, r *http.Request) {
 	as := s.assetStore()
 	if as == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	var req struct {
@@ -513,7 +513,7 @@ func (s *Server) insertAssets(w http.ResponseWriter, r *http.Request) {
 		} `json:"assets"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 

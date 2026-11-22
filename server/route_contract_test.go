@@ -85,6 +85,11 @@ var muxRouteContract = []struct {
 	{"POST", "/api/repeater/send", "请求重放"},
 	{"GET", "/api/system/metrics", "系统指标"},
 	{"GET", "/api/update/check", "检查更新"},
+
+	// ── 报告 logo 静态资源 ──
+	// 这条此前既没进契约、handler 又直接用 http.ServeFile，缺文件时吐的是 Go
+	// 内置的英文 "404 page not found"，两条防线一起漏。
+	{"GET", "/api/report-assets/{file}", "报告模板 logo 读取"},
 }
 
 func TestMuxRouteContract(t *testing.T) {

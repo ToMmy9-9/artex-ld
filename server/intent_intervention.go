@@ -42,12 +42,12 @@ func validWorkerMessageRequestID(id string) bool {
 func (s *Server) sendWorkerMessage(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
+		writeErr(w, http.StatusNotFound, "任务不存在")
 		return
 	}
 	iid, err := strconv.ParseInt(r.PathValue("iid"), 10, 64)
 	if err != nil || iid <= 0 {
-		writeErr(w, http.StatusBadRequest, "bad intent id")
+		writeErr(w, http.StatusBadRequest, "意图 id 无效")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxWorkerMessageBytes)
@@ -61,7 +61,7 @@ func (s *Server) sendWorkerMessage(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求体过大")
 			return
 		}
-		writeErr(w, http.StatusBadRequest, "bad json: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	message := strings.TrimSpace(req.Message)
@@ -104,7 +104,7 @@ func (s *Server) sendWorkerMessage(w http.ResponseWriter, r *http.Request) {
 
 	node, err := t.Store.GetNode(iid)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if node == nil {
@@ -112,11 +112,11 @@ func (s *Server) sendWorkerMessage(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "继承意图为只读，不能发送 Worker 消息")
 			return
 		}
-		writeErr(w, http.StatusNotFound, "intent not found")
+		writeErr(w, http.StatusNotFound, "意图不存在")
 		return
 	}
 	if node.Kind != db.KindIntent {
-		writeErr(w, http.StatusConflict, "node is not an intent")
+		writeErr(w, http.StatusConflict, "该节点不是意图节点")
 		return
 	}
 	if node.State != "paused" {
@@ -136,7 +136,7 @@ func (s *Server) sendWorkerMessage(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, db.ErrIntentStateConflict):
 			writeErr(w, http.StatusConflict, err.Error())
 		default:
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		}
 		return
 	}

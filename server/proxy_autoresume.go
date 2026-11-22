@@ -421,7 +421,7 @@ func (s *Server) testTaskProxy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	t, ok := s.m.Task(id)
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	proxy := strings.TrimSpace(s.m.GlobalProxy())

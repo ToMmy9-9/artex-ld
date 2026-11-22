@@ -154,7 +154,7 @@ func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 	if f == nil {
 		row, rerr := s.m.pg.GetFinding(nodeID)
 		if rerr != nil {
-			writeErr(w, 500, rerr.Error())
+			writeErrRedacted(w, 500, rerr.Error())
 			return
 		}
 		if row == nil {
@@ -452,7 +452,7 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.m.pg.UpdateFindingEnrichmentFields(id, strings.TrimSpace(body.Name),
 		strings.TrimSpace(body.Target), strings.TrimSpace(body.Severity), strings.TrimSpace(body.Status)); err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	saved, _ := s.m.pg.GetFindingEnrichment(id)

@@ -40,7 +40,7 @@ func (s *Server) linkFindingTrafficExchange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := pg.LinkFindingTraffic(nodeID, req.ExchangeIDs, "manual"); err != nil {
-		writeErr(w, 500, "关联失败: "+err.Error())
+		writeErrInternal(w, 500, "关联失败: ", err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "linked": len(req.ExchangeIDs)})
@@ -81,7 +81,7 @@ func (s *Server) unlinkFindingTrafficExchange(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err := pg.UnlinkFindingTraffic(nodeID, r.PathValue("exchange_id")); err != nil {
-		writeErr(w, 500, "解除失败: "+err.Error())
+		writeErrInternal(w, 500, "解除失败: ", err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})

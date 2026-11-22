@@ -199,7 +199,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 	// 这期间别的请求完全可能先把密码设好，而读检查本身也可能因故障而失效。
 	inserted, err := pg.InsertSettingIfAbsent(authPassKey, string(hash))
 	if err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	if !inserted {
@@ -264,7 +264,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.SetSetting(authPassKey, string(newHash)); err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	pg.RecordAudit("ARTEX", "auth", "change_password", "success", clientIP(r), "修改密码成功", nil)

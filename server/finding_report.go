@@ -15,16 +15,16 @@ import (
 func (s *Server) generateFindingReport(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "id")
 	if !ok || id <= 0 {
-		writeErr(w, http.StatusBadRequest, "bad finding id")
+		writeErr(w, http.StatusBadRequest, "漏洞 id 无效")
 		return
 	}
 	f, err := s.m.pg.GetFinding(id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if f == nil {
-		writeErr(w, http.StatusNotFound, "finding not found")
+		writeErr(w, http.StatusNotFound, "漏洞不存在")
 		return
 	}
 	if f.NodeID == nil || *f.NodeID <= 0 {
@@ -33,7 +33,7 @@ func (s *Server) generateFindingReport(w http.ResponseWriter, r *http.Request) {
 	}
 	reporter, err := s.m.pg.GetAgentByKey("reporter")
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if reporter == nil || !reporter.Enabled {
@@ -60,11 +60,11 @@ func (s *Server) generateFindingReport(w http.ResponseWriter, r *http.Request) {
 	message := manualFindingReportMessage(f, taskID)
 	conversation, err := s.m.pg.CreateConversation("reporter", fmt.Sprintf("漏洞报告 · finding#%d", f.ID), nil)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "创建报告对话失败: "+err.Error())
+		writeErrInternal(w, http.StatusInternalServerError, "创建报告对话失败: ", err)
 		return
 	}
 	if err := s.m.pg.SetFindingReportConversationID(f.ID, conversation.ID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "关联报告对话失败: "+err.Error())
+		writeErrInternal(w, http.StatusInternalServerError, "关联报告对话失败: ", err)
 		return
 	}
 	s.StartTriggeredRunWithConversation(

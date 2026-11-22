@@ -71,7 +71,7 @@ func (s *Server) chatUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if taskScoped {
 		if s.m.ResolveTask(id) == nil {
-			writeErr(w, 404, "task not found")
+			writeErr(w, 404, "任务不存在")
 			return
 		}
 		if !s.engine.beginTaskOperation(id) {
@@ -82,7 +82,7 @@ func (s *Server) chatUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	dir := filepath.Join(s.m.dir, sub, id, "uploads")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		writeErr(w, 500, "建目录失败: "+err.Error())
+		writeErrInternal(w, 500, "建目录失败: ", err)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxChatUpload)
@@ -103,7 +103,7 @@ func (s *Server) chatUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		dest := uniqueUploadPath(dir, name)
 		if err := saveUpload(hdr, dest); err != nil {
-			writeErr(w, 500, "保存失败: "+err.Error())
+			writeErrInternal(w, 500, "保存失败: ", err)
 			return
 		}
 		base := filepath.Base(dest)

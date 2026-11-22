@@ -51,7 +51,7 @@ func (s *Server) resolutionFromProfile(p *db.LLMProfile, source string) taskLLMR
 // Database failures are returned rather than represented as an unavailable model.
 func (s *Server) resolveTaskRoleLLM(t *Task, agentKey string) (taskLLMResolution, error) {
 	if s == nil || s.m == nil || s.m.pg == nil {
-		return taskLLMResolution{}, fmt.Errorf("database unavailable")
+		return taskLLMResolution{}, fmt.Errorf("数据库暂时不可用，请稍后重试")
 	}
 	a, err := s.m.pg.GetAgentByKey(agentKey)
 	if err != nil {
@@ -108,7 +108,7 @@ func (s *Server) resolveTaskRoleLLM(t *Task, agentKey string) (taskLLMResolution
 func (s *Server) taskLLMResolutionHandler(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	roles := map[string]taskLLMResolution{}
@@ -119,7 +119,7 @@ func (s *Server) taskLLMResolutionHandler(w http.ResponseWriter, r *http.Request
 	} {
 		resolved, err := s.resolveTaskRoleLLM(t, agentKey)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		roles[responseKey] = resolved

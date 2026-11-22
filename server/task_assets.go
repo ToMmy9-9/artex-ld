@@ -23,14 +23,14 @@ func writeTaskAssetError(w http.ResponseWriter, err error) {
 	case errors.Is(err, db.ErrTaskAssetTaskNotFound), errors.Is(err, db.ErrTaskAssetAssetNotFound):
 		writeErr(w, http.StatusNotFound, err.Error())
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 	}
 }
 
 func (s *Server) attachTaskAssets(w http.ResponseWriter, r *http.Request) {
 	task, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
+		writeErr(w, http.StatusNotFound, "任务不存在")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxTaskAssetRequestBytes)
@@ -76,12 +76,12 @@ func (s *Server) attachTaskAssets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) detachTaskAsset(w http.ResponseWriter, r *http.Request) {
 	task, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
+		writeErr(w, http.StatusNotFound, "任务不存在")
 		return
 	}
 	assetID, ok := pathInt(r, "assetID")
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "bad asset id")
+		writeErr(w, http.StatusBadRequest, "资产 id 无效")
 		return
 	}
 	taskID, _ := parseTaskID(task.ID)
@@ -91,7 +91,7 @@ func (s *Server) detachTaskAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !detached {
-		writeErr(w, http.StatusNotFound, "asset is not associated with this task")
+		writeErr(w, http.StatusNotFound, "该资产未关联到此任务")
 		return
 	}
 	task.Notify()
@@ -101,7 +101,7 @@ func (s *Server) detachTaskAsset(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskIntentAssets(w http.ResponseWriter, r *http.Request) {
 	task, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
+		writeErr(w, http.StatusNotFound, "任务不存在")
 		return
 	}
 	taskID, _ := parseTaskID(task.ID)

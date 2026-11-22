@@ -21,7 +21,7 @@ import (
 func (s *Server) listGoals(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	goals, err := t.Store.ListByKind(db.KindGoal, 10000)
@@ -37,7 +37,7 @@ func (s *Server) listGoals(w http.ResponseWriter, r *http.Request) {
 func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -51,7 +51,7 @@ func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
 		VulnClass string `json:"vulnclass"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+		writeErr(w, 400, "请求体不是合法的 JSON")
 		return
 	}
 	text := strings.TrimSpace(body.Text)
@@ -86,7 +86,7 @@ func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
 func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -97,7 +97,7 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 
 	gid, err := strconv.ParseInt(r.PathValue("gid"), 10, 64)
 	if err != nil || gid <= 0 {
-		writeErr(w, 400, "bad goal id")
+		writeErr(w, 400, "目标 id 无效")
 		return
 	}
 	var body struct {
@@ -105,7 +105,7 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 		VulnClass string `json:"vulnclass"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+		writeErr(w, 400, "请求体不是合法的 JSON")
 		return
 	}
 	text := strings.TrimSpace(body.Text)
@@ -142,7 +142,7 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteGoal(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -153,7 +153,7 @@ func (s *Server) deleteGoal(w http.ResponseWriter, r *http.Request) {
 
 	gid, err := strconv.ParseInt(r.PathValue("gid"), 10, 64)
 	if err != nil || gid <= 0 {
-		writeErr(w, 400, "bad goal id")
+		writeErr(w, 400, "目标 id 无效")
 		return
 	}
 	node, err := t.Store.GetNode(gid)

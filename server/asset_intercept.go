@@ -63,7 +63,7 @@ func (s *Server) assetInterceptUpdateRule(w http.ResponseWriter, r *http.Request
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	var req assetInterceptRuleReq
@@ -90,7 +90,7 @@ func (s *Server) assetInterceptDeleteRule(w http.ResponseWriter, r *http.Request
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	if err := pg.DeleteAssetInterceptRule(id); err != nil {
@@ -107,7 +107,7 @@ func (s *Server) assetInterceptToggleRule(w http.ResponseWriter, r *http.Request
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	var req struct {

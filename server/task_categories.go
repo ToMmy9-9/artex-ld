@@ -92,7 +92,7 @@ func writeTaskCategoryError(w http.ResponseWriter, err error) {
 	case errors.Is(err, db.ErrTaskCategoryNotFound), errors.Is(err, db.ErrTaskCategoryTaskNotFound):
 		writeErr(w, http.StatusNotFound, err.Error())
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 	}
 }
 
@@ -103,7 +103,7 @@ func (s *Server) pgListTaskCategories(w http.ResponseWriter, _ *http.Request) {
 	}
 	categories, err := pg.ListTaskCategories()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"categories": categories})
@@ -129,7 +129,7 @@ func (s *Server) pgCreateTaskCategory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) pgRenameTaskCategory(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "bad task category id")
+		writeErr(w, http.StatusBadRequest, "任务分类 id 无效")
 		return
 	}
 	request, ok := decodeTaskCategoryRequest(w, r)
@@ -168,7 +168,7 @@ func (s *Server) pgRenameTaskCategory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) pgDeleteTaskCategory(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "bad task category id")
+		writeErr(w, http.StatusBadRequest, "任务分类 id 无效")
 		return
 	}
 	deleted, err := s.m.DeleteTaskCategory(id)
@@ -177,7 +177,7 @@ func (s *Server) pgDeleteTaskCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !deleted {
-		writeErr(w, http.StatusNotFound, "task category not found")
+		writeErr(w, http.StatusNotFound, "任务分类不存在")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": id})
@@ -189,7 +189,7 @@ func (s *Server) pgDeleteTaskCategory(w http.ResponseWriter, r *http.Request) {
 // an explicit null from an omitted key.
 func parseCategoryIDField(w http.ResponseWriter, raw json.RawMessage) (*int64, bool) {
 	if len(raw) == 0 {
-		writeErr(w, http.StatusBadRequest, "category_id is required")
+		writeErr(w, http.StatusBadRequest, "缺少 category_id")
 		return nil, false
 	}
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
@@ -206,7 +206,7 @@ func parseCategoryIDField(w http.ResponseWriter, raw json.RawMessage) (*int64, b
 func (s *Server) updateTaskCategory(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("id")
 	if _, ok := s.m.Task(taskID); !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
+		writeErr(w, http.StatusNotFound, "任务不存在")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxTaskCategoryRequestBytes)
@@ -271,12 +271,12 @@ func (s *Server) updateTasksCategoryBatch(w http.ResponseWriter, r *http.Request
 		item := batchCategoryItem{ID: parsed.id}
 		switch {
 		case !parsed.valid:
-			item.Error = "bad task id"
+			item.Error = "任务 id 无效"
 		default:
 			if _, live := s.m.Task(parsed.id); live {
 				pending = append(pending, parsed.id)
 			} else {
-				item.Error = "task not found"
+				item.Error = "任务不存在"
 			}
 		}
 		items = append(items, item)
@@ -296,7 +296,7 @@ func (s *Server) updateTasksCategoryBatch(w http.ResponseWriter, r *http.Request
 			if updated[items[i].ID] {
 				items[i].OK = true
 			} else {
-				items[i].Error = "task not found"
+				items[i].Error = "任务不存在"
 			}
 		}
 	}

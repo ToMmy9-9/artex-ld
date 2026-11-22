@@ -37,7 +37,7 @@ func (s *Server) docxReady() bool {
 func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no active task")
+		writeErr(w, 404, "当前没有进行中的任务")
 		return
 	}
 
@@ -115,7 +115,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reportStatus(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no active task")
+		writeErr(w, 404, "当前没有进行中的任务")
 		return
 	}
 	s.reportMu.Lock()
@@ -134,7 +134,7 @@ func (s *Server) reportStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no active task")
+		writeErr(w, 404, "当前没有进行中的任务")
 		return
 	}
 	s.reportMu.Lock()

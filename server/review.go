@@ -547,7 +547,7 @@ func (rr *ReviewRunner) reviewProvider(t *Task) llm.Provider {
 func (s *Server) reviewListProposed(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !t.ReviewEnabled {
@@ -594,7 +594,7 @@ func resolveReviewVersion(es *db.ExplorationStore, intentID int64, ev *int) (int
 func (s *Server) reviewApprove(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !t.ReviewEnabled {
@@ -604,7 +604,7 @@ func (s *Server) reviewApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	intentID, err := strconv.ParseInt(r.PathValue("intentID"), 10, 64)
 	if err != nil || intentID <= 0 {
-		writeErr(w, 400, "invalid intent id")
+		writeErr(w, 400, "意图 id 无效")
 		return
 	}
 	var body struct {
@@ -612,7 +612,7 @@ func (s *Server) reviewApprove(w http.ResponseWriter, r *http.Request) {
 		ExpectedVersion *int `json:"expected_version"`
 	}
 	if err := decode(r, &body); err != nil && !errors.Is(err, io.EOF) {
-		writeErr(w, 400, "invalid JSON: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	ver, err := resolveReviewVersion(t.Store, intentID, body.ExpectedVersion)
@@ -651,7 +651,7 @@ func (s *Server) reviewApprove(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reviewReject(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !t.ReviewEnabled {
@@ -661,7 +661,7 @@ func (s *Server) reviewReject(w http.ResponseWriter, r *http.Request) {
 	}
 	intentID, err := strconv.ParseInt(r.PathValue("intentID"), 10, 64)
 	if err != nil || intentID <= 0 {
-		writeErr(w, 400, "invalid intent id")
+		writeErr(w, 400, "意图 id 无效")
 		return
 	}
 	var body struct {
@@ -669,7 +669,7 @@ func (s *Server) reviewReject(w http.ResponseWriter, r *http.Request) {
 		ExpectedVersion *int   `json:"expected_version"` // 可空；携带时做版本 CAS。
 	}
 	if err := decode(r, &body); err != nil && !errors.Is(err, io.EOF) {
-		writeErr(w, 400, "invalid JSON: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	reason := strings.TrimSpace(body.Reason)
@@ -720,7 +720,7 @@ func (s *Server) cancelTaskReview(taskID string) {
 func (s *Server) reviewChat(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !t.ReviewEnabled {
@@ -815,7 +815,7 @@ func (s *Server) reviewChat(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reviewMessages(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !t.ReviewEnabled {

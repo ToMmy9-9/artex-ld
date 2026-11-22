@@ -34,7 +34,7 @@ func (s *Server) listKnowledge(w http.ResponseWriter, r *http.Request) {
 	taskID, _ := strconv.ParseInt(r.URL.Query().Get("task"), 10, 64)
 	docs, err := s.m.pg.ListKnowledgeDocs(scope, taskID)
 	if err != nil {
-		writeErr(w, 500, "读取失败: "+err.Error())
+		writeErrInternal(w, 500, "读取失败: ", err)
 		return
 	}
 	writeJSON(w, 200, docs)
@@ -80,7 +80,7 @@ func (s *Server) createKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := s.m.pg.AddKnowledgeDoc(doc)
 	if err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	go s.indexKnowledgeAsync(id)
@@ -172,7 +172,7 @@ func (s *Server) uploadKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := s.m.pg.AddKnowledgeDoc(doc)
 	if err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	go s.indexKnowledgeAsync(id)

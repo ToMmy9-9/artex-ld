@@ -171,7 +171,7 @@ func (s *Server) convByID(w http.ResponseWriter, r *http.Request) (*db.DB, *db.C
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad conversation id")
+		writeErr(w, 400, "会话 id 无效")
 		return nil, nil, false
 	}
 	c, err := pg.GetConversation(id)
@@ -180,7 +180,7 @@ func (s *Server) convByID(w http.ResponseWriter, r *http.Request) (*db.DB, *db.C
 		return nil, nil, false
 	}
 	if c == nil {
-		writeErr(w, 404, "conversation not found")
+		writeErr(w, 404, "会话不存在")
 		return nil, nil, false
 	}
 	return pg, c, true
@@ -220,7 +220,7 @@ func (s *Server) pgRenameConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if updated == nil {
-		writeErr(w, 404, "conversation not found")
+		writeErr(w, 404, "会话不存在")
 		return
 	}
 	writeJSON(w, 200, updated)
@@ -295,7 +295,7 @@ func (s *Server) pgDeleteConversationsBatch(w http.ResponseWriter, r *http.Reque
 	}
 	deleted, err := pg.DeleteConversations(ids)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	deletedSet := make(map[int64]struct{}, len(deleted))
@@ -307,7 +307,7 @@ func (s *Server) pgDeleteConversationsBatch(w http.ResponseWriter, r *http.Reque
 		_, ok := deletedSet[id]
 		item := conversationDeleteItem{ID: id, OK: ok}
 		if !ok {
-			item.Error = "conversation not found"
+			item.Error = "会话不存在"
 		}
 		items = append(items, item)
 	}
@@ -367,7 +367,7 @@ func (s *Server) pgConversationMsgDetail(w http.ResponseWriter, r *http.Request)
 	}
 	seq, ok := pathInt(r, "seq")
 	if !ok {
-		writeErr(w, 400, "bad seq")
+		writeErr(w, 400, "序号无效")
 		return
 	}
 	detail, err := pg.ConvActivityDetail(c.ID, seq)

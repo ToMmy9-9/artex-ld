@@ -85,20 +85,20 @@ func (p *dynamicForwardProxy) serveHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	up := strings.TrimSpace(p.current())
 	if up == "" && p.direct != nil && !p.direct() {
-		http.Error(w, "proxy unavailable", 502)
+		http.Error(w, "代理不可用", 502)
 		return
 	}
 	tr := &http.Transport{Proxy: nil}
 	if up != "" {
 		u, err := url.Parse(up)
 		if err != nil {
-			http.Error(w, "proxy unavailable", 502)
+			http.Error(w, "代理不可用", 502)
 			return
 		}
 		if strings.HasPrefix(strings.ToLower(u.Scheme), "socks5") {
 			d, err := socksDialer(u)
 			if err != nil {
-				http.Error(w, "proxy unavailable", 502)
+				http.Error(w, "代理不可用", 502)
 				return
 			}
 			tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -123,7 +123,7 @@ func (p *dynamicForwardProxy) serveHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	resp, err := tr.RoundTrip(rr)
 	if err != nil {
-		http.Error(w, "proxy unavailable", 502)
+		http.Error(w, "代理不可用", 502)
 		return
 	}
 	defer resp.Body.Close()
@@ -139,7 +139,7 @@ func (p *dynamicForwardProxy) serveHTTP(w http.ResponseWriter, r *http.Request) 
 func (p *dynamicForwardProxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 	up := strings.TrimSpace(p.current())
 	if up == "" && p.direct != nil && !p.direct() {
-		http.Error(w, "proxy unavailable", 502)
+		http.Error(w, "代理不可用", 502)
 		return
 	}
 	target := r.Host
@@ -163,12 +163,12 @@ func (p *dynamicForwardProxy) serveConnect(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if err != nil {
-		http.Error(w, "proxy unavailable", 502)
+		http.Error(w, "代理不可用", 502)
 		return
 	}
 	h, ok := w.(http.Hijacker)
 	if !ok {
-		http.Error(w, "proxy unavailable", 500)
+		http.Error(w, "代理不可用", 500)
 		return
 	}
 	client, rw, err := h.Hijack()

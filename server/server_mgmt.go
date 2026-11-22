@@ -154,7 +154,7 @@ func (s *Server) pgDeleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 	var opts DeleteTaskOptions
 	if err := decode(r, &opts); err != nil && err != io.EOF {
-		writeErr(w, 400, "invalid JSON: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if !s.beginTaskDelete(id) {
@@ -361,7 +361,7 @@ func (s *Server) agentByKey(w http.ResponseWriter, r *http.Request) (*db.DB, *db
 		return nil, nil, false
 	}
 	if a == nil {
-		writeErr(w, 404, "agent not found")
+		writeErr(w, 404, "Agent 不存在")
 		return nil, nil, false
 	}
 	return pg, a, true
@@ -983,7 +983,7 @@ func (s *Server) pgRefreshMCP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	if err := s.discoverAndCacheMCP(ctx, target); err != nil {
-		writeErr(w, 502, "工具发现失败："+err.Error())
+		writeErrInternal(w, 502, "工具发现失败：", err)
 		return
 	}
 	tools, _ := pg.MCPToolsDetailed(id)
@@ -1139,16 +1139,16 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validSkillName(body.Name) {
-		writeErr(w, 400, "skill name must be 1-64 lowercase alphanumeric/hyphen characters, not starting/ending/doubling hyphens")
+		writeErr(w, 400, "技能名称只能由 1-64 位小写字母、数字和连字符组成，且不能以连字符开头、结尾或连续出现")
 		return
 	}
 	if strings.TrimSpace(body.Description) == "" {
-		writeErr(w, 400, "description is required")
+		writeErr(w, 400, "描述不能为空")
 		return
 	}
 	skillPath := filepath.Join(s.skillDir, body.Name)
 	if _, err := os.Stat(skillPath); err == nil {
-		writeErr(w, 409, "skill already exists")
+		writeErr(w, 409, "技能已存在")
 		return
 	}
 	if err := os.MkdirAll(skillPath, 0o755); err != nil {
@@ -1198,7 +1198,7 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		writeErr(w, 400, "技能名称不合法")
 		return
 	}
 	var body struct {
@@ -1214,7 +1214,7 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 	skillMD := filepath.Join(s.skillDir, name, "SKILL.md")
 	raw, err := os.ReadFile(skillMD)
 	if err != nil {
-		writeErr(w, 404, "skill not found")
+		writeErr(w, 404, "技能不存在")
 		return
 	}
 	updated, err := rewriteSkillFrontmatter(raw, body.MCPs, body.Description, body.License, body.Compatibility)
@@ -1488,7 +1488,7 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		_ = os.RemoveAll(skillPath)
 	}
 	if err := os.Rename(tmp, skillPath); err != nil {
-		writeErr(w, 500, "安装失败："+err.Error())
+		writeErrInternal(w, 500, "安装失败：", err)
 		return
 	}
 	writeJSON(w, 201, map[string]any{"name": name, "files": entries})
@@ -1512,7 +1512,7 @@ func (s *Server) fsDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		writeErr(w, 400, "技能名称不合法")
 		return
 	}
 	if err := pg.DeleteSkillVisibility(name); err != nil {
@@ -1623,12 +1623,12 @@ func walkSkillFiles(root string) ([]string, error) {
 func (s *Server) fsListFiles(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		writeErr(w, 400, "技能名称不合法")
 		return
 	}
 	dirPath := filepath.Join(s.skillDir, name)
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		writeErr(w, 404, "skill not found")
+		writeErr(w, 404, "技能不存在")
 		return
 	}
 	files, err := walkSkillFiles(dirPath)
@@ -1645,7 +1645,7 @@ func (s *Server) fsListFiles(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		writeErr(w, 400, "技能名称不合法")
 		return
 	}
 	file, errMsg := skillRelPath(r.PathValue("file"))
@@ -1655,7 +1655,7 @@ func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := os.ReadFile(filepath.Join(s.skillDir, name, file))
 	if os.IsNotExist(err) {
-		writeErr(w, 404, "file not found")
+		writeErr(w, 404, "文件不存在")
 		return
 	}
 	if err != nil {
@@ -1668,7 +1668,7 @@ func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		writeErr(w, 400, "技能名称不合法")
 		return
 	}
 	file, errMsg := skillRelPath(r.PathValue("file"))
@@ -1686,7 +1686,7 @@ func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	skillPath := filepath.Join(s.skillDir, name)
 	if _, err := os.Stat(skillPath); os.IsNotExist(err) {
-		writeErr(w, 404, "skill not found")
+		writeErr(w, 404, "技能不存在")
 		return
 	}
 	fullPath := filepath.Join(skillPath, file)
@@ -1705,7 +1705,7 @@ func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		writeErr(w, 400, "技能名称不合法")
 		return
 	}
 	var body struct {
@@ -1722,7 +1722,7 @@ func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
 	}
 	skillPath := filepath.Join(s.skillDir, name)
 	if _, err := os.Stat(skillPath); os.IsNotExist(err) {
-		writeErr(w, 404, "skill not found")
+		writeErr(w, 404, "技能不存在")
 		return
 	}
 	if err := os.MkdirAll(filepath.Join(skillPath, dir), 0o755); err != nil {
@@ -1735,7 +1735,7 @@ func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsDeletePath(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		writeErr(w, 400, "技能名称不合法")
 		return
 	}
 	file, errMsg := skillRelPath(r.PathValue("file"))
@@ -1745,7 +1745,7 @@ func (s *Server) fsDeletePath(w http.ResponseWriter, r *http.Request) {
 	}
 	fullPath := filepath.Join(s.skillDir, name, file)
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		writeErr(w, 404, "not found")
+		writeErr(w, 404, "文件不存在")
 		return
 	}
 	if err := os.RemoveAll(fullPath); err != nil {

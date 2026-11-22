@@ -108,7 +108,7 @@ func (s *Server) findingGroups(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 	id := int64(atoiDefault(r.PathValue("id"), 0))
 	if id <= 0 {
-		writeErr(w, 400, "bad finding id")
+		writeErr(w, 400, "漏洞 id 无效")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
@@ -120,14 +120,14 @@ func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")
 		} else {
-			writeErr(w, http.StatusBadRequest, "bad json: "+err.Error())
+			writeDecodeErr(w, err)
 		}
 		return
 	}
 	description := strings.TrimSpace(req.Description)
 	switch {
 	case description == "":
-		writeErr(w, 400, "description is required")
+		writeErr(w, 400, "描述不能为空")
 		return
 	case utf8.RuneCountInString(description) > maxFindingFollowUpRunes:
 		writeErr(w, 400, fmt.Sprintf("description must be at most %d characters", maxFindingFollowUpRunes))
@@ -140,20 +140,20 @@ func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if finding == nil {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return
 	}
 	if finding.TaskID == nil || finding.NodeID == nil {
-		writeErr(w, 409, "finding origin task or node is no longer available")
+		writeErr(w, 409, "漏洞的来源任务或节点已不可用")
 		return
 	}
 	t, ok := s.m.Task(i64s(*finding.TaskID))
 	if !ok || t == nil {
-		writeErr(w, 409, "finding origin task is no longer available")
+		writeErr(w, 409, "漏洞的来源任务已不可用")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
-		writeErr(w, 409, "task is being deleted")
+		writeErr(w, 409, "任务正在删除")
 		return
 	}
 	defer s.engine.decInflight(t.ID)
@@ -166,7 +166,7 @@ func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 	}
 	intentID, audit, err := t.Store.AddFindingFollowUpIntent(id, *finding.NodeID, description, audit)
 	if errors.Is(err, db.ErrFindingOriginUnavailable) {
-		writeErr(w, 409, "finding origin task or node is no longer available")
+		writeErr(w, 409, "漏洞的来源任务或节点已不可用")
 		return
 	}
 	if err != nil {

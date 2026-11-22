@@ -18,7 +18,7 @@ import (
 func (s *Server) extractFindings(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.PathValue("id"))
 	if t == nil {
-		writeErr(w, 404, "no active task")
+		writeErr(w, 404, "当前没有进行中的任务")
 		return
 	}
 	expID := t.Store.ID()
@@ -73,7 +73,7 @@ func (s *Server) extractFindings(w http.ResponseWriter, r *http.Request) {
 
 	extracted, err := reportx.ExtractFindings(s.ctx, s.m.pg, transcript, labels)
 	if err != nil {
-		writeErr(w, 502, "AI 提取失败："+err.Error())
+		writeErrInternal(w, 502, "AI 提取失败：", err)
 		return
 	}
 

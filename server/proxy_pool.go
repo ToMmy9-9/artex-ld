@@ -1055,7 +1055,7 @@ func (s *Server) deleteProxyPool(w http.ResponseWriter, r *http.Request) {
 		if next := s.m.selectHealthyLocked(id); next != "" {
 			if err := s.m.applyActiveProxyLocked(next, "manual"); err != nil {
 				s.m.proxyPool.mu.Unlock()
-				writeErr(w, 500, maskSecrets(err.Error()))
+				writeErrInternalDetail(w, 500, "切换代理失败", maskSecrets(err.Error()))
 				return
 			}
 			switched = true
@@ -1072,14 +1072,14 @@ func (s *Server) deleteProxyPool(w http.ResponseWriter, r *http.Request) {
 			if next != "" {
 				if err := s.m.applyActiveProxyLockedWithHealth(next, "manual", true); err != nil {
 					s.m.proxyPool.mu.Unlock()
-					writeErr(w, 500, maskSecrets(err.Error()))
+					writeErrInternalDetail(w, 500, "切换代理失败", maskSecrets(err.Error()))
 					return
 				}
 				needPause = true
 			} else {
 				if err := s.m.applyActiveProxyLocked("", "manual"); err != nil {
 					s.m.proxyPool.mu.Unlock()
-					writeErr(w, 500, maskSecrets(err.Error()))
+					writeErrInternalDetail(w, 500, "切换代理失败", maskSecrets(err.Error()))
 					return
 				}
 				// Clearing the last usable route leaves no proxy to recover.

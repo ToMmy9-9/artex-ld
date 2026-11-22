@@ -101,7 +101,7 @@ func (s *Server) applyTaskControl(t *Task, action string) (taskControlResult, er
 
 func (s *Server) applyTaskControlWithCause(t *Task, action string, pauseCause error) (taskControlResult, error) {
 	if t == nil {
-		return taskControlResult{}, fmt.Errorf("task not found")
+		return taskControlResult{}, fmt.Errorf("任务不存在")
 	}
 	out := taskControlResult{ID: t.ID}
 	switch action {
@@ -193,7 +193,7 @@ func (s *Server) applyTaskControlWithCause(t *Task, action string, pauseCause er
 		out.Queued = queued
 		out.Status = map[bool]string{true: "queued", false: "running"}[queued]
 	default:
-		return out, fmt.Errorf("action must be pause|resume")
+		return out, fmt.Errorf("action 只支持 pause 或 resume")
 	}
 	log.Printf("[task] #%s %s", t.ID, map[string]string{"pause": "已暂停", "resume": "已继续"}[action])
 	return out, nil
@@ -223,10 +223,10 @@ func (s *Server) applyIntentControl(ctx context.Context, t *Task, iid int64, act
 		if inherited, sourceErr := t.Store.GetNodeWithSources(iid); sourceErr == nil && inherited != nil && inherited.Inherited {
 			return out, fmt.Errorf("继承意图为只读，不能控制")
 		}
-		return out, fmt.Errorf("intent not found")
+		return out, fmt.Errorf("意图不存在")
 	}
 	if node.Kind != db.KindIntent {
-		return out, fmt.Errorf("node is not an intent")
+		return out, fmt.Errorf("该节点不是意图节点")
 	}
 	switch action {
 	case "pause":
@@ -288,7 +288,7 @@ func (s *Server) applyIntentControl(ctx context.Context, t *Task, iid int64, act
 			out.State = db.StateIntentDeleted
 		}
 	default:
-		return out, fmt.Errorf("action must be pause|resume|cancel")
+		return out, fmt.Errorf("action 只支持 pause、resume 或 cancel")
 	}
 	return out, nil
 }
@@ -300,11 +300,11 @@ func (s *Server) controlTasksBatch(w http.ResponseWriter, r *http.Request) {
 		Action  string   `json:"action"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if req.Action != "pause" && req.Action != "resume" {
-		writeErr(w, 400, "action must be pause|resume")
+		writeErr(w, 400, "action 只支持 pause 或 resume")
 		return
 	}
 	taskIDs := normalizeBatchTaskIDs(req.TaskIDs)
@@ -316,13 +316,13 @@ func (s *Server) controlTasksBatch(w http.ResponseWriter, r *http.Request) {
 	for _, parsed := range taskIDs {
 		item := batchControlItem{ID: parsed.id}
 		if !parsed.valid {
-			item.Error = "bad task id"
+			item.Error = "任务 id 无效"
 			items = append(items, item)
 			continue
 		}
 		t, ok := s.m.Task(parsed.id)
 		if !ok {
-			item.Error = "task not found"
+			item.Error = "任务不存在"
 			items = append(items, item)
 			continue
 		}

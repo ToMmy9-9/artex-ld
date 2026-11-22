@@ -1459,7 +1459,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     if (categoryID !== undefined && !category) throw new Error("任务分类不存在");
     const items = taskIDs.map((id) => {
       const task = mockTasks.find((item) => item.id === id);
-      if (!task) return { id, ok: false, error: "task not found" };
+      if (!task) return { id, ok: false, error: "任务不存在" };
       task.category_id = category?.id;
       task.category_name = category?.name;
       return { id, ok: true };
@@ -1582,14 +1582,14 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (seg[0] === "planner-templates" && seg.length === 3 && seg[2] === "default" && m === "POST") {
     const id = Number(seg[1]);
     const tpl = mockPlannerTemplates.find((t) => t.id === id);
-    if (!tpl) throw new Error("planner template not found");
+    if (!tpl) throw new Error("planner 模板不存在");
     mockPlannerTemplates.forEach((t) => { t.is_default = t.id === id; });
     return tpl;
   }
   if (seg[0] === "planner-templates" && seg.length === 2 && m === "PATCH") {
     const id = Number(seg[1]);
     const tpl = mockPlannerTemplates.find((t) => t.id === id);
-    if (!tpl) throw new Error("planner template not found");
+    if (!tpl) throw new Error("planner 模板不存在");
     if (tpl.builtin) throw new Error("内置模板为只读：可「另存为新模板」后修改，不能直接改/删");
     if (b.name !== undefined) tpl.name = String(b.name).trim();
     if (b.body !== undefined) tpl.body = String(b.body).trim();
@@ -2365,11 +2365,11 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (seg[0] === "exploration" && seg[1] === "findings" && seg[3] === "deepen" && m === "POST") {
     const finding = mockFindings.find((candidate) => candidate.id === seg[2]);
     const description = String(b.description ?? "").trim();
-    if (!description) throw new Error("description is required");
-    if ([...description].length > 4000) throw new Error("description must be at most 4000 characters");
-    if (!finding) throw new Error("finding not found");
+    if (!description) throw new Error("描述不能为空");
+    if ([...description].length > 4000) throw new Error("描述不能超过 4000 个字符");
+    if (!finding) throw new Error("漏洞不存在");
     if (!finding.task_id || !mockTasks.some((candidate) => candidate.id === finding.task_id)) {
-      throw new Error("finding origin task or node is no longer available");
+      throw new Error("漏洞的来源任务或节点已不可用");
     }
     return {
       task_id: finding.task_id,
@@ -2771,7 +2771,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       : [];
     const items = ids.map((id) => {
       const index = mockConversations.findIndex((item) => item.id === id);
-      if (index < 0) return { id, ok: false, error: "conversation not found" };
+      if (index < 0) return { id, ok: false, error: "会话不存在" };
       mockConversations.splice(index, 1);
       stopMockRetest(id);
       for (const retest of mockRetests) if (retest.conversation_id === id) retest.conversation_id = null;

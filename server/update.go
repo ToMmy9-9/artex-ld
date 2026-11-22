@@ -351,7 +351,7 @@ func (s *Server) updateRollback(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, 500, "streaming unsupported")
+		writeErr(w, 500, "服务端不支持流式输出")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")

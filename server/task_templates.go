@@ -107,9 +107,9 @@ func writeTaskTemplateErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, db.ErrTaskTemplateNameConflict):
 		writeErr(w, http.StatusConflict, "模板名称已存在")
 	case errors.Is(err, db.ErrTaskTemplateNotFound):
-		writeErr(w, http.StatusNotFound, "task template not found")
+		writeErr(w, http.StatusNotFound, "任务模板不存在")
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 	}
 }
 
@@ -120,7 +120,7 @@ func (s *Server) pgListTaskTemplates(w http.ResponseWriter, _ *http.Request) {
 	}
 	templates, err := pg.ListTaskTemplates()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"templates": templates})
@@ -171,7 +171,7 @@ func (s *Server) pgUpdateTaskTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "bad task template id")
+		writeErr(w, http.StatusBadRequest, "任务模板 id 无效")
 		return
 	}
 	var req taskTemplateRequest
@@ -235,16 +235,16 @@ func (s *Server) pgDeleteTaskTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "bad task template id")
+		writeErr(w, http.StatusBadRequest, "任务模板 id 无效")
 		return
 	}
 	deleted, err := pg.DeleteTaskTemplate(id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !deleted {
-		writeErr(w, http.StatusNotFound, "task template not found")
+		writeErr(w, http.StatusNotFound, "任务模板不存在")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": id})

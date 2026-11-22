@@ -29,14 +29,14 @@ const maxTopologyEditorBytes = 16 << 10
 func (s *Server) topologyTask(r *http.Request) (int64, string) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok || s.m.pg == nil {
-		return 0, "task not found"
+		return 0, "任务不存在"
 	}
 	if t.CategoryNKey != "内网渗透" {
 		return 0, "内网拓扑仅适用于内网渗透任务"
 	}
 	id, _ := strconv.ParseInt(t.ID, 10, 64)
 	if id <= 0 {
-		return 0, "task not found"
+		return 0, "任务不存在"
 	}
 	return id, ""
 }
@@ -44,7 +44,7 @@ func (s *Server) topologyTask(r *http.Request) (int64, string) {
 // topologyEditorBody decodes a bounded JSON body for the editor endpoints.
 func topologyEditorBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxTopologyEditorBytes)).Decode(v); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		writeErr(w, http.StatusBadRequest, "请求体不是合法的 JSON")
 		return false
 	}
 	return true
@@ -58,7 +58,7 @@ func (s *Server) topologyEditorGet(w http.ResponseWriter, r *http.Request) {
 	}
 	g, err := s.m.pg.TaskTopologyEditor(taskID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, g)
@@ -220,7 +220,7 @@ func (s *Server) patchTopologyEditorEdge(w http.ResponseWriter, r *http.Request)
 	}
 	edgeID, ok := pathInt(r, "eid")
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "bad edge id")
+		writeErr(w, http.StatusBadRequest, "连线 id 无效")
 		return
 	}
 	var input struct {
@@ -255,7 +255,7 @@ func (s *Server) deleteTopologyEditorEdge(w http.ResponseWriter, r *http.Request
 	}
 	edgeID, ok := pathInt(r, "eid")
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "bad edge id")
+		writeErr(w, http.StatusBadRequest, "连线 id 无效")
 		return
 	}
 	g, err := s.m.pg.DeleteTopologyEdge(taskID, edgeID, "ARTEX")
@@ -280,7 +280,7 @@ func (s *Server) upsertTopologyEditorGroup(w http.ResponseWriter, r *http.Reques
 	if gid := r.PathValue("gid"); gid != "" {
 		id, ok := pathInt(r, "gid")
 		if !ok {
-			writeErr(w, http.StatusBadRequest, "bad group id")
+			writeErr(w, http.StatusBadRequest, "分组 id 无效")
 			return
 		}
 		input.ID = id
@@ -305,7 +305,7 @@ func (s *Server) deleteTopologyEditorGroup(w http.ResponseWriter, r *http.Reques
 	}
 	groupID, ok := pathInt(r, "gid")
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "bad group id")
+		writeErr(w, http.StatusBadRequest, "分组 id 无效")
 		return
 	}
 	g, err := s.m.pg.DeleteTopologyGroup(taskID, groupID, "ARTEX")

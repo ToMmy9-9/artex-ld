@@ -1455,7 +1455,7 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 // be started; the intent is left untouched in that case.
 func (e *Engine) runDetachedIntent(ctx context.Context, t *Task, intentID int64, requestID, message, agentMessage string) error {
 	if !e.beginTaskOperation(t.ID) {
-		return fmt.Errorf("task is being deleted")
+		return fmt.Errorf("任务正在删除")
 	}
 	release := true
 	defer func() {
@@ -1468,7 +1468,7 @@ func (e *Engine) runDetachedIntent(ctx context.Context, t *Task, intentID int64,
 		return err
 	}
 	if node == nil || node.Kind != db.KindIntent {
-		return fmt.Errorf("intent not found")
+		return fmt.Errorf("意图不存在")
 	}
 	owner := node.Owner
 	var worker *agent.Worker

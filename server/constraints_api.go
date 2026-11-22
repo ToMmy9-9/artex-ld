@@ -41,7 +41,7 @@ func (s *Server) constraintInjectWorker() bool {
 func (s *Server) listConstraints(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	rows, err := t.Store.ListConstraints()
@@ -56,7 +56,7 @@ func (s *Server) listConstraints(w http.ResponseWriter, r *http.Request) {
 func (s *Server) addConstraint(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -70,7 +70,7 @@ func (s *Server) addConstraint(w http.ResponseWriter, r *http.Request) {
 		Kind string `json:"kind"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+		writeErr(w, 400, "请求体不是合法的 JSON")
 		return
 	}
 	text := strings.TrimSpace(body.Text)
@@ -95,7 +95,7 @@ func (s *Server) addConstraint(w http.ResponseWriter, r *http.Request) {
 func (s *Server) editConstraint(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -106,7 +106,7 @@ func (s *Server) editConstraint(w http.ResponseWriter, r *http.Request) {
 
 	cid, err := strconv.ParseInt(r.PathValue("cid"), 10, 64)
 	if err != nil || cid <= 0 {
-		writeErr(w, 400, "bad constraint id")
+		writeErr(w, 400, "约束 id 无效")
 		return
 	}
 	var body struct {
@@ -114,7 +114,7 @@ func (s *Server) editConstraint(w http.ResponseWriter, r *http.Request) {
 		Kind string `json:"kind"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+		writeErr(w, 400, "请求体不是合法的 JSON")
 		return
 	}
 	text := strings.TrimSpace(body.Text)
@@ -138,7 +138,7 @@ func (s *Server) editConstraint(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteConstraint(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -149,7 +149,7 @@ func (s *Server) deleteConstraint(w http.ResponseWriter, r *http.Request) {
 
 	cid, err := strconv.ParseInt(r.PathValue("cid"), 10, 64)
 	if err != nil || cid <= 0 {
-		writeErr(w, 400, "bad constraint id")
+		writeErr(w, 400, "约束 id 无效")
 		return
 	}
 	if err := t.Store.DeleteConstraint(cid); err != nil {

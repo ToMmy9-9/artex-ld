@@ -114,7 +114,7 @@ func (a *templateAPI[T, In, P]) writeErrM(w http.ResponseWriter, err error) {
 	case errors.Is(err, a.errNotFound):
 		writeErr(w, http.StatusNotFound, a.notFoundMsg())
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 	}
 }
 
@@ -126,7 +126,7 @@ func (a *templateAPI[T, In, P]) list(s *Server, w http.ResponseWriter, _ *http.R
 	}
 	templates, err := a.listFn(pg)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// 【二开·P-LOG·S11】DEBUG 记列表（排障：前端下拉数据哪来的）。

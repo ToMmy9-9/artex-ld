@@ -68,7 +68,7 @@ func (s *Server) taskInterceptListRules(w http.ResponseWriter, r *http.Request) 
 	}
 	taskID, ok := pathInt(r, "id")
 	if !ok || taskID <= 0 {
-		writeErr(w, 400, "bad task id")
+		writeErr(w, 400, "任务 id 无效")
 		return
 	}
 	rules, err := pg.Assets().ListTaskInterceptRules(taskID)
@@ -89,7 +89,7 @@ func (s *Server) taskInterceptCreateRule(w http.ResponseWriter, r *http.Request)
 	}
 	taskID, ok := pathInt(r, "id")
 	if !ok || taskID <= 0 {
-		writeErr(w, 400, "bad task id")
+		writeErr(w, 400, "任务 id 无效")
 		return
 	}
 	var req taskInterceptRuleReq
@@ -116,12 +116,12 @@ func (s *Server) taskInterceptUpdateRule(w http.ResponseWriter, r *http.Request)
 	}
 	taskID, ok := pathInt(r, "id")
 	if !ok || taskID <= 0 {
-		writeErr(w, 400, "bad task id")
+		writeErr(w, 400, "任务 id 无效")
 		return
 	}
 	ruleID, ok := pathInt(r, "rid")
 	if !ok || ruleID <= 0 {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	var req taskInterceptRuleReq
@@ -148,12 +148,12 @@ func (s *Server) taskInterceptDeleteRule(w http.ResponseWriter, r *http.Request)
 	}
 	taskID, ok := pathInt(r, "id")
 	if !ok || taskID <= 0 {
-		writeErr(w, 400, "bad task id")
+		writeErr(w, 400, "任务 id 无效")
 		return
 	}
 	ruleID, ok := pathInt(r, "rid")
 	if !ok || ruleID <= 0 {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	deleted, err := pg.Assets().DeleteTaskInterceptRule(taskID, ruleID)
@@ -171,12 +171,12 @@ func (s *Server) taskInterceptToggleRule(w http.ResponseWriter, r *http.Request)
 	}
 	taskID, ok := pathInt(r, "id")
 	if !ok || taskID <= 0 {
-		writeErr(w, 400, "bad task id")
+		writeErr(w, 400, "任务 id 无效")
 		return
 	}
 	ruleID, ok := pathInt(r, "rid")
 	if !ok || ruleID <= 0 {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	var req struct {

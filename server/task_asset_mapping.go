@@ -16,7 +16,7 @@ import (
 func (s *Server) taskAssetMapping(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
+		writeErr(w, http.StatusNotFound, "任务不存在")
 		return
 	}
 	if s.m.pg == nil || s.chatAgentRef() == nil {
@@ -103,12 +103,12 @@ func (s *Server) taskAssetMapping(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskAssetMappingStatus(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, http.StatusNotFound, "task not found")
+		writeErr(w, http.StatusNotFound, "任务不存在")
 		return
 	}
 	conversations, err := s.m.pg.ListConversations()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	title := fmt.Sprintf("资产与网络梳理 · 任务 #%s", t.ID)

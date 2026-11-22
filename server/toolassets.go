@@ -85,7 +85,7 @@ func (s *Server) toolAssetUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	dir := s.toolAssetDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		writeErr(w, 500, "创建工具目录失败: "+err.Error())
+		writeErrInternal(w, 500, "创建工具目录失败: ", err)
 		return
 	}
 
@@ -308,7 +308,7 @@ func (s *Server) toolAssetDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
-		writeErr(w, 400, "invalid id")
+		writeErr(w, 400, "id 无效")
 		return
 	}
 	asset, err := pg.ToolAssetByID(id)
@@ -356,7 +356,7 @@ func (s *Server) toolAssetSetState(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
-		writeErr(w, 400, "invalid id")
+		writeErr(w, 400, "id 无效")
 		return
 	}
 	var req struct {
@@ -388,7 +388,7 @@ func (s *Server) toolAssetRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
-		writeErr(w, 400, "invalid id")
+		writeErr(w, 400, "id 无效")
 		return
 	}
 	runs, err := pg.ListToolAssetRuns(id, 100)
@@ -554,7 +554,7 @@ func (s *Server) toolAssetClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
-		writeErr(w, 400, "invalid id")
+		writeErr(w, 400, "id 无效")
 		return
 	}
 	asset, err := pg.ToolAssetByID(id)
@@ -588,7 +588,7 @@ func (s *Server) toolAssetClaim(w http.ResponseWriter, r *http.Request) {
 	if req.Contract != nil {
 		limits, lerr := db.ParseContract(asset.Limits)
 		if lerr != nil {
-			writeErr(w, 500, "平台权限上限解析失败: "+lerr.Error())
+			writeErrInternal(w, 500, "平台权限上限解析失败: ", lerr)
 			return
 		}
 		if err := db.ValidateContractAgainstLimits(req.Contract, limits); err != nil {
@@ -629,7 +629,7 @@ func (s *Server) toolAssetSetLimits(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := parseID(r.PathValue("id"))
 	if err != nil {
-		writeErr(w, 400, "invalid id")
+		writeErr(w, 400, "id 无效")
 		return
 	}
 	var req struct {

@@ -78,7 +78,7 @@ func writeSSClientErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusPreconditionFailed, err.Error())
 		return
 	}
-	writeErr(w, http.StatusBadGateway, err.Error())
+	writeErrRedacted(w, http.StatusBadGateway, err.Error())
 }
 
 // envHasValue reports whether the env/header map has any non-empty value
@@ -208,7 +208,7 @@ func (s *Server) syncSSProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	text, err := cl.Call(ctx, "list_projects_data", args)
 	if err != nil {
-		writeErr(w, 502, "list_projects_data 失败: "+err.Error())
+		writeErrInternal(w, 502, "list_projects_data 失败: ", err)
 		return
 	}
 	// {result:{All:[{id,name,logo,AssetCount,tag}], <tag>:[...]}, tag:{...}}
@@ -217,7 +217,7 @@ func (s *Server) syncSSProjects(w http.ResponseWriter, r *http.Request) {
 		Tag    map[string]int             `json:"tag"`
 	}
 	if err := json.Unmarshal([]byte(text), &env); err != nil {
-		writeErr(w, 502, "解析项目列表失败: "+err.Error())
+		writeErrInternal(w, 502, "解析项目列表失败: ", err)
 		return
 	}
 	projects := json.RawMessage("[]")
@@ -251,14 +251,14 @@ func (s *Server) syncSSTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	text, err := cl.Call(ctx, "list_tasks", args)
 	if err != nil {
-		writeErr(w, 502, "list_tasks 失败: "+err.Error())
+		writeErrInternal(w, 502, "list_tasks 失败: ", err)
 		return
 	}
 	var env struct {
 		List json.RawMessage `json:"list"`
 	}
 	if err := json.Unmarshal([]byte(text), &env); err != nil {
-		writeErr(w, 502, "解析任务列表失败: "+err.Error())
+		writeErrInternal(w, 502, "解析任务列表失败: ", err)
 		return
 	}
 	tasks := env.List
@@ -285,12 +285,12 @@ func (s *Server) syncSSRun(w http.ResponseWriter, r *http.Request) {
 	as := s.assetStore()
 	cs := s.companyStore()
 	if as == nil || cs == nil {
-		writeErr(w, 503, "database unavailable")
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
 		return
 	}
 	var req ssSyncReq
 	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, "invalid JSON: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if req.Dimension != "project" && req.Dimension != "task" {

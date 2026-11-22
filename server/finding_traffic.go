@@ -111,7 +111,7 @@ func evidenceError(w http.ResponseWriter, err error) {
 func (s *Server) findingTrafficAccess(w http.ResponseWriter, r *http.Request, write bool) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeErr(w, 400, "invalid finding id")
+		writeErr(w, 400, "漏洞 id 无效")
 		return 0, false
 	}
 	f, err := s.m.pg.GetFinding(id)
@@ -120,18 +120,18 @@ func (s *Server) findingTrafficAccess(w http.ResponseWriter, r *http.Request, wr
 		return 0, false
 	}
 	if f == nil {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return 0, false
 	}
 	if taskID := r.URL.Query().Get("context_task"); taskID != "" {
 		task := s.m.ResolveTask(taskID)
 		if task == nil {
-			writeErr(w, 404, "context task not found")
+			writeErr(w, 404, "任务不存在")
 			return 0, false
 		}
 		_, inherited, allowed := findingProvenanceInTask(task, f.TaskID)
 		if !allowed {
-			writeErr(w, 404, "finding not available in task context")
+			writeErr(w, 404, "该漏洞不属于当前任务")
 			return 0, false
 		}
 		if write && inherited {
@@ -174,7 +174,7 @@ func (s *Server) bindFindingTraffic(w http.ResponseWriter, r *http.Request) {
 		Refs []db.TrafficRef `json:"traffic_refs"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid body")
+		writeErr(w, 400, "请求体无效")
 		return
 	}
 	if len(body.Refs) == 0 {
@@ -215,7 +215,7 @@ func (s *Server) editFindingTraffic(w http.ResponseWriter, r *http.Request) {
 		for _, raw := range body.Order {
 			v, err := strconv.ParseInt(raw, 10, 64)
 			if err != nil || v <= 0 {
-				writeErr(w, 400, "invalid binding id")
+				writeErr(w, 400, "绑定 id 无效")
 				return
 			}
 			order = append(order, v)
@@ -224,7 +224,7 @@ func (s *Server) editFindingTraffic(w http.ResponseWriter, r *http.Request) {
 		var err error
 		bindingID, err = strconv.ParseInt(r.PathValue("binding_id"), 10, 64)
 		if err != nil || bindingID <= 0 {
-			writeErr(w, 400, "invalid binding id")
+			writeErr(w, 400, "绑定 id 无效")
 			return
 		}
 	}
@@ -295,7 +295,7 @@ func (s *Server) getFindingTrafficDetail(w http.ResponseWriter, r *http.Request)
 	}
 	bid, err := strconv.ParseInt(r.PathValue("binding_id"), 10, 64)
 	if err != nil || bid <= 0 {
-		writeErr(w, 400, "invalid binding id")
+		writeErr(w, 400, "绑定 id 无效")
 		return
 	}
 	store := s.evidenceStore()
@@ -326,7 +326,7 @@ func (s *Server) getFindingTrafficBody(w http.ResponseWriter, r *http.Request) {
 	}
 	bid, err := strconv.ParseInt(r.PathValue("binding_id"), 10, 64)
 	if err != nil || bid <= 0 {
-		writeErr(w, 400, "invalid binding id")
+		writeErr(w, 400, "绑定 id 无效")
 		return
 	}
 	side := r.URL.Query().Get("side")

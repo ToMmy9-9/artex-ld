@@ -83,7 +83,7 @@ func (s *Server) pgListLLMRecords(w http.ResponseWriter, r *http.Request) {
 func (s *Server) pgTokenByModel(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.URL.Query().Get("task"))
 	if id == "" {
-		writeErr(w, 400, "missing task")
+		writeErr(w, 400, "缺少 task 参数")
 		return
 	}
 	pg := s.m.PG()
@@ -139,7 +139,7 @@ func (s *Server) pgLLMTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) pgDeleteLLMRecords(w http.ResponseWriter, r *http.Request) {
 	task := strings.TrimSpace(r.URL.Query().Get("task"))
 	if task == "" {
-		writeErr(w, 400, "missing task")
+		writeErr(w, 400, "缺少 task 参数")
 		return
 	}
 	n, err := s.m.PG().DeleteLLMRecords(task)
@@ -154,12 +154,12 @@ func (s *Server) pgDeleteLLMRecords(w http.ResponseWriter, r *http.Request) {
 func (s *Server) pgGetLLMRecord(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeErr(w, 400, "invalid id")
+		writeErr(w, 400, "id 无效")
 		return
 	}
 	rec, err := s.m.PG().GetLLMRecord(id)
 	if err != nil {
-		writeErr(w, 404, "not found")
+		writeErr(w, 404, "记录不存在")
 		return
 	}
 	writeJSON(w, 200, rec)

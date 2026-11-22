@@ -244,7 +244,7 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	var req interceptRuleReq
@@ -272,7 +272,7 @@ func (s *Server) interceptDeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	if err := pg.DeleteInterceptRule(id); err != nil {
@@ -290,7 +290,7 @@ func (s *Server) interceptToggleRule(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		writeErr(w, 400, "规则 id 无效")
 		return
 	}
 	var req struct {
@@ -333,7 +333,7 @@ func (s *Server) interceptGetOne(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad pending id")
+		writeErr(w, 400, "待审项 id 无效")
 		return
 	}
 	p, err := pg.GetInterceptPending(id)
@@ -342,7 +342,7 @@ func (s *Server) interceptGetOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p == nil {
-		writeErr(w, 404, "not found")
+		writeErr(w, 404, "待审项不存在")
 		return
 	}
 	writeJSON(w, 200, p)
@@ -355,7 +355,7 @@ func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) 
 	}
 	taskID := r.PathValue("taskID")
 	if taskID == "" {
-		writeErr(w, 400, "bad task id")
+		writeErr(w, 400, "任务 id 无效")
 		return
 	}
 	q := r.URL.Query()
@@ -482,7 +482,7 @@ func interceptPageParams(q url.Values) (int, int) {
 func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad pending id")
+		writeErr(w, 400, "待审项 id 无效")
 		return
 	}
 	var req struct {
@@ -676,7 +676,7 @@ func (s *Server) interceptDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok || id <= 0 {
-		writeErr(w, 400, "bad approval id")
+		writeErr(w, 400, "审批 id 无效")
 		return
 	}
 	detail, err := pg.GetInterceptDetail(id)
@@ -685,7 +685,7 @@ func (s *Server) interceptDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if detail == nil {
-		writeErr(w, 404, "not found")
+		writeErr(w, 404, "审批不存在")
 		return
 	}
 	writeJSON(w, 200, detail)
@@ -699,7 +699,7 @@ func (s *Server) interceptExecution(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok || id <= 0 {
-		writeErr(w, 400, "bad approval id")
+		writeErr(w, 400, "审批 id 无效")
 		return
 	}
 	target, err := pg.GetInterceptExecution(id)
@@ -722,7 +722,7 @@ func (s *Server) interceptExecution(w http.ResponseWriter, r *http.Request) {
 		if convID, parseErr := strconv.ParseInt(r.URL.Query().Get("conversation"), 10, 64); parseErr == nil && convID > 0 {
 			conv, getErr := pg.GetConversation(convID)
 			if getErr != nil {
-				writeErr(w, 500, getErr.Error())
+				writeErrRedacted(w, 500, getErr.Error())
 				return
 			}
 			if conv == nil {

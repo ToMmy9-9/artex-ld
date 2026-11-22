@@ -1391,7 +1391,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(taskParam)
 	if t == nil {
 		if taskParam != "" && taskParam != "active" {
-			writeErr(w, 404, "task not found")
+			writeErr(w, 404, "任务不存在")
 			return
 		}
 		writeJSON(w, 200, out) // no task selected: only global fields
@@ -1524,7 +1524,7 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 	defer s.concMu.Unlock()
 	t, ok := s.m.Task(req.ID)
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	// 排队任务只设为活跃以供查看，不绕过并发队列。
@@ -1538,7 +1538,7 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 	}
 	// 所有可能失败的检查完成后再切换 active，避免 404/409 留下悬空任务指针。
 	if !s.m.SetActive(req.ID) {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !queued {
@@ -1551,7 +1551,7 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	var req struct {
@@ -1562,7 +1562,7 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Action != "pause" && req.Action != "resume" {
-		writeErr(w, 400, "action must be pause|resume")
+		writeErr(w, 400, "action 只支持 pause 或 resume")
 		return
 	}
 	result, err := s.applyTaskControl(t, req.Action)
@@ -1579,7 +1579,7 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 func (s *Server) controlIntent(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -1590,7 +1590,7 @@ func (s *Server) controlIntent(w http.ResponseWriter, r *http.Request) {
 
 	iid, err := strconv.ParseInt(r.PathValue("iid"), 10, 64)
 	if err != nil || iid <= 0 {
-		writeErr(w, 400, "bad intent id")
+		writeErr(w, 400, "意图 id 无效")
 		return
 	}
 	var req struct {
@@ -1599,11 +1599,11 @@ func (s *Server) controlIntent(w http.ResponseWriter, r *http.Request) {
 		Mode   string `json:"mode"`   // cancel 专用:soft(默认,假删除)| hard(真删除,级联移除独占子孙)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if req.Action != "pause" && req.Action != "resume" && req.Action != "cancel" {
-		writeErr(w, 400, "action must be pause|resume|cancel")
+		writeErr(w, 400, "action 只支持 pause、resume 或 cancel")
 		return
 	}
 
@@ -1631,12 +1631,12 @@ func restoreRerunIntent(t *Task, before *db.Node) error {
 func (s *Server) rerunIntent(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	iid, err := strconv.ParseInt(r.PathValue("iid"), 10, 64)
 	if err != nil {
-		writeErr(w, 400, "bad intent id")
+		writeErr(w, 400, "意图 id 无效")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -1675,7 +1675,7 @@ func (s *Server) rerunIntent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rerunBlocked(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
@@ -1778,25 +1778,25 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		s.cfgMu.Unlock()
 	}
 	if cfg.APIKey == "" {
-		writeErr(w, 400, "api_key required")
+		writeErr(w, 400, "缺少 api_key")
 		return
 	}
 	// Validate provider construction before persisting it as the active profile.
 	if _, err := cfg.NewProvider(); err != nil {
-		writeErr(w, 400, "provider init failed: "+err.Error())
+		writeErr(w, 400, "模型服务初始化失败："+err.Error())
 		return
 	}
 	if err := s.saveLLMConfig(cfg); err != nil {
-		writeErr(w, 500, "persist provider failed: "+err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	s.invalidateProfileAgents()
 	if _, ok := s.loadLLMConfig(); !ok {
-		writeErr(w, 500, "saved provider is unavailable")
+		writeErr(w, 500, "已保存的模型服务不可用")
 		return
 	}
 	if err := s.applyLLM(cfg); err != nil {
-		writeErr(w, 400, "provider init failed: "+err.Error())
+		writeErr(w, 400, "模型服务初始化失败："+err.Error())
 		return
 	}
 	log.Printf("[engine] LLM configured via UI: %s / %s", cfg.Provider(), cfg.Model)
@@ -1975,7 +1975,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 413, "请求正文过大：任务描述与目标合计请控制在 16MB 以内")
 			return
 		}
-		writeErr(w, 400, "bad json: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if strings.TrimSpace(req.Description) == "" {
@@ -2225,7 +2225,7 @@ func (s *Server) validateTaskProfileIDs(ids []int64) error {
 func (s *Server) updateTaskLLMProfiles(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	// 任何生命周期状态(含终态)都可以改链:任务结束后主 Agent 对话仍走这条链,
@@ -2236,7 +2236,7 @@ func (s *Server) updateTaskLLMProfiles(w http.ResponseWriter, r *http.Request) {
 		ActiveLLMProfileID *int64  `json:"active_llm_profile_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if err := s.validateTaskProfileIDs(req.LLMProfileIDs); err != nil {
@@ -2413,7 +2413,7 @@ func (s *Server) seedFirstIntent(t *Task) {
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	dto := taskDTO(t, s.resolvedTaskStatus(t))
@@ -2426,7 +2426,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	as := s.m.Assets()
@@ -2454,7 +2454,7 @@ func (s *Server) taskCoverage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskCoverageGraph(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	as := s.m.Assets()
@@ -2476,7 +2476,7 @@ func (s *Server) taskCoverageGraph(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskAssetRefs(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	assetID, _ := strconv.ParseInt(r.URL.Query().Get("asset_id"), 10, 64)
@@ -2510,7 +2510,7 @@ func (s *Server) taskAssetRefs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskScopeList(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	as := s.m.Assets()
@@ -2530,7 +2530,7 @@ func (s *Server) taskScopeList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	as := s.m.Assets()
@@ -2544,7 +2544,7 @@ func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
 		Reason string `json:"reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "invalid JSON")
+		writeErr(w, 400, "请求体不是合法的 JSON")
 		return
 	}
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
@@ -2559,7 +2559,7 @@ func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
 func (s *Server) taskScopeDelete(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	as := s.m.Assets()
@@ -2570,7 +2570,7 @@ func (s *Server) taskScopeDelete(w http.ResponseWriter, r *http.Request) {
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	scopeID, err := strconv.ParseInt(r.PathValue("sid"), 10, 64)
 	if err != nil {
-		writeErr(w, 400, "invalid scope id")
+		writeErr(w, 400, "范围 id 无效")
 		return
 	}
 	deleted, err := as.DeleteTaskScope(taskID, scopeID)
@@ -2579,7 +2579,7 @@ func (s *Server) taskScopeDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !deleted {
-		writeErr(w, 404, "scope row not found")
+		writeErr(w, 404, "范围记录不存在")
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
@@ -2660,7 +2660,7 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 	for _, source := range sources {
 		nodes, listErr := source.Store.ListByKind(db.KindFinding, 200)
 		if listErr != nil {
-			writeErr(w, 500, listErr.Error())
+			writeErrRedacted(w, 500, listErr.Error())
 			return
 		}
 		for _, node := range nodes {
@@ -2750,7 +2750,7 @@ func (s *Server) findingStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
 	id := int64(atoiDefault(r.PathValue("id"), 0))
 	if id <= 0 {
-		writeErr(w, 400, "bad finding id")
+		writeErr(w, 400, "漏洞 id 无效")
 		return
 	}
 	f, err := s.m.pg.GetFinding(id)
@@ -2759,7 +2759,7 @@ func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f == nil {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return
 	}
 	assets := s.resolveAssetIDs(f.AssetIDs)
@@ -2775,12 +2775,12 @@ func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
 	if contextTaskID := strings.TrimSpace(r.URL.Query().Get("context_task")); contextTaskID != "" {
 		contextTask := s.m.ResolveTask(contextTaskID)
 		if contextTask == nil {
-			writeErr(w, 404, "context task not found")
+			writeErr(w, 404, "任务不存在")
 			return
 		}
 		sourceTaskID, inherited, allowed := findingProvenanceInTask(contextTask, f.TaskID)
 		if !allowed {
-			writeErr(w, 404, "finding not available in task context")
+			writeErr(w, 404, "该漏洞不属于当前任务")
 			return
 		}
 		dto.SourceTaskID = sourceTaskID
@@ -2812,13 +2812,13 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 			}
 			id, err := strconv.ParseInt(part, 10, 64)
 			if err != nil || id <= 0 {
-				writeErr(w, 400, "bad finding id: "+part)
+				writeErr(w, 400, "漏洞 id 无效："+part)
 				return
 			}
 			ids = append(ids, id)
 		}
 		if len(ids) == 0 {
-			writeErr(w, 400, "no findings selected")
+			writeErr(w, 400, "没有选中任何漏洞")
 			return
 		}
 	case "all":
@@ -2826,7 +2826,7 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 	case "filtered", "":
 		filter = findingFilterFromQuery(q)
 	default:
-		writeErr(w, 400, "bad scope: "+scope)
+		writeErr(w, 400, "范围无效："+scope)
 		return
 	}
 
@@ -2907,7 +2907,7 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(out)
 	default:
-		writeErr(w, 400, "bad format: "+format)
+		writeErr(w, 400, "格式无效："+format)
 	}
 }
 
@@ -2937,7 +2937,7 @@ func findingProvenanceInTask(contextTask *Task, findingTaskID *int64) (sourceTas
 func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
 	id := int64(atoiDefault(r.PathValue("id"), 0))
 	if id <= 0 {
-		writeErr(w, 400, "bad finding id")
+		writeErr(w, 400, "漏洞 id 无效")
 		return
 	}
 	f, err := s.m.pg.GetFinding(id)
@@ -2946,7 +2946,7 @@ func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f == nil {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return
 	}
 	empty := map[string]any{"nodes": []any{}, "edges": []any{}}
@@ -2974,7 +2974,7 @@ func (s *Server) findingLineage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 	id := int64(atoiDefault(r.PathValue("id"), 0))
 	if id <= 0 {
-		writeErr(w, 400, "bad finding id")
+		writeErr(w, 400, "漏洞 id 无效")
 		return
 	}
 	var body struct {
@@ -2984,16 +2984,16 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		VulnClass *string `json:"vulnclass"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+		writeDecodeErr(w, err)
 		return
 	}
 	if body.Status == nil && body.Severity == nil && body.Name == nil && body.VulnClass == nil {
-		writeErr(w, 400, "nothing to update: provide status/severity/name/vulnclass")
+		writeErr(w, 400, "没有要更新的字段，请至少提供 status、severity、name 或 vulnclass")
 		return
 	}
 	if body.Status != nil {
 		if !db.ValidFindingStatus(*body.Status) {
-			writeErr(w, 400, "bad status: "+*body.Status)
+			writeErr(w, 400, "状态无效："+*body.Status)
 			return
 		}
 		// 走带通知的版本：状态更新与「状态变更推送事件」在同一事务里落库，
@@ -3005,7 +3005,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !found {
-			writeErr(w, 404, "finding not found")
+			writeErr(w, 404, "漏洞不存在")
 			return
 		}
 		if !notified && from != *body.Status {
@@ -3014,7 +3014,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Severity != nil {
 		if !db.ValidSeverity(*body.Severity) {
-			writeErr(w, 400, "bad severity: "+*body.Severity)
+			writeErr(w, 400, "风险级别无效："+*body.Severity)
 			return
 		}
 		n, err := s.m.pg.SetFindingSeverity(id, *body.Severity)
@@ -3023,7 +3023,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if n == 0 {
-			writeErr(w, 404, "finding not found")
+			writeErr(w, 404, "漏洞不存在")
 			return
 		}
 	}
@@ -3034,7 +3034,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if n == 0 {
-			writeErr(w, 404, "finding not found")
+			writeErr(w, 404, "漏洞不存在")
 			return
 		}
 	}
@@ -3045,7 +3045,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if n == 0 {
-			writeErr(w, 404, "finding not found")
+			writeErr(w, 404, "漏洞不存在")
 			return
 		}
 	}
@@ -3055,7 +3055,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f == nil {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return
 	}
 	writeJSON(w, 200, findingFromDB(f, s.resolveAssetIDs(f.AssetIDs)))
@@ -3066,7 +3066,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteFinding(w http.ResponseWriter, r *http.Request) {
 	id := int64(atoiDefault(r.PathValue("id"), 0))
 	if id <= 0 {
-		writeErr(w, 400, "bad finding id")
+		writeErr(w, 400, "漏洞 id 无效")
 		return
 	}
 	n, err := s.m.pg.DeleteFinding(id)
@@ -3075,7 +3075,7 @@ func (s *Server) deleteFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if n == 0 {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": true, "id": id})
@@ -3121,7 +3121,7 @@ func (s *Server) intents(w http.ResponseWriter, r *http.Request) {
 	for _, source := range sources {
 		items, sourceMore, sourceErr := taskIntentHistoryPage(source.Store, before, limit, true, source.Task.TaskID)
 		if sourceErr != nil {
-			writeErr(w, 500, sourceErr.Error())
+			writeErrRedacted(w, 500, sourceErr.Error())
 			return
 		}
 		in = append(in, items...)
@@ -3230,12 +3230,12 @@ func (s *Server) explorationGraph(w http.ResponseWriter, r *http.Request) {
 	for _, source := range sources {
 		sourceNodes, nodeErr := source.Store.Nodes(2000)
 		if nodeErr != nil {
-			writeErr(w, 500, nodeErr.Error())
+			writeErrRedacted(w, 500, nodeErr.Error())
 			return
 		}
 		sourceEdges, edgeErr := source.Store.Edges(5000)
 		if edgeErr != nil {
-			writeErr(w, 500, edgeErr.Error())
+			writeErrRedacted(w, 500, edgeErr.Error())
 			return
 		}
 		sourceNodes, sourceEdges = inheritedGraphSnapshot(sourceNodes, sourceEdges, source.Task.TaskID)
@@ -3453,14 +3453,14 @@ func activitySessionStore(t *Task, filter db.ActivitySessionFilter) (*db.Explora
 func (s *Server) activityHistory(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	q := r.URL.Query()
 	sess := q.Get("session")
 	filter, ok := parseActivitySession(sess)
 	if !ok {
-		writeErr(w, 400, "bad session")
+		writeErr(w, 400, "会话无效")
 		return
 	}
 	if filter.Main && filter.MainSeg == nil { // bare "main" → the current segment
@@ -3479,7 +3479,7 @@ func (s *Server) activityHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if store == nil {
-		writeErr(w, 404, "session not found")
+		writeErr(w, 404, "会话不存在")
 		return
 	}
 	// The browser tails only this task's broadcaster. Keep the SSE join cursor
@@ -3627,7 +3627,7 @@ func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 		rows, err = s.m.pg.ListLogsBefore(before, fetch)
 	}
 	if err != nil {
-		writeErr(w, 500, "db: "+err.Error())
+		writeErrRedacted(w, 500, err.Error())
 		return
 	}
 	// 两个查询都按 id DESC 取窗口再翻成 oldest-first，所以多出来的那条是窗口里
@@ -3654,7 +3654,7 @@ func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, 500, "streaming unsupported")
+		writeErr(w, 500, "服务端不支持流式输出")
 		return
 	}
 	since := int64(atoiDefault(r.URL.Query().Get("since"), 0))
@@ -3705,12 +3705,12 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, 500, "streaming unsupported")
+		writeErr(w, 500, "服务端不支持流式输出")
 		return
 	}
 	var intentPtr *int64
@@ -3804,7 +3804,7 @@ func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 func (s *Server) activityDetail(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no task")
+		writeErr(w, 404, "当前没有进行中的任务")
 		return
 	}
 	seq, _ := strconv.ParseInt(r.PathValue("seq"), 10, 64)
@@ -3839,12 +3839,12 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		taskScoped = true
 		taskID, err := strconv.ParseInt(rawTaskID, 10, 64)
 		if err != nil || taskID <= 0 || s.m.ResolveTask(rawTaskID) == nil {
-			writeErr(w, http.StatusNotFound, "task not found")
+			writeErr(w, http.StatusNotFound, "任务不存在")
 			return
 		}
 		taskHosts, err = s.m.Assets().HostsByTaskWithSources(taskID)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
@@ -3915,12 +3915,12 @@ func (s *Server) getTrafficHosts(w http.ResponseWriter, r *http.Request) {
 	if rawTaskID := strings.TrimSpace(r.URL.Query().Get("task_id")); rawTaskID != "" {
 		taskID, err := strconv.ParseInt(rawTaskID, 10, 64)
 		if err != nil || taskID <= 0 || s.m.ResolveTask(rawTaskID) == nil {
-			writeErr(w, http.StatusNotFound, "task not found")
+			writeErr(w, http.StatusNotFound, "任务不存在")
 			return
 		}
 		hosts, err = s.m.Assets().HostsByTaskWithSources(taskID)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
@@ -3948,12 +3948,12 @@ func (s *Server) getTrafficHosts(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteTraffic(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeErr(w, 404, "traffic disabled")
+		writeErr(w, 404, "流量代理未启用")
 		return
 	}
 	host := strings.TrimSpace(r.URL.Query().Get("host"))
 	if host == "" {
-		writeErr(w, 400, "missing host")
+		writeErr(w, 400, "缺少 host 参数")
 		return
 	}
 	n, err := tr.DeleteHost(host)
@@ -3971,14 +3971,14 @@ func (s *Server) deleteTraffic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteTrafficHosts(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeErr(w, 404, "traffic disabled")
+		writeErr(w, 404, "流量代理未启用")
 		return
 	}
 	var req struct {
 		Hosts []string `json:"hosts"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid body")
+		writeErr(w, 400, "请求体无效")
 		return
 	}
 	hosts := make([]string, 0, len(req.Hosts))
@@ -3988,7 +3988,7 @@ func (s *Server) deleteTrafficHosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(hosts) == 0 {
-		writeErr(w, 400, "missing hosts")
+		writeErr(w, 400, "缺少 hosts 参数")
 		return
 	}
 	n, err := tr.DeleteHostsExact(hosts)
@@ -4007,7 +4007,7 @@ func (s *Server) deleteTrafficHosts(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteAllTraffic(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeErr(w, 404, "traffic disabled")
+		writeErr(w, 404, "流量代理未启用")
 		return
 	}
 	n, reclaimed, err := tr.DeleteAll()
@@ -4023,12 +4023,12 @@ func (s *Server) deleteAllTraffic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getTrafficExchange(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeErr(w, 404, "traffic disabled")
+		writeErr(w, 404, "流量代理未启用")
 		return
 	}
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		writeErr(w, 400, "missing id")
+		writeErr(w, 400, "缺少 id 参数")
 		return
 	}
 	req, resp, err := tr.Get(id)
@@ -4046,12 +4046,12 @@ func (s *Server) getTrafficExchange(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getTrafficBlob(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeErr(w, 404, "traffic disabled")
+		writeErr(w, 404, "流量代理未启用")
 		return
 	}
 	hash := strings.TrimSpace(r.URL.Query().Get("hash"))
 	if hash == "" {
-		writeErr(w, 400, "missing hash")
+		writeErr(w, 400, "缺少 hash 参数")
 		return
 	}
 	f, size, err := tr.Blob(hash)
@@ -4684,7 +4684,7 @@ func (s *Server) testWebSearch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) mainSessions(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	list, err := t.Store.ListMainSessions()
@@ -4705,7 +4705,7 @@ func (s *Server) mainSessions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) newMainSession(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if s.engine.IsDeleting(t.ID) {
@@ -4723,7 +4723,7 @@ func (s *Server) newMainSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no active task")
+		writeErr(w, 404, "当前没有进行中的任务")
 		return
 	}
 	if s.engine.IsDeleting(t.ID) {
@@ -4867,7 +4867,7 @@ func (s *Server) finishTaskChat(taskID string, cancel context.CancelCauseFunc) {
 func (s *Server) taskChatStatus(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.PathValue("id"))
 	if t == nil {
-		writeErr(w, http.StatusNotFound, "task not found")
+		writeErr(w, http.StatusNotFound, "任务不存在")
 		return
 	}
 	s.chatMu.Lock()
@@ -4882,7 +4882,7 @@ func (s *Server) taskChatStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) stopChat(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.PathValue("id"))
 	if t == nil {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return
 	}
 	if !s.cancelTaskChat(t.ID, agent.AbortChatStoppedByUser) {
@@ -4920,7 +4920,7 @@ func (s *Server) fallbackChat(t *Task, msg string) string {
 func (s *Server) getReport(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no active task")
+		writeErr(w, 404, "当前没有进行中的任务")
 		return
 	}
 	findings, _ := t.Store.ListByKind(db.KindFinding, 1000) // 纯漏洞（事实是独立的 KindFact，不进报告）
@@ -5014,6 +5014,29 @@ func writeErrRedacted(w http.ResponseWriter, code int, detail string) {
 	// 日志保留完整原文，并标注 req 以便和 accessLog 那一行对照。
 	xlog.Errorf("[api] 5xx（详情仅入日志，不回客户端）: %s", detail)
 	writeJSON(w, code, map[string]any{"error": errDataSourceUnavailable})
+}
+
+// writeErrInternal 是「已经有明确中文前缀、但底层原因不能外发」的 5xx 出口。
+//
+// 与 writeErrRedacted 的分工：那个连前缀都没有（`writeErr(w, 500, err.Error())`），
+// 只能回一句固定的「数据源暂时不可用」；这里调用方已经说清了是哪一步失败
+// （保存失败 / 建目录失败 / AI 提取失败），这半句要留着 —— 用户能据此判断该
+// 重试还是换个操作。底层原因仍然只进日志：它是 os/pg/上游的措辞，常带本地
+// 绝对路径、表名和驱动细节，既看不懂也不该给出去。
+//
+// 之所以要有这个函数，是因为 writeErr 本身不脱敏：只要调用方手滑把 err.Error()
+// 拼进去，原文就直达客户端（这类位置曾有 56 处）。
+func writeErrInternal(w http.ResponseWriter, code int, prefix string, err error) {
+	writeErrInternalDetail(w, code, prefix, err.Error())
+}
+
+// writeErrInternalDetail 与 writeErrInternal 同义，只是详情已经是字符串。
+// 给「原文必须先过一遍清洗才能落日志」的位置用 —— 例如代理池的错误里带
+// 形如 http://user:pass@host 的上游地址，进日志前要先 maskSecrets。
+func writeErrInternalDetail(w http.ResponseWriter, code int, prefix, detail string) {
+	prefix = strings.TrimRight(strings.TrimSpace(prefix), "：:，, ")
+	xlog.Errorf("[api] %d %s（详情仅入日志，不回客户端）: %s", code, prefix, detail)
+	writeJSON(w, code, map[string]any{"error": prefix + "，请稍后重试"})
 }
 
 func atoiDefault(s string, d int) int {

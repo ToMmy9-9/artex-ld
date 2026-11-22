@@ -619,7 +619,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeErr(w, 400, "bad id")
+		writeErr(w, 400, "id 无效")
 		return p, false
 	}
 	if kind == "approval" {
@@ -629,7 +629,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 			return p, false
 		}
 		if detail == nil {
-			writeErr(w, 404, "approval not found")
+			writeErr(w, 404, "审批不存在")
 			return p, false
 		}
 		p.ApprovalID = id
@@ -642,7 +642,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 			return p, false
 		}
 		if c == nil {
-			writeErr(w, 404, "conversation not found")
+			writeErr(w, 404, "会话不存在")
 			return p, false
 		}
 		p.ConversationID = id
@@ -650,7 +650,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 	}
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		writeErr(w, 404, "任务不存在")
 		return p, false
 	}
 	pt, err := s.m.pg.GetTask(id)
@@ -666,7 +666,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 	if kind == "worker" {
 		iid, err := strconv.ParseInt(r.PathValue("iid"), 10, 64)
 		if err != nil || iid <= 0 {
-			writeErr(w, 400, "bad intent id")
+			writeErr(w, 400, "意图 id 无效")
 			return p, false
 		}
 		n, err := t.Store.GetNode(iid)
@@ -675,7 +675,7 @@ func (s *Server) sideParent(w http.ResponseWriter, r *http.Request, kind string)
 			return p, false
 		}
 		if n == nil || n.Kind != db.KindIntent {
-			writeErr(w, 404, "intent not found")
+			writeErr(w, 404, "意图不存在")
 			return p, false
 		}
 		if n.State == "stopped" {
@@ -780,7 +780,7 @@ func (s *Server) handleSideQuestions(w http.ResponseWriter, r *http.Request, p s
 		ClientID string `json:"client_request_id"`
 	}
 	if json.NewDecoder(r.Body).Decode(&in) != nil {
-		writeErr(w, 400, "bad json")
+		writeErr(w, 400, "请求体不是合法的 JSON")
 		return
 	}
 	in.Question = strings.TrimSpace(in.Question)
@@ -950,7 +950,7 @@ func (s *Server) cancelSideRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e == nil {
-		writeErr(w, 404, "side question not found")
+		writeErr(w, 404, "旁路问答不存在")
 		return
 	}
 	s.side.mu.Lock()
@@ -964,7 +964,7 @@ func (s *Server) cancelSideRequest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sideEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, 500, "streaming unavailable")
+		writeErr(w, 500, "服务端不支持流式输出")
 		return
 	}
 	id := r.PathValue("requestID")
@@ -974,7 +974,7 @@ func (s *Server) sideEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if first == nil {
-		writeErr(w, 404, "side question not found")
+		writeErr(w, 404, "旁路问答不存在")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")

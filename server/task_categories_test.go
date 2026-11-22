@@ -39,7 +39,7 @@ func TestTaskCategoryBatchRoute(t *testing.T) {
 
 	// category_id is required, and omitting it must not be read as "uncategorize".
 	if rec := post(`{"task_ids":["1"]}`); rec.Code != http.StatusBadRequest ||
-		!strings.Contains(rec.Body.String(), "category_id is required") {
+		!strings.Contains(rec.Body.String(), "缺少 category_id") {
 		t.Fatalf("missing category_id: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
@@ -72,10 +72,10 @@ func TestTaskCategoryBatchRoute(t *testing.T) {
 	if len(response.Items) != 2 {
 		t.Fatalf("items=%+v, want 2 after de-duplication", response.Items)
 	}
-	if response.Items[0].ID != "999999999" || response.Items[0].OK || response.Items[0].Error != "task not found" {
+	if response.Items[0].ID != "999999999" || response.Items[0].OK || response.Items[0].Error != "任务不存在" {
 		t.Fatalf("unknown id entry=%+v", response.Items[0])
 	}
-	if response.Items[1].ID != "abc" || response.Items[1].OK || response.Items[1].Error != "bad task id" {
+	if response.Items[1].ID != "abc" || response.Items[1].OK || response.Items[1].Error != "任务 id 无效" {
 		t.Fatalf("malformed id entry=%+v", response.Items[1])
 	}
 	if response.Category != nil {

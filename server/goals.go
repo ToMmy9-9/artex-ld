@@ -140,7 +140,7 @@ func (s *Server) admitTaskWhenScheduledWithGeneration(t *Task, mode string, requ
 
 func (s *Server) admitTaskWhenScheduledWithGenerationChecked(t *Task, mode string, requirePaused, scheduled bool, requiredReason string, preserveSchedule bool, requiredGeneration uint64, checkGeneration bool) (queued bool, err error) {
 	if t == nil {
-		return false, fmt.Errorf("task not found")
+		return false, fmt.Errorf("任务不存在")
 	}
 	manualSchedule := requirePaused && !scheduled && !preserveSchedule
 	if manualSchedule {
@@ -159,10 +159,10 @@ func (s *Server) admitTaskWhenScheduledWithGenerationChecked(t *Task, mode strin
 	// cannot revive that stale handle after StopTask clears its Engine maps.
 	current, exists := s.m.Task(t.ID)
 	if !exists || current != t || s.engine.IsDeleting(t.ID) {
-		return false, fmt.Errorf("task is being deleted")
+		return false, fmt.Errorf("任务正在删除")
 	}
 	if !s.engine.beginTaskOperation(t.ID) {
-		return false, fmt.Errorf("task is being deleted")
+		return false, fmt.Errorf("任务正在删除")
 	}
 	defer s.engine.decInflight(t.ID)
 	lifecycle := t.lifecycleSnapshot()

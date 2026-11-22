@@ -50,7 +50,7 @@ func (s *Server) putReportSettings(w http.ResponseWriter, r *http.Request) {
 		LogoPath: strings.TrimSpace(body.LogoPath), Personnel: pj, CVSSVersion: strings.TrimSpace(body.CVSSVersion),
 	}
 	if err := s.m.pg.SaveReportSettings(rs); err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	saved, _ := s.m.pg.GetReportSettings()
@@ -100,7 +100,14 @@ func (s *Server) uploadReportLogo(w http.ResponseWriter, r *http.Request) {
 // GET /api/report-assets/{file} — serve an uploaded logo (base name only, no traversal).
 func (s *Server) serveReportAsset(w http.ResponseWriter, r *http.Request) {
 	file := filepath.Base(r.PathValue("file"))
-	http.ServeFile(w, r, filepath.Join(s.dataDir, "report_assets", file))
+	full := filepath.Join(s.dataDir, "report_assets", file)
+	// 先自己确认文件在不在：http.ServeFile 对缺失文件写的是 Go 内置的
+	// "404 page not found" 纯文本，那是英文，中文界面上（把 URL 直接打开时）很难看。
+	if fi, err := os.Stat(full); err != nil || fi.IsDir() {
+		writeErr(w, 404, "图片不存在")
+		return
+	}
+	http.ServeFile(w, r, full)
 }
 
 // seedDemoReportTemplate inserts one illustrative (deletable) template on first
@@ -177,7 +184,7 @@ func (s *Server) createReportTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := s.m.pg.AddReportTemplate(body.toDB(0))
 	if err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	rt, _ := s.m.pg.GetReportTemplate(id)
@@ -197,7 +204,7 @@ func (s *Server) updateReportTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.m.pg.UpdateReportTemplate(body.toDB(id)); err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	rt, _ := s.m.pg.GetReportTemplate(id)
@@ -208,7 +215,7 @@ func (s *Server) updateReportTemplate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteReportTemplate(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err := s.m.pg.DeleteReportTemplate(id); err != nil {
-		writeErr(w, 500, "删除失败: "+err.Error())
+		writeErrInternal(w, 500, "删除失败: ", err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -258,7 +265,7 @@ func (s *Server) deleteReportByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.m.pg.DeleteReport(id); err != nil {
-		writeErr(w, 500, "删除失败: "+err.Error())
+		writeErrInternal(w, 500, "删除失败: ", err)
 		return
 	}
 	// best-effort remove the file (portable path first, then the recorded path).

@@ -45,7 +45,7 @@ func (s *Server) listFindingRetests(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok || id <= 0 {
-		writeErr(w, 400, "bad finding id")
+		writeErr(w, 400, "漏洞 id 无效")
 		return
 	}
 	f, err := pg.GetFinding(id)
@@ -54,7 +54,7 @@ func (s *Server) listFindingRetests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f == nil {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return
 	}
 	items, err := pg.ListFindingRetests(id)
@@ -72,7 +72,7 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok || id <= 0 {
-		writeErr(w, 400, "bad finding id")
+		writeErr(w, 400, "漏洞 id 无效")
 		return
 	}
 	var req struct {
@@ -92,7 +92,7 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f == nil {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return
 	}
 	a, err := pg.GetAgentByKey(db.FindingRetestAgentKey)
@@ -125,7 +125,7 @@ func (s *Server) startFindingRetest(w http.ResponseWriter, r *http.Request) {
 	}
 	retest, conv, created, err := pg.CreateFindingRetest(r.Context(), id, req.Notes)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeErr(w, 404, "finding not found")
+		writeErr(w, 404, "漏洞不存在")
 		return
 	}
 	if err != nil {

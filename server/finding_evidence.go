@@ -134,7 +134,7 @@ func (s *Server) uploadFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	ev, err := pg.CreateFindingEvidence(nodeID, name, caption, stepIndex)
 	if err != nil {
 		_ = os.Remove(filepath.Join(dir, name)) // 回滚落盘
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"evidence": ev, "url": evidenceURL(nodeID, name)})
@@ -211,7 +211,7 @@ func (s *Server) updateFindingEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.UpdateFindingEvidence(eid, req.Caption, req.StepIndex, req.SortOrder); err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -234,7 +234,7 @@ func (s *Server) deleteFindingEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.DeleteFindingEvidence(eid); err != nil {
-		writeErr(w, 500, "删除失败: "+err.Error())
+		writeErrInternal(w, 500, "删除失败: ", err)
 		return
 	}
 	_ = os.Remove(filepath.Join(s.evidenceDir(ev.NodeID), filepath.Base(ev.Filename)))
@@ -257,7 +257,7 @@ func (s *Server) serveFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	case ".jpg", ".jpeg":
 		w.Header().Set("Content-Type", "image/jpeg")
 	default:
-		writeErr(w, 404, "not found")
+		writeErr(w, 404, "证据文件不存在")
 		return
 	}
 	w.Header().Set("Content-Disposition", "inline")
