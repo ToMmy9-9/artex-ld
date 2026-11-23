@@ -9,10 +9,18 @@
 
 import * as React from "react";
 
-import { AlertCircleIcon, CheckCircle2Icon, DownloadIcon, FolderIcon, ListChecksIcon, PlugZapIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  CheckCircle2Icon,
+  DownloadIcon,
+  FolderIcon,
+  ListChecksIcon,
+  PlugZapIcon,
+  RefreshCwIcon,
+  SearchIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
@@ -276,28 +285,31 @@ function SyncWorkbench() {
   }, [search, query]);
 
   React.useEffect(() => {
-    // 切换数据集合时清除不可见选择；单纯刷新保留用户已选行。
-    // 清空要出声：翻页后选择被悄悄清掉，用户会以为勾选还在。
+    // 切换数据维度时清空选择（项目与任务是两套不同的目标，混在一起没法同步）。
+    // 翻页与改查询**不**清空 —— 跨页选择要保留，否则用户在第 1 页勾了十几条，
+    // 翻到第 2 页再想回头勾就全丢了。
     setSelected((prev) => {
       if (prev.size > 0) {
-        toast.info(`已清空 ${prev.size} 条选择（切换数据集合或翻页时不保留跨页选择）`);
+        toast.info(`已清空 ${prev.size} 条选择（切换数据维度时不保留选择）`);
       }
       return new Set();
     });
-  }, [dimension, page, query]);
-
+  }, [dimension]);
   React.useEffect(() => {
     load();
   }, [load]);
 
   const rows = dimension === "project" ? projects : tasks;
   const idOf = (row: SSProject | SSTask) => (dimension === "project" ? (row as SSProject).id : (row as SSTask).name);
+  // 选中集的 key 带维度前缀，切换维度时两个维度的 id 不会互相误伤
+  // （项目 id 与任务名可能撞车）。后端只需要原始 id，所以同步时要剥掉前缀。
+  const keyOf = React.useCallback((row: SSProject | SSTask) => `${dimension}:${idOf(row)}`, [dimension]);
 
-  const toggle = (id: string) => {
+  const toggle = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -307,13 +319,22 @@ function SyncWorkbench() {
   const toggleAll = (checked: boolean | "indeterminate") => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (checked === true) for (const row of rows) next.add(idOf(row));
-      else for (const row of rows) next.delete(idOf(row));
+      if (checked === true) for (const row of rows) next.add(keyOf(row));
+      else for (const row of rows) next.delete(keyOf(row));
       return next;
     });
   };
-  const allOnPageSelected = rows.length > 0 && rows.every((row) => selected.has(idOf(row)));
-  const someOnPageSelected = rows.some((row) => selected.has(idOf(row)));
+  // 跨页选择时，当前页之外还有多少条被选中 —— 要让用户知道，
+  // 否则「已选 30 条」而当前页只有 20 行会让人以为数错了。
+  const hiddenSelectedCount = React.useMemo(() => {
+    const onPage = new Set(rows.map((row) => keyOf(row)));
+    let hidden = 0;
+    for (const key of selected) if (!onPage.has(key)) hidden++;
+    return hidden;
+  }, [rows, selected]);
+
+  const allOnPageSelected = rows.length > 0 && rows.every((row) => selected.has(keyOf(row)));
+  const someOnPageSelected = rows.some((row) => selected.has(keyOf(row)));
   // 三态勾选框：全选 / 部分 / 未选。用 if 而不是嵌套三元，读起来更直白。
   let headerChecked: boolean | "indeterminate" = false;
   if (allOnPageSelected) headerChecked = true;
@@ -327,15 +348,19 @@ function SyncWorkbench() {
     setSyncing(true);
     setResult(null);
     try {
+      // selected 里存的是「维度:id」，后端只要原始 id。
+      const targets = [...selected].map((key) => key.slice(dimension.length + 1));
       const r = await api.ssSync({
         dimension,
-        targets: [...selected],
+        targets,
         asset_types: chosenTypes,
         create_company: dimension === "project" ? createCompany : false,
       });
       setResult(r);
       const total = Object.values(r.synced ?? {}).reduce((a, b) => a + b, 0);
       toast.success(`同步完成，共入库 ${total} 条资产`);
+      // 同步成功后清空选择：不清的话用户会以为还能再同步一次同样的目标。
+      setSelected(new Set());
     } catch (e) {
       toast.error(`同步失败：${(e as Error).message}`);
     } finally {
@@ -368,9 +393,7 @@ function SyncWorkbench() {
           <TableCell colSpan={4} className="p-0">
             <Empty>
               <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  {isProject ? <FolderIcon /> : <ListChecksIcon />}
-                </EmptyMedia>
+                <EmptyMedia variant="icon">{isProject ? <FolderIcon /> : <ListChecksIcon />}</EmptyMedia>
                 <EmptyTitle>{isProject ? "暂无匹配的项目" : "暂无匹配的任务"}</EmptyTitle>
                 <EmptyDescription>{emptyDescription}</EmptyDescription>
               </EmptyHeader>
@@ -383,7 +406,7 @@ function SyncWorkbench() {
       return projects.map((p) => (
         <TableRow key={p.id} className="cursor-pointer" onClick={() => toggle(p.id)}>
           <TableCell onClick={(e) => e.stopPropagation()}>
-            <Checkbox checked={selected.has(p.id)} onCheckedChange={() => toggle(p.id)} />
+            <Checkbox checked={selected.has(keyOf(p))} onCheckedChange={() => toggle(keyOf(p))} />
           </TableCell>
           <TableCell className="font-medium">{p.name}</TableCell>
           <TableCell>{p.tag ? <Badge variant="secondary">{p.tag}</Badge> : "—"}</TableCell>
@@ -394,7 +417,7 @@ function SyncWorkbench() {
     return tasks.map((t) => (
       <TableRow key={t.id} className="cursor-pointer" onClick={() => toggle(t.name)}>
         <TableCell onClick={(e) => e.stopPropagation()}>
-          <Checkbox checked={selected.has(t.name)} onCheckedChange={() => toggle(t.name)} />
+          <Checkbox checked={selected.has(keyOf(t))} onCheckedChange={() => toggle(keyOf(t))} />
         </TableCell>
         <TableCell className="font-medium">{t.name}</TableCell>
         <TableCell>
@@ -465,21 +488,20 @@ function SyncWorkbench() {
               }}
             />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={load}
-            disabled={loading}
-            aria-label="刷新列表"
-            title="刷新列表"
-          >
+          <Button variant="outline" size="sm" onClick={load} disabled={loading} aria-label="刷新列表" title="刷新列表">
             <RefreshCwIcon className={loading ? "size-4 animate-spin" : "size-4"} />
           </Button>
           <div className="flex-1" />
-          <span className="text-muted-foreground text-xs">已选 {selected.size} 条</span>
+          <span className="text-muted-foreground text-xs">
+            已选 {selected.size} 条{hiddenSelectedCount > 0 ? `（含 ${hiddenSelectedCount} 条不在当前页）` : ""}
+          </span>
+          {selected.size > 0 ? (
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+              全不选
+            </Button>
+          ) : null}
           <Button onClick={runSync} disabled={syncing || selected.size === 0}>
-            <DownloadIcon className={syncing ? "size-4 animate-pulse" : "size-4"} />{" "}
-            {syncing ? "同步中…" : "同步选中"}
+            <DownloadIcon className={syncing ? "size-4 animate-pulse" : "size-4"} /> {syncing ? "同步中…" : "同步选中"}
           </Button>
         </div>
 
@@ -489,11 +511,7 @@ function SyncWorkbench() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10">
-                  <Checkbox
-                    aria-label="选择本页项目"
-                    checked={headerChecked}
-                    onCheckedChange={toggleAll}
-                  />
+                  <Checkbox aria-label="选择本页项目" checked={headerChecked} onCheckedChange={toggleAll} />
                 </TableHead>
                 <TableHead>{dimension === "project" ? "项目名" : "任务名"}</TableHead>
                 {dimension === "project" ? (
