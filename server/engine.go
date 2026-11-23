@@ -916,6 +916,26 @@ func resetPlannerTimer(timer *time.Timer, d time.Duration) {
 	timer.Reset(d)
 }
 
+// plannerFailureThreshold 是「连续多少轮 planner 出错就判定任务失败」的阈值。
+// planner 偶发失败是正常的（网络抖动、上游限流），一轮就判失败太激进；但一直
+// 失败说明任务不可能有进展，必须落终态，否则它会永久占着并发槽。
+const plannerFailureThreshold = 5
+
+// plannerFailState 记录连续失败次数，决定何时把任务落成 failed 终态。
+// 单独抽出来是为了能直接测 —— plannerLoop 本身要拉起真实 planner，跑不起来。
+type plannerFailState struct {
+	streak int
+}
+
+// record 记一次失败，返回是否达到阈值（达到就该落 failed）。
+func (p *plannerFailState) record() bool {
+	p.streak++
+	return p.streak >= plannerFailureThreshold
+}
+
+// reset 在一轮成功规划后清零。
+func (p *plannerFailState) reset() { p.streak = 0 }
+
 func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 	interval := plannerHeartbeatInterval(t)
 	// 心跳定时器在 loop 入口臂 = 从任务 start 计时:即使是跳过首轮 planner 的 seed 任务
@@ -923,6 +943,12 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 	// 触发第一轮规划。之后每次唤醒(边沿/心跳)都重臂 = 距上次任意规划触发的时长。
 	heartbeat := time.NewTimer(interval)
 	defer heartbeat.Stop()
+
+	// 连续 planner 失败计数。planner 一直出错(LLM 配置坏了 / 网络不通 / 上游持续
+	// 5xx)时,任务会永远停在 running —— 而 running 的任务占着并发槽,开启并发上限后
+	// 几个卡死的任务就能把整个队列堵死。连续失败到阈值就落 failed 终态,让用户能
+	// 看到原因并重试。
+	var plannerFail plannerFailState
 
 	// runRound 跑一轮规划(含 debounce 合并 + 各 guard)。src 仅用于日志区分触发来源。
 	runRound := func(src string) {
@@ -1039,6 +1065,16 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 			if e.proxyFailure != nil && isProxyFailure(err) {
 				e.proxyFailure(t.ID, err)
 			}
+			// 连续失败到阈值 → 落 failed 终态。一直 running 的任务占着并发槽,
+			// 开启并发上限后几个卡死任务就能堵死整个队列。
+			if plannerFail.record() {
+				log.Printf("[planner] task %s 连续 %d 轮规划失败，标记为失败: %v", t.ID, plannerFail.streak, err)
+				if _, werr := e.m.SetTaskStatusGuarded(t.ID, "failed"); werr != nil {
+					log.Printf("[planner] task %s 标记失败落库失败: %v", t.ID, werr)
+				}
+				e.cancelExec(t.ID, agent.AbortPlannerFailed)
+				return
+			}
 		case met:
 			log.Printf("[planner] task %s 判定目标达成: %s", t.ID, reason)
 			if rj, rerr := t.Store.HasRejectedIntent(); rerr == nil && rj {
@@ -1058,6 +1094,8 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 		default:
 			log.Printf("[planner] task %s 规划完成", t.ID)
 		}
+		// 本轮规划成功（met 或正常完成）→ 失败计数清零。
+		plannerFail.reset()
 		e.touch(t.ID)
 	}
 

@@ -42,15 +42,23 @@ func parseScheduleID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(r.PathValue("id"), 10, 64)
 }
 
-func (s *Server) scheduleDTO(item *db.TaskSchedule) map[string]any {
+// scheduleDTO renders one schedule for the API. runStats may be nil — the
+// list path passes a pre-fetched batch (one query for all schedules) instead of
+// querying per schedule, which would be N+1 round trips.
+func (s *Server) scheduleDTO(item *db.TaskSchedule, runStats *db.ScheduleRunStats) map[string]any {
 	raw, _ := json.Marshal(item)
 	var dto map[string]any
 	_ = json.Unmarshal(raw, &dto)
 	window := evaluateScheduleWindow(item, time.Now())
-	if stats, err := s.m.pg.ScheduleRunStats(item.ID); err == nil {
-		dto["run_count"] = stats.RunCount
-		if stats.LastRunAt != nil {
-			dto["last_run_at"] = stats.LastRunAt
+	if runStats == nil {
+		if stats, err := s.m.pg.ScheduleRunStats(item.ID); err == nil {
+			runStats = &stats
+		}
+	}
+	if runStats != nil {
+		dto["run_count"] = runStats.RunCount
+		if runStats.LastRunAt != nil {
+			dto["last_run_at"] = runStats.LastRunAt
 		}
 	}
 	dto["timezone"] = scheduleLocation(item.TimezoneMode).String()
@@ -67,9 +75,18 @@ func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
 		writeErrRedacted(w, 500, err.Error())
 		return
 	}
+	// 一次查完所有计划的运行统计，避免 N+1 次往返。
+	runStats, err := s.m.pg.ScheduleRunStatsBatch()
+	if err != nil {
+		runStats = nil // 统计拿不到不影响列表本身
+	}
 	dtos := []map[string]any{}
 	for _, item := range items {
-		dtos = append(dtos, s.scheduleDTO(item))
+		var stats *db.ScheduleRunStats
+		if v, ok := runStats[item.ID]; ok {
+			stats = &v
+		}
+		dtos = append(dtos, s.scheduleDTO(item, stats))
 	}
 	writeJSON(w, 200, map[string]any{"schedules": dtos})
 }
@@ -90,7 +107,7 @@ func (s *Server) getSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErrRedacted(w, 500, err.Error())
 		return
 	}
-	dto := s.scheduleDTO(item)
+	dto := s.scheduleDTO(item, nil)
 	dto["history"] = history
 	writeJSON(w, 200, dto)
 }

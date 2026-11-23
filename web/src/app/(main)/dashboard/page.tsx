@@ -43,10 +43,10 @@ import type {
   LLMProfile,
   Settings,
   Stats,
+  SystemMetrics,
   Task,
   TrafficExchange,
   UsageStats,
-  SystemMetrics,
 } from "@/lib/types";
 import { cn, fmtTokens } from "@/lib/utils";
 
@@ -121,12 +121,19 @@ function SystemResourceStatus({ metrics }: { metrics: SystemMetrics | null }) {
     [HardDriveIcon, "磁盘", metrics.data_disk.percent],
   ] as const;
   return (
-    <div className="ml-auto flex min-w-0 items-center justify-end gap-3 text-xs text-muted-foreground" role="status" aria-live="polite">
+    <div
+      className="ml-auto flex min-w-0 items-center justify-end gap-3 text-xs text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
       <span className="shrink-0 font-medium">容器资源</span>
       {items.map(([Icon, label, value]) => (
         <div key={label} className="w-24 min-w-0" title={`${label} ${value.toFixed(1)}%`}>
           <div className="mb-1 flex items-center justify-between gap-1 text-[10px]">
-            <span className="inline-flex items-center gap-1"><Icon className="size-3" aria-hidden="true" />{label}</span>
+            <span className="inline-flex items-center gap-1">
+              <Icon className="size-3" aria-hidden="true" />
+              {label}
+            </span>
             <span className="tabular-nums">{value.toFixed(1)}%</span>
           </div>
           <Progress
@@ -198,7 +205,10 @@ export default function DashboardPage() {
     };
     void load();
     const timer = setInterval(load, 5000);
-    return () => { alive = false; clearInterval(timer); };
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
   }, []);
 
   // The task list is the most expensive dashboard source. Poll it independently
@@ -530,10 +540,10 @@ export default function DashboardPage() {
       {/* ── Header ── */}
       <div>
         <div className="flex items-center gap-6">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">总览</h1>
-          <p className="text-xs text-muted-foreground">系统全局状态 · 实时刷新</p>
-        </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">总览</h1>
+            <p className="text-xs text-muted-foreground">系统全局状态 · 实时刷新</p>
+          </div>
           <SystemResourceStatus metrics={systemMetrics} />
         </div>
       </div>
@@ -922,7 +932,9 @@ export default function DashboardPage() {
 
           <div className="divide-y">
             {recentActivity.length === 0 ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">暂无活动记录，完成任务后此处会显示最新动态</div>
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                暂无活动记录，完成任务后此处会显示最新动态
+              </div>
             ) : (
               recentActivity.map((a) => (
                 <div key={a.seq} className="flex gap-2.5 py-2">
@@ -967,7 +979,9 @@ export default function DashboardPage() {
 
           <div className="divide-y">
             {recentFindings.length === 0 ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">暂无发现，扫描产生的漏洞会实时出现在这里</div>
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                暂无发现，扫描产生的漏洞会实时出现在这里
+              </div>
             ) : (
               recentFindings.map((f) => (
                 <div key={f.id} className="flex items-start gap-2 py-2">
@@ -1092,7 +1106,9 @@ export default function DashboardPage() {
           </SectionTitle>
 
           {assetByType.length === 0 ? (
-            <div className="py-6 text-center text-xs text-muted-foreground">暂无资产数据，同步或扫描到资产后会显示统计</div>
+            <div className="py-6 text-center text-xs text-muted-foreground">
+              暂无资产数据，同步或扫描到资产后会显示统计
+            </div>
           ) : (
             <div className="flex flex-col gap-2">
               {assetByType.map(([type, count]) => (
@@ -1123,12 +1139,22 @@ export default function DashboardPage() {
 
           {/* bar chart */}
           {trafficByCodes.length === 0 ? (
-            <div className="py-6 text-center text-xs text-muted-foreground">暂无流量数据，捕获到 HTTP 请求后会显示分布</div>
+            <div className="py-6 text-center text-xs text-muted-foreground">
+              暂无流量数据，捕获到 HTTP 请求后会显示分布
+            </div>
           ) : (
             <>
               <div className="mb-3 flex items-end gap-2" style={{ height: 52 }}>
                 {trafficByCodes.map(({ code, n }) => (
-                  <div key={code} className="flex flex-1 flex-col items-center gap-1">
+                  <div
+                    key={code}
+                    // 只有一个状态码时 flex-1 会把柱子拉满整行，看起来像一条
+                    // 进度条而不是柱状图。这种情况下限宽并左对齐。
+                    className={cn(
+                      "flex flex-col items-center gap-1",
+                      trafficByCodes.length === 1 ? "w-16 shrink-0" : "max-w-16 flex-1",
+                    )}
+                  >
                     <span className="text-[9px] tabular-nums text-muted-foreground">{n}</span>
                     <div
                       className={cn("w-full min-h-1 rounded-sm", statusBg(code), "opacity-80")}

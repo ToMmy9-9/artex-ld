@@ -184,6 +184,12 @@ CREATE TABLE IF NOT EXISTS llm_records (
 );
 CREATE INDEX IF NOT EXISTS idx_llm_records_ts ON llm_records(ts);
 CREATE INDEX IF NOT EXISTS idx_llm_records_session ON llm_records(session_id);
+-- 按任务删/查 LLM 录制记录。llm_records 是全库最大的表（单表可达数 GB），
+-- 没有这个索引时「删任务」走的 DELETE 要全表扫，实测 12000 行时耗时 14 秒，
+-- 且扫过的每一页都要写 WAL，把整个实例拖慢。表达式索引匹配查询里的
+-- COALESCE(task_id,'')=? 写法 —— 普通 task_id 索引用不上（COALESCE 会让
+-- 索引失效）。
+CREATE INDEX IF NOT EXISTS idx_llm_records_task ON llm_records(COALESCE(task_id, ''));
 `
 
 // llmRecordsMigrate adds new columns to existing tables.

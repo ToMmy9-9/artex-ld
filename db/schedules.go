@@ -260,13 +260,20 @@ func (d *DB) ListTaskSchedules() ([]*TaskSchedule, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.TaskIDs, err = d.scheduleTaskIDs(s.ID)
-		if err != nil {
-			return nil, err
-		}
 		out = append(out, s)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 关联任务一次查完：逐个 scheduleTaskIDs 会变成 N+1 次往返。
+	taskIDs, err := d.ScheduleTaskIDsBatch()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range out {
+		s.TaskIDs = taskIDs[s.ID]
+	}
+	return out, nil
 }
 
 func (d *DB) ListEnabledTaskSchedules() ([]*TaskSchedule, error) {
@@ -305,6 +312,55 @@ func (d *DB) scheduleTaskIDs(id int64) ([]int64, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// ScheduleTaskIDsBatch returns the task IDs of every schedule, keyed by schedule ID.
+// 列表页要用它替代逐个 scheduleTaskIDs 调用 —— 否则 N 个计划就是 N+1 次
+// 往返（计划任务页实测 N=50 时 101 次查询）。
+func (d *DB) ScheduleTaskIDsBatch() (map[int64][]int64, error) {
+	rows, err := d.Query(`SELECT schedule_id, task_id FROM task_schedule_tasks ORDER BY schedule_id, task_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64][]int64{}
+	for rows.Next() {
+		var scheduleID, taskID int64
+		if err := rows.Scan(&scheduleID, &taskID); err != nil {
+			return nil, err
+		}
+		out[scheduleID] = append(out[scheduleID], taskID)
+	}
+	return out, rows.Err()
+}
+
+// ScheduleRunStatsBatch returns run stats for every schedule, keyed by schedule ID.
+// 同上：把列表页的 N+1 次 ScheduleRunStats 查询压成一次。
+func (d *DB) ScheduleRunStatsBatch() (map[int64]ScheduleRunStats, error) {
+	rows, err := d.Query(`
+		SELECT schedule_id,
+		       COUNT(*) FILTER (WHERE task_id IS NULL AND action='running'),
+		       MAX(created_at) FILTER (WHERE task_id IS NULL AND action='running')
+		FROM task_schedule_history GROUP BY schedule_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]ScheduleRunStats{}
+	for rows.Next() {
+		var id int64
+		var count int
+		var last sql.NullTime
+		if err := rows.Scan(&id, &count, &last); err != nil {
+			return nil, err
+		}
+		stats := ScheduleRunStats{RunCount: count}
+		if last.Valid {
+			stats.LastRunAt = &last.Time
+		}
+		out[id] = stats
+	}
+	return out, rows.Err()
 }
 
 func (d *DB) TouchTaskSchedule(id int64, status, windowKey, lastError string) error {
