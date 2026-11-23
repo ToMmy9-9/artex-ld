@@ -12,28 +12,29 @@ function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("artex_token");
 }
+
 import type {
   CommandRecord,
+  DailyTokenBucket,
+  EgressReport,
+  KnowledgeConfig,
+  KnowledgeDoc,
+  KnowledgeHit,
+  KnowledgeLog,
   LLMRecordDetail,
   LLMRecordItem,
   LLMTask,
   ModelTokenStat,
-  ToolStat,
-  UpdateCheck,
-  EgressReport,
   ProxyPoolEntry,
   ProxySwitchLog,
-  UpdateSettings,
-  DailyTokenBucket,
-  SystemMetrics,
-  ReportSettings,
   ReportRecord,
+  ReportSettings,
   ReportTemplate,
-  KnowledgeDoc,
-  KnowledgeHit,
-  KnowledgeLog,
-  KnowledgeConfig, } from "@/lib/types";
-
+  SystemMetrics,
+  ToolStat,
+  UpdateCheck,
+  UpdateSettings,
+} from "@/lib/types";
 
 // Empty Go slices can arrive as null from older servers. Keep proxy-pool
 // consumers safe across initial load, import, and health-check refreshes.
@@ -113,6 +114,10 @@ export const miscApi = {
   llmRecordDetail: (id: number) => get<LLMRecordDetail>(`/llm/records/${id}`),
   llmTasks: () => get<{ tasks: LLMTask[] }>(`/llm/records/tasks`),
   llmRecordsDeleteTask: (task: string) => del<{ deleted: number }>(`/llm/records?task=${encodeURIComponent(task)}`),
+  // 保留策略：查当前保留天数与表体积；手动触发一次清理。
+  llmRecordRetention: () =>
+    get<{ retention_days: number; count: number; size_bytes: number }>(`/llm/records/retention`),
+  llmRecordsCleanup: () => post<{ deleted: number; retention_days: number }>(`/llm/records/cleanup`),
   // 按模型聚合本任务的 token 用量（来自常开的 llm_usage 计量账本，逐次调用精确，
   // per-agent 绑定 / 轮询 / 中断消耗都覆盖）。
   tokensByModel: (task: string) =>
@@ -182,7 +187,8 @@ export const miscApi = {
   deleteReport: (id: number) => del<{ ok: boolean }>(`/reports/${id}`),
   reportTemplates: () => get<ReportTemplate[]>(`/report-templates`).then(arr),
   createReportTemplate: (body: Partial<ReportTemplate>) => post<ReportTemplate>(`/report-templates`, body),
-  updateReportTemplate: (id: number, body: Partial<ReportTemplate>) => put<ReportTemplate>(`/report-templates/${id}`, body),
+  updateReportTemplate: (id: number, body: Partial<ReportTemplate>) =>
+    put<ReportTemplate>(`/report-templates/${id}`, body),
   deleteReportTemplate: (id: number) => del<{ ok: boolean }>(`/report-templates/${id}`),
   // ── AntiFox 知识库（两层 RAG：全局通用知识 + 任务专属资料）──
   knowledgeDocs: (scope = "", task = 0) =>

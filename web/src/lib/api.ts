@@ -8,8 +8,8 @@ import { http, openSSE, sseUrl } from "@/lib/api/http";
 import { type InterceptApi, interceptApi } from "@/lib/api/intercept";
 import { type LlmAgentsApi, llmAgentsApi } from "@/lib/api/llm-agents";
 import { type MiscApi, miscApi } from "@/lib/api/misc";
-import { type ToolAssetsApi, toolAssetsApi } from "@/lib/api/tool-assets";
 import { type TasksApi, tasksApi } from "@/lib/api/tasks";
+import { type ToolAssetsApi, toolAssetsApi } from "@/lib/api/tool-assets";
 
 export const api = {
   ...tasksApi,
@@ -405,6 +405,8 @@ const API_KEYS = [
   "setToolAssetState",
   "setToolAssetLimits",
   "toolAssetRuns",
+  "llmRecordRetention",
+  "llmRecordsCleanup",
 ] as const satisfies readonly (keyof typeof api)[];
 type ExpectNever<T extends never> = T;
 type _AllApiKeysDocumented = ExpectNever<Exclude<keyof typeof api, (typeof API_KEYS)[number]>>;

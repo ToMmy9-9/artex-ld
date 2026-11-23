@@ -34,7 +34,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import type { LLMRecordDetail, LLMRecordItem, LLMTask } from "@/lib/types";
-import { cn, copyText, fmtTime, fmtTokens } from "@/lib/utils";
+import { cn, copyText, fmtBytes, fmtTime, fmtTokens } from "@/lib/utils";
 
 function fmtLatency(ms: number) {
   if (ms < 1000) return `${ms}ms`;
@@ -103,6 +103,24 @@ export default function LLMRecordsPage() {
   const [recEnabled, setRecEnabled] = React.useState(false);
   const [recBusy, setRecBusy] = React.useState(false);
 
+  // 保留策略：录制开着时表会一直涨（生产库实测单行 190KB、任务跑一天涨
+  // 400–700MB），所以要能看到「现在占了多少」并能调保留天数。
+  const [retention, setRetention] = React.useState<{
+    retention_days: number;
+    count: number;
+    size_bytes: number;
+  } | null>(null);
+  const [retentionBusy, setRetentionBusy] = React.useState(false);
+  const [cleanupOpen, setCleanupOpen] = React.useState(false);
+  const [cleaning, setCleaning] = React.useState(false);
+
+  const loadRetention = React.useCallback(() => {
+    api
+      .llmRecordRetention()
+      .then(setRetention)
+      .catch((e) => toast.error(`读取保留策略失败：${(e as Error)?.message ?? e}`));
+  }, []);
+
   // Inline detail panel (Burp-style split, not a dialog)
   const [selected, setSelected] = React.useState<LLMRecordItem | null>(null);
   const [detail, setDetail] = React.useState<LLMRecordDetail | null>(null);
@@ -145,6 +163,11 @@ export default function LLMRecordsPage() {
     };
   }, []);
 
+  // 保留天数与表体积。录制开着时这张表会一直涨，得让用户随时看到占多少。
+  React.useEffect(() => {
+    loadRetention();
+  }, [loadRetention]);
+
   const toggleRecording = async (on: boolean) => {
     setRecBusy(true);
     setRecEnabled(on); // optimistic
@@ -155,6 +178,34 @@ export default function LLMRecordsPage() {
       setRecEnabled(!on); // revert on failure
     } finally {
       setRecBusy(false);
+    }
+  };
+
+  const changeRetention = async (days: number) => {
+    setRetentionBusy(true);
+    try {
+      await api.setSettings({ llm_record_retention_days: days });
+      await loadRetention();
+      toast.success(days === 0 ? "已设为永久保留" : `保留天数已设为 ${days} 天，超期记录将被自动清理`);
+    } catch (e) {
+      toast.error(`设置保留天数失败：${(e as Error)?.message ?? e}`);
+    } finally {
+      setRetentionBusy(false);
+    }
+  };
+
+  const runCleanup = async () => {
+    setCleaning(true);
+    try {
+      const r = await api.llmRecordsCleanup();
+      toast.success(`已清理 ${r.deleted} 条超期记录`);
+      setCleanupOpen(false);
+      loadRetention();
+      setReloadTick((t) => t + 1);
+    } catch (e) {
+      toast.error(`清理失败：${(e as Error)?.message ?? e}`);
+    } finally {
+      setCleaning(false);
     }
   };
 
@@ -333,6 +384,48 @@ export default function LLMRecordsPage() {
           >
             {recEnabled ? "录制中" : "已关闭"}
           </label>
+        </div>
+
+        {/* 保留策略：录制开着时表会一直涨（生产库实测单行 190KB、任务跑一天
+            涨 400–700MB），所以在这里能看到占用并调整保留天数。 */}
+        <div className="flex items-center gap-2 rounded-md border px-2.5 py-1">
+          <span className="text-muted-foreground text-xs">保留</span>
+          <Select
+            value={String(retention?.retention_days ?? 0)}
+            onValueChange={(v) => void changeRetention(Number(v))}
+            disabled={retentionBusy}
+          >
+            <SelectTrigger size="sm" className="h-6 w-[86px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">永久保留</SelectItem>
+              <SelectItem value="1">1 天</SelectItem>
+              <SelectItem value="3">3 天</SelectItem>
+              <SelectItem value="7">7 天</SelectItem>
+              <SelectItem value="14">14 天</SelectItem>
+              <SelectItem value="30">30 天</SelectItem>
+            </SelectContent>
+          </Select>
+          {retention ? (
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {retention.count} 条 · {fmtBytes(retention.size_bytes)}
+            </span>
+          ) : null}
+          {/* 永久保留时提醒表会一直涨 —— 用户选了「永久」多半没意识到代价。 */}
+          {retention && retention.retention_days === 0 ? (
+            <span
+              className="text-muted-foreground text-xs"
+              title="录制记录会一直累积，不会自动清理。任务跑一天可能增加数百 MB。"
+            >
+              不会自动清理
+            </span>
+          ) : null}
+          {retention && retention.retention_days > 0 ? (
+            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => setCleanupOpen(true)}>
+              立即清理
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -557,6 +650,32 @@ export default function LLMRecordsPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting ? "删除中…" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 立即清理超期记录 */}
+      <AlertDialog open={cleanupOpen} onOpenChange={setCleanupOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>立即清理超期的 LLM 调用记录？</AlertDialogTitle>
+            <AlertDialogDescription>
+              将删除 {retention?.retention_days ?? 0}
+              天之前的全部调用记录（含请求/响应原文），保留期内的记录不受影响。后台每小时也会自动清理一次。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cleaning}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void runCleanup();
+              }}
+              disabled={cleaning}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cleaning ? "清理中…" : "确认清理"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -364,6 +364,11 @@ const (
 	settingWorkers      = "workers"
 	settingWorkerPools  = "worker_pools"
 	settingLLMRecord    = "llm_record"
+	// LLM 录制记录的保留天数。0 = 不自动清理（保留全部）。
+	// llm_records 存每次调用的请求/响应原文，生产库实测单行平均 190KB，
+	// 任务跑一天涨 400–700MB —— 不设上限的话表会一直涨到撑爆磁盘。
+	// 保留最近 N 天足够覆盖「排查刚才那次调用」的场景。
+	settingLLMRecordRetentionDays = "llm_record_retention_days"
 	// LLM 轮询(故障转移)。默认关闭——开启后走「全局激活配置」的 agent 在当前配置
 	// 不可用(余额不足/key 失效/限流/服务异常)时自动切到下一个配置。
 	// settingLLMPoolBindFallback 仅在轮询开启时有意义:默认关闭,即 agent/任务显式
@@ -764,6 +769,21 @@ func (m *Manager) SetLLMRecordEnabled(on bool) error {
 	m.llmRecOn = on
 	m.mu.Unlock()
 	return nil
+}
+
+// LLMRecordRetentionDays reports how many days of LLM call records to keep.
+// 0 = keep everything (no automatic cleanup).
+func (m *Manager) LLMRecordRetentionDays() int {
+	return m.pg.GetIntSetting(settingLLMRecordRetentionDays)
+}
+
+// SetLLMRecordRetentionDays persists the retention window. Negative values are
+// clamped to 0 (= keep everything).
+func (m *Manager) SetLLMRecordRetentionDays(days int) error {
+	if days < 0 {
+		days = 0
+	}
+	return m.pg.SetSetting(settingLLMRecordRetentionDays, strconv.Itoa(days))
 }
 
 // NoaCompactionEnabled reports whether the experimental noa context-compression

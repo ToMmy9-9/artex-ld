@@ -338,6 +338,45 @@ func (d *DB) DeleteLLMRecords(task string) (int64, error) {
 	return res.RowsAffected()
 }
 
+// DeleteLLMRecordsOlderThan removes LLM call records older than the given cutoff
+// and returns how many rows were deleted.
+//
+// 保留策略的落地：llm_records 存的是每次 LLM 调用的请求/响应原文（生产库实测
+// 单行平均 190KB），任务跑一天就能涨 400–700MB。录制的价值在于「排查刚才那次
+// 调用」，超过保留期的记录几乎没人会回头翻，但表会一直涨 —— 生产库已经到 3.9GB。
+// 所以按天清理超期记录：既保住近期调试价值，又不让表无限膨胀。
+//
+// cutoff 传零值（time.Time{}）表示「不限时间」，此时不应调用本方法。
+func (d *DB) DeleteLLMRecordsOlderThan(cutoff time.Time) (int64, error) {
+	if cutoff.IsZero() {
+		return 0, nil
+	}
+	res, err := d.Exec(`DELETE FROM llm_records WHERE ts < $1`, cutoff.UTC())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// CountLLMRecords returns the total number of stored LLM call records.
+func (d *DB) CountLLMRecords() (int64, error) {
+	var n int64
+	if err := d.QueryRow(`SELECT count(*) FROM llm_records`).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// LLMRecordsSizeBytes returns the total on-disk size of the llm_records table
+// (including indexes) in bytes.
+func (d *DB) LLMRecordsSizeBytes() (int64, error) {
+	var n int64
+	if err := d.QueryRow(`SELECT pg_total_relation_size('llm_records')`).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // GetLLMRecord returns a single LLM record with full request/response bodies.
 func (d *DB) GetLLMRecord(id int64) (*LLMRecord, error) {
 	var r LLMRecord

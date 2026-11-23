@@ -26,6 +26,23 @@ import urllib.request
 API = "https://api.github.com"
 
 
+def cat_file(rev, path):
+    """读取 rev:path 的内容。路径含中文时 git 会加引号，所以走 --batch 协议。"""
+    proc = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        input=f"{rev}:{path}\n".encode(),
+        capture_output=True,
+    )
+    data = proc.stdout
+    nl = data.index(b"\n")
+    header = data[:nl].decode("utf-8", "replace")
+    parts = header.split()
+    if len(parts) != 3 or parts[1] != "blob":
+        raise SystemExit(f"cat-file {path} 失败: {header[:120]}")
+    size = int(parts[2])
+    return data[nl + 1 : nl + 1 + size]
+
+
 def git(*args, binary=False):
     out = subprocess.run(["git", *args], capture_output=True)
     if out.returncode != 0:
@@ -69,82 +86,91 @@ def main():
         ref_path = ref_path[len("refs/"):]
     ref_info = api(f"/repos/{args.repo}/git/ref/{ref_path}", args.token)
     remote_sha = ref_info["object"]["sha"]
-    base_tree = api(f"/repos/{args.repo}/git/commits/{remote_sha}", args.token)["tree"]["sha"]
-
-    # 本地待推送的提交（相对远端）
-    commits = git("log", "--format=%H", f"{remote_sha}..HEAD").split()
-    if not commits:
-        print("没有待推送的提交")
-        return 0
-    head = commits[-1]
-    message = git("log", "-1", "--format=%B", head).rstrip("\n")
-    print(f"待推送提交: {head}")
     print(f"远端 ref  : {remote_sha}")
 
-    # 待推送的提交（git log 是倒序：最新在前），要按时间正序逐个重建
-    commits = list(reversed(git("log", "--format=%H", f"{remote_sha}..HEAD").split()))
-    if not commits:
-        print("没有待推送的提交")
+    # 待推送的提交：本地相对远端 SHA 的差异。
+    # git fetch 在 git 端点不通时拿不到远端对象，所以不用 git diff-tree，
+    # 而是把两边的「路径 → blob sha」映射各自取出来做差集。
+    # 注意 -z：路径里有中文时 git 默认会转义成 "..." 形式，导致取不到文件。
+    def tree_map(ref_or_sha, is_sha):
+        m = {}
+        raw = git("ls-tree", "-r", "-z", ref_or_sha).encode()
+        for entry in raw.split(b"\0"):
+            if not entry:
+                continue
+            meta, _, path = entry.partition(b"\t")
+            parts = meta.split()
+            if len(parts) >= 3:
+                m[path.decode("utf-8")] = parts[2].decode()
+        return m
+
+    remote_commit = api(f"/repos/{args.repo}/git/commits/{remote_sha}", args.token)
+    # 远端侧：用 API 递归列出 tree（git 端点不通，只能走 API）
+    remote_files = {}
+    # 递归 tree 时子 tree 的 entry.path 不含父目录前缀，必须自己拼 ——
+    # 直接用会算出大量「删除」（本地路径带前缀，远端路径不带）。
+    def walk_tree(tree_sha, prefix):
+        t = api(f"/repos/{args.repo}/git/trees/{tree_sha}", args.token)
+        for e in t.get("tree", []):
+            full = prefix + e["path"]
+            if e["type"] == "blob":
+                remote_files[full] = e["sha"]
+            elif e["type"] == "tree":
+                walk_tree(e["sha"], full + "/")
+        if t.get("truncated"):
+            raise SystemExit("远端 tree 被截断，无法完整对比")
+
+    walk_tree(remote_commit["tree"]["sha"], "")
+
+    head = git("rev-parse", "HEAD").strip()
+    local_files = tree_map(head, False)
+
+    changed = [p for p in local_files if remote_files.get(p) != local_files[p]]
+    deleted = [p for p in remote_files if p not in local_files]
+    if not changed and not deleted:
+        print("没有待推送的变更")
         return 0
-    print(f"待推送提交: {len(commits)} 个，最新 {commits[-1][:8]}")
+    msg = git("log", "-1", "--format=%B", head).rstrip("\n")
+    print(f"待推送: {len(changed)} 个变更, {len(deleted)} 个删除")
+    print(f"本地 HEAD: {head[:8]}  远端: {remote_sha[:8]}")
 
-    tree_sha = base_tree
-    parent = remote_sha
-    last_sha = remote_sha
-
-    for sha in commits:
-        msg = git("log", "-1", "--format=%B", sha).rstrip("\n")
-        files = [f for f in git("diff-tree", "--no-commit-id", "--name-only", "-r", sha).split("\n") if f.strip()]
-        entries = []
-        for path in files:
-            # 用 ls-tree 判断文件是否存在（新增/修改），不存在就是删除 → sha=None
-            ls = git("ls-tree", sha, "--", path).strip()
-            if ls:
-                content = git("cat-file", "-p", f"{sha}:{path}", binary=True)
-                blob = api(
-                    f"/repos/{args.repo}/git/blobs",
-                    args.token,
-                    method="POST",
-                    payload={
-                        "content": base64.b64encode(content).decode(),
-                        "encoding": "base64",
-                    },
-                )
-                mode = "100755" if ls.startswith("100755") else "100644"
-                entries.append({"path": path, "mode": mode, "type": "blob", "sha": blob["sha"]})
-            else:
-                entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
-        # base_tree 用远端原始 tree，不是上一轮累加的 tree_sha ——
-        # 用 tree_sha 当 base 会报 GitRPC::BadObjectState。
-        new_tree = api(
-            f"/repos/{args.repo}/git/trees",
+    entries = []
+    for path in changed:
+        content = cat_file(head, path)
+        blob = api(
+            f"/repos/{args.repo}/git/blobs",
             args.token,
             method="POST",
-            payload={"base_tree": base_tree, "tree": entries},
-        )["sha"]
-        new_commit = api(
-            f"/repos/{args.repo}/git/commits",
-            args.token,
-            method="POST",
-            payload={
-                "message": msg,
-                "tree": new_tree,
-                "parents": [parent],
-            },
-        )["sha"]
-        print(f"  创建 commit {new_commit[:8]}（{len(entries)} 个文件）: {msg.splitlines()[0][:50]}")
-        tree_sha = new_tree
-        parent = new_commit
-        last_sha = new_commit
+            payload={"content": base64.b64encode(content).decode(), "encoding": "base64"},
+        )
+        ls = git("ls-tree", head, "--", path).strip()
+        mode = "100755" if ls.startswith("100755") else "100644"
+        entries.append({"path": path, "mode": mode, "type": "blob", "sha": blob["sha"]})
+    for path in deleted:
+        entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
+
+    new_tree = api(
+        f"/repos/{args.repo}/git/trees",
+        args.token,
+        method="POST",
+        payload={"base_tree": remote_commit["tree"]["sha"], "tree": entries},
+    )["sha"]
+    new_commit = api(
+        f"/repos/{args.repo}/git/commits",
+        args.token,
+        method="POST",
+        payload={"message": msg, "tree": new_tree, "parents": [remote_sha]},
+    )["sha"]
+    print(f"  创建 commit {new_commit[:8]}")
 
     # 推进 ref（用 force=false，防覆盖别人的提交）
     api(
         f"/repos/{args.repo}/git/refs/{ref_path}",
         args.token,
         method="PATCH",
-        payload={"sha": last_sha, "force": False},
+        payload={"sha": new_commit, "force": False},
     )
-    print(f"✓ ref 已推进到 {last_sha}")
+    print(f"✓ ref 已推进到 {new_commit}")
     return 0
 
 

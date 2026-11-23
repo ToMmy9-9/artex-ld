@@ -150,6 +150,44 @@ func (s *Server) pgDeleteLLMRecords(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"deleted": n})
 }
 
+// pgLLMRecordRetention reports the retention window and the current size of the
+// llm_records table, so the UI can show "how much is kept" and "how much space
+// it takes" next to the setting.
+func (s *Server) pgLLMRecordRetention(w http.ResponseWriter, r *http.Request) {
+	days := s.m.LLMRecordRetentionDays()
+	count, err := s.m.pg.CountLLMRecords()
+	if err != nil {
+		writeErrRedacted(w, 500, err.Error())
+		return
+	}
+	sizeBytes, err := s.m.pg.LLMRecordsSizeBytes()
+	if err != nil {
+		writeErrRedacted(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"retention_days": days,
+		"count":          count,
+		"size_bytes":     sizeBytes,
+	})
+}
+
+// pgCleanupLLMRecords purges records outside the retention window immediately
+// (the same operation the hourly background loop performs).
+func (s *Server) pgCleanupLLMRecords(w http.ResponseWriter, r *http.Request) {
+	days := s.m.LLMRecordRetentionDays()
+	if days <= 0 {
+		writeErr(w, 400, "未启用保留策略（保留天数为 0 表示永久保留），无需清理")
+		return
+	}
+	n, err := s.purgeLLMRecordsOlderThan()
+	if err != nil {
+		writeErrRedacted(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"deleted": n, "retention_days": days})
+}
+
 // pgGetLLMRecord returns a single LLM record with full request/response bodies.
 func (s *Server) pgGetLLMRecord(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)

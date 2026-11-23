@@ -1068,6 +1068,7 @@ export interface Settings {
   chat_auto_title_enabled: boolean; // 对话首条消息后自动生成会话标题
   agent_traffic_binding: boolean; // Agent 自动绑定流量证据，默认关闭；不影响人工绑定
   llm_record: boolean; // LLM 录制开关（默认关）；关闭时不记录任何 LLM 调用
+  llm_record_retention_days: number; // LLM 录制保留天数；0 = 永久保留（不自动清理）
   // Web search. brave_key_set / tavily_key_set reflect whether a key is stored
   // (the values are never returned). On PUT, send the corresponding field to set/clear.
   web_search_enabled: boolean;
@@ -1138,7 +1139,12 @@ export interface ProxyPoolEntry {
   health: "healthy" | "unhealthy-cooling" | "disabled" | string;
 }
 
-export interface ProxySwitchLog { at: string; from: string; to: string; reason: string }
+export interface ProxySwitchLog {
+  at: string;
+  from: string;
+  to: string;
+  reason: string;
+}
 
 export interface WorkerPool {
   profile_id: string;

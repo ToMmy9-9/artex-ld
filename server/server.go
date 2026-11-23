@@ -351,6 +351,10 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		// 漏洞 IM 推送投递引擎。与 Scheduler 并列但独立：推送的实时性要求(3s)
 		// 与触发器的业务节奏不同，且两者失败互不牵连——推送卡住不该影响 agent 触发。
 		go newNotifier(s).Run(s.ctx)
+		// LLM 调用记录的保留策略：定期清理超期的 llm_records 行。
+		// 独立循环而非挂在 Scheduler 上 —— 清理是低频动作（每小时一次），
+		// 不该跟 5 秒 tick 的触发器调度挤在一起。
+		go s.runLLMRecordRetention(s.ctx)
 		// Fill the tool cache for any enabled MCP that has none yet (notably the
 		// seeded browser MCP on first run). Async so it never blocks startup.
 		go s.discoverEmptyMCPsOnStartup()
@@ -1142,6 +1146,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/commands/stats", s.pgToolStats) // 按工具聚合调用次数
 	mux.HandleFunc("GET /api/llm/records", s.pgListLLMRecords)
 	mux.HandleFunc("DELETE /api/llm/records", s.pgDeleteLLMRecords)
+	// 保留策略：查当前保留天数与表的体积，手动触发一次清理。
+	mux.HandleFunc("GET /api/llm/records/retention", s.pgLLMRecordRetention)
+	mux.HandleFunc("POST /api/llm/records/cleanup", s.pgCleanupLLMRecords)
 	mux.HandleFunc("GET /api/llm/records/tasks", s.pgLLMTasks)
 	mux.HandleFunc("GET /api/llm/records/by-model", s.pgTokenByModel) // 按模型聚合本任务 token 用量
 	mux.HandleFunc("GET /api/llm/records/{id}", s.pgGetLLMRecord)
@@ -4142,6 +4149,7 @@ func (s *Server) settingsPayload() map[string]any {
 		db.SettingCredentialAgent:              s.m.pg.GetBool(db.SettingCredentialAgent, false),
 		db.SettingCredentialTraffic:            s.m.pg.GetBool(db.SettingCredentialAgent, false) && s.m.pg.GetBool(db.SettingCredentialTraffic, false),
 		"llm_record":                           s.m.LLMRecordEnabled(),
+		"llm_record_retention_days":           s.m.LLMRecordRetentionDays(),
 		"web_search_enabled":                   on,
 		"web_search_backend":                   backend,
 		"brave_key_set":                        strings.TrimSpace(braveKey) != "",
@@ -4244,6 +4252,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		CredentialAgent     *bool `json:"credential_agent_enabled"`
 		CredentialTraffic   *bool `json:"credential_traffic_binding"`
 		LLMRecord           *bool `json:"llm_record"` // LLM 录制开关（默认关）；即时生效，无需重建 agent
+		// LLM 录制保留天数。0 = 永久保留（不自动清理）；>0 = 定期清理超期记录。
+		LLMRecordRetentionDays *int `json:"llm_record_retention_days"`
 		// Web search. WebSearchEnabled/Backend toggle the tool + backend; BraveKey/TavilyKey
 		// are optional — omit (null) to leave a stored key untouched, send "" to clear.
 		WebSearchEnabled       *bool         `json:"web_search_enabled"`
@@ -4433,6 +4443,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if req.LLMRecord != nil {
 		// 录制器每次调用读取该标志，切换即时生效，无需 applyLLM 重建。
 		if err := s.m.SetLLMRecordEnabled(*req.LLMRecord); err != nil {
+			writeErrRedacted(w, 500, err.Error())
+			return
+		}
+	}
+	if req.LLMRecordRetentionDays != nil {
+		if err := s.m.SetLLMRecordRetentionDays(*req.LLMRecordRetentionDays); err != nil {
 			writeErrRedacted(w, 500, err.Error())
 			return
 		}
