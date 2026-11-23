@@ -205,8 +205,9 @@ function ToolEditor({
             <Label className="text-muted-foreground text-xs">绑定 Agent（决定该工具给哪些 Agent）</Label>
             <div className="flex flex-wrap gap-3">
               {agents.map((ag) => (
-                <label key={ag.key} className="flex items-center gap-2 text-sm">
+                <label key={ag.key} htmlFor={`te-agent-${ag.key}`} className="flex items-center gap-2 text-sm">
                   <Checkbox
+                    id={`te-agent-${ag.key}`}
                     checked={bound.includes(ag.key)}
                     disabled={trafficGated}
                     onCheckedChange={() => toggleAgent(ag.key)}
@@ -1013,8 +1014,9 @@ function CustomToolDialog({
                     onChange={(e) => setEx({ ...ex, proxy: e.target.value })}
                   />
                 </div>
-                <label className="mt-4 flex items-center gap-2 text-sm">
+                <label htmlFor="ctool-recording-proxy" className="mt-4 flex items-center gap-2 text-sm">
                   <Checkbox
+                    id="ctool-recording-proxy"
                     checked={ex.use_recording_proxy}
                     onCheckedChange={(v) => setEx({ ...ex, use_recording_proxy: !!v })}
                   />
@@ -1058,8 +1060,12 @@ function CustomToolDialog({
             <Label className="text-muted-foreground text-xs">绑定 Agent</Label>
             <div className="flex flex-wrap gap-3">
               {agents.map((a) => (
-                <label key={a.key} className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={bound.includes(a.key)} onCheckedChange={() => toggleAgent(a.key)} />
+                <label key={a.key} htmlFor={`ctool-agent-${a.key}`} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    id={`ctool-agent-${a.key}`}
+                    checked={bound.includes(a.key)}
+                    onCheckedChange={() => toggleAgent(a.key)}
+                  />
                   {a.name}
                   <span className="text-muted-foreground font-mono text-xs">{a.key}</span>
                 </label>
@@ -1068,12 +1074,13 @@ function CustomToolDialog({
           </div>
 
           <div className="flex items-center gap-6">
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={enabled} onCheckedChange={setEnabled} /> 启用
+            <label htmlFor="ctool-enabled" className="flex items-center gap-2 text-sm">
+              <Switch id="ctool-enabled" checked={enabled} onCheckedChange={setEnabled} /> 启用
             </label>
             {kind !== "shell" && (
-              <label className="flex items-center gap-2 text-sm">
-                <Switch checked={deferred} onCheckedChange={setDeferred} /> deferred（大量不常用工具才开）
+              <label htmlFor="ctool-deferred" className="flex items-center gap-2 text-sm">
+                <Switch id="ctool-deferred" checked={deferred} onCheckedChange={setDeferred} />{" "}
+                deferred（大量不常用工具才开）
               </label>
             )}
           </div>

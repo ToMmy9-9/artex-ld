@@ -3927,8 +3927,12 @@ function CreateTaskSheet({
             {/* 【二开·P-REVIEW·D12】止 */}
             <FieldSet>
               <FieldLegend>计划启动（可选）</FieldLegend>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={scheduleEnabled} onCheckedChange={(v) => setScheduleEnabled(!!v)} />
+              <label htmlFor="task-schedule-enabled" className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  id="task-schedule-enabled"
+                  checked={scheduleEnabled}
+                  onCheckedChange={(v) => setScheduleEnabled(!!v)}
+                />
                 创建时附加计划，按时间窗口启动和暂停
               </label>
               {scheduleEnabled && (
@@ -4037,8 +4041,9 @@ function CreateTaskSheet({
                       />
                     </Field>
                   </div>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label htmlFor="task-schedule-start-immediately" className="flex items-center gap-2 text-sm">
                     <Checkbox
+                      id="task-schedule-start-immediately"
                       checked={schedule.start_immediately}
                       onCheckedChange={(v) => setSchedule({ ...schedule, start_immediately: !!v })}
                     />

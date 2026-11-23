@@ -757,8 +757,16 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
         <p className="text-muted-foreground mb-3 text-xs">勾选此 Agent 可见的 MCP 服务器。</p>
         <div className="grid gap-2">
           {mcp.map((m) => (
-            <label key={m.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
-              <Checkbox checked={mcpVisible.includes(m.id)} onCheckedChange={() => toggleMcp(m.id)} />
+            <label
+              key={m.id}
+              htmlFor={`ae-mcp-${m.id}`}
+              className="flex items-center gap-2 rounded-md border p-2 text-sm"
+            >
+              <Checkbox
+                id={`ae-mcp-${m.id}`}
+                checked={mcpVisible.includes(m.id)}
+                onCheckedChange={() => toggleMcp(m.id)}
+              />
               {m.name}
               <span className="text-muted-foreground ml-auto text-xs">{m.transport}</span>
             </label>
@@ -772,8 +780,16 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
         <p className="text-muted-foreground mb-3 text-xs">勾选此 Agent 可见的 Skill。</p>
         <div className="grid gap-2">
           {skills.map((s) => (
-            <label key={s.name} className="flex items-center gap-2 rounded-md border p-2 text-sm">
-              <Checkbox checked={skillVisible.includes(s.name)} onCheckedChange={() => toggleSkill(s.name)} />
+            <label
+              key={s.name}
+              htmlFor={`ae-skill-${s.name}`}
+              className="flex items-center gap-2 rounded-md border p-2 text-sm"
+            >
+              <Checkbox
+                id={`ae-skill-${s.name}`}
+                checked={skillVisible.includes(s.name)}
+                onCheckedChange={() => toggleSkill(s.name)}
+              />
               <span className="font-mono text-xs">{s.name}</span>
               {s.description && <span className="text-muted-foreground ml-auto truncate text-xs">{s.description}</span>}
             </label>
@@ -792,9 +808,11 @@ export function AgentEditor({ agentKey, onSaved }: { agentKey: string; onSaved?:
             return (
               <label
                 key={t.key}
+                htmlFor={`ae-agent-tool-${agentKey}-${t.key}`}
                 className={cn("flex items-center gap-2 rounded-md border p-2 text-sm", gated && "opacity-60")}
               >
                 <Checkbox
+                  id={`ae-agent-tool-${agentKey}-${t.key}`}
                   checked={t.agents.includes(agentKey)}
                   disabled={gated}
                   onCheckedChange={() => toggleTool(t)}
@@ -1180,8 +1198,9 @@ function AgentTriggersTab({ agentKey, agent }: { agentKey: string; agent?: Agent
 
         {/* 定时 */}
         <div className="grid gap-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={onInterval} onCheckedChange={(v) => setOnInterval(!!v)} /> 定时触发
+          <label htmlFor="ae-trigger-interval" className="flex items-center gap-2 text-sm">
+            <Checkbox id="ae-trigger-interval" checked={onInterval} onCheckedChange={(v) => setOnInterval(!!v)} />{" "}
+            定时触发
           </label>
           {onInterval && (
             <div className="grid gap-1.5">
@@ -1212,8 +1231,9 @@ function AgentTriggersTab({ agentKey, agent }: { agentKey: string; agent?: Agent
 
         {/* finding */}
         <div className="grid gap-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={onFinding} onCheckedChange={(v) => setOnFinding(!!v)} /> 发现 finding 时触发
+          <label htmlFor="ae-trigger-finding" className="flex items-center gap-2 text-sm">
+            <Checkbox id="ae-trigger-finding" checked={onFinding} onCheckedChange={(v) => setOnFinding(!!v)} /> 发现
+            finding 时触发
           </label>
           {onFinding && (
             <Textarea
@@ -1228,8 +1248,9 @@ function AgentTriggersTab({ agentKey, agent }: { agentKey: string; agent?: Agent
 
         {/* 目标达成 */}
         <div className="grid gap-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={onGoalMet} onCheckedChange={(v) => setOnGoalMet(!!v)} /> 目标达成时触发
+          <label htmlFor="ae-trigger-goalmet" className="flex items-center gap-2 text-sm">
+            <Checkbox id="ae-trigger-goalmet" checked={onGoalMet} onCheckedChange={(v) => setOnGoalMet(!!v)} />{" "}
+            目标达成时触发
           </label>
           {onGoalMet && (
             <Textarea
@@ -1244,8 +1265,9 @@ function AgentTriggersTab({ agentKey, agent }: { agentKey: string; agent?: Agent
 
         {/* 任务超时 */}
         <div className="grid gap-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={onTaskTimeout} onCheckedChange={(v) => setOnTaskTimeout(!!v)} /> 任务超时时触发
+          <label htmlFor="ae-trigger-timeout" className="flex items-center gap-2 text-sm">
+            <Checkbox id="ae-trigger-timeout" checked={onTaskTimeout} onCheckedChange={(v) => setOnTaskTimeout(!!v)} />{" "}
+            任务超时时触发
           </label>
           {onTaskTimeout && (
             <Textarea
@@ -1260,8 +1282,9 @@ function AgentTriggersTab({ agentKey, agent }: { agentKey: string; agent?: Agent
 
         {/* 工具调用 */}
         <div className="grid gap-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={onToolCall} onCheckedChange={(v) => setOnToolCall(!!v)} /> 工具调用时触发
+          <label htmlFor="ae-trigger-toolcall" className="flex items-center gap-2 text-sm">
+            <Checkbox id="ae-trigger-toolcall" checked={onToolCall} onCheckedChange={(v) => setOnToolCall(!!v)} />{" "}
+            工具调用时触发
           </label>
           {onToolCall && (
             <div className="grid gap-1.5">
@@ -1273,8 +1296,9 @@ function AgentTriggersTab({ agentKey, agent }: { agentKey: string; agent?: Agent
                 {tools.length === 0 && <span className="text-muted-foreground text-xs">（工具列表为空）</span>}
                 <div className="grid gap-1">
                   {tools.map((tool) => (
-                    <label key={tool.key} className="flex items-start gap-2 text-xs">
+                    <label key={tool.key} htmlFor={`ae-tool-${tool.key}`} className="flex items-start gap-2 text-xs">
                       <Checkbox
+                        id={`ae-tool-${tool.key}`}
                         className="mt-0.5"
                         checked={toolNames.includes(tool.key)}
                         onCheckedChange={() => toggleTool(tool.key)}
@@ -1302,8 +1326,9 @@ function AgentTriggersTab({ agentKey, agent }: { agentKey: string; agent?: Agent
 
         {/* 任务创建 */}
         <div className="grid gap-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={onTaskCreate} onCheckedChange={(v) => setOnTaskCreate(!!v)} /> 任务创建时触发
+          <label htmlFor="ae-trigger-taskcreate" className="flex items-center gap-2 text-sm">
+            <Checkbox id="ae-trigger-taskcreate" checked={onTaskCreate} onCheckedChange={(v) => setOnTaskCreate(!!v)} />{" "}
+            任务创建时触发
           </label>
           {onTaskCreate && (
             <Textarea

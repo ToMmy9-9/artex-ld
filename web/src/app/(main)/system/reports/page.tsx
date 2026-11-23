@@ -734,9 +734,14 @@ export default function ReportsPage() {
                           return (
                             <label
                               key={key}
+                              htmlFor={`rep-finding-${key}`}
                               className="flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted/40 cursor-pointer"
                             >
-                              <Checkbox checked={selFindings.has(key)} onCheckedChange={() => toggleFinding(key)} />
+                              <Checkbox
+                                id={`rep-finding-${key}`}
+                                checked={selFindings.has(key)}
+                                onCheckedChange={() => toggleFinding(key)}
+                              />
                               <StatusBadge domain="severity" value={f.severity} dot className="shrink-0" />
                               <span
                                 className="min-w-0 flex-1 truncate font-medium"

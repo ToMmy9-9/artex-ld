@@ -329,8 +329,12 @@ export default function MCPPage() {
               value={form.url}
               onChange={(e) => setF({ url: e.target.value })}
             />
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={form.insecure} onCheckedChange={(v) => setF({ insecure: v === true })} />
+            <label htmlFor="m-insecure" className="flex items-center gap-2 text-sm">
+              <Checkbox
+                id="m-insecure"
+                checked={form.insecure}
+                onCheckedChange={(v) => setF({ insecure: v === true })}
+              />
               跳过 TLS 证书校验（自签证书）
             </label>
           </div>
@@ -444,8 +448,9 @@ export default function MCPPage() {
                 <span className="text-muted-foreground text-xs">可见性（按 Agent 授权）</span>
                 <div className="flex flex-wrap gap-x-4 gap-y-2">
                   {agents.map((a) => (
-                    <label key={a.key} className="flex items-center gap-2 text-sm">
+                    <label key={a.key} htmlFor={`mcp-vis-${s.id}-${a.key}`} className="flex items-center gap-2 text-sm">
                       <Checkbox
+                        id="mcp-vis-${s.id}-${a.key}"
                         checked={(visibility[s.id] ?? []).includes(a.id)}
                         onCheckedChange={() => toggleVisibility(s.id, a.id, a.name)}
                       />

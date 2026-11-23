@@ -1150,8 +1150,13 @@ export default function SkillsPage() {
                     ) : (
                       <div className="flex flex-wrap gap-x-4 gap-y-2">
                         {mcpOptions.map((m) => (
-                          <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <label
+                            key={m.id}
+                            htmlFor={`sk-detail-mcp-${m.id}`}
+                            className="flex cursor-pointer items-center gap-2 text-sm"
+                          >
                             <Checkbox
+                              id="sk-detail-mcp-${m.id}"
                               checked={detailMcps.includes(m.name)}
                               onCheckedChange={(on) => toggleSkillMcp(selectedSkill.name, m.name, !!on)}
                             />
@@ -1166,8 +1171,13 @@ export default function SkillsPage() {
                     <Label className="text-xs text-muted-foreground">可见性（按 Agent 授权）</Label>
                     <div className="space-y-2">
                       {agents.map((a) => (
-                        <label key={a.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                        <label
+                          key={a.key}
+                          htmlFor={`sk-detail-agent-${a.key}`}
+                          className="flex cursor-pointer items-center gap-2 text-sm"
+                        >
                           <Checkbox
+                            id="sk-detail-agent-${a.key}"
                             checked={(visibility[selectedSkill.name] ?? []).includes(a.id)}
                             onCheckedChange={() => toggleVisibility(selectedSkill.name, a.id, a.name)}
                           />
@@ -1376,8 +1386,13 @@ export default function SkillsPage() {
               ) : (
                 <div className="flex flex-col gap-2">
                   {mcpOptions.map((m) => (
-                    <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                    <label
+                      key={m.id}
+                      htmlFor={`sk-new-mcp-${m.id}`}
+                      className="flex cursor-pointer items-center gap-2 text-sm"
+                    >
                       <Checkbox
+                        id="sk-new-mcp-${m.id}"
                         checked={newMcps.includes(m.name)}
                         onCheckedChange={(on) =>
                           setNewMcps((cur) => (on ? [...cur, m.name] : cur.filter((n) => n !== m.name)))
@@ -1406,8 +1421,13 @@ export default function SkillsPage() {
               ) : (
                 <div className="flex flex-col gap-2">
                   {agents.map((a) => (
-                    <label key={a.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                    <label
+                      key={a.key}
+                      htmlFor={`sk-new-agent-${a.key}`}
+                      className="flex cursor-pointer items-center gap-2 text-sm"
+                    >
                       <Checkbox
+                        id="sk-new-agent-${a.key}"
                         checked={newVisibility.includes(a.id)}
                         onCheckedChange={(on) =>
                           setNewVisibility((cur) => (on ? [...cur, a.id] : cur.filter((id) => id !== a.id)))
