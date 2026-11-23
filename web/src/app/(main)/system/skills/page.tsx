@@ -8,24 +8,28 @@
 "use client";
 
 import * as React from "react";
-import { toast } from "sonner";
+
 import {
-  BotIcon,
+  AlertTriangleIcon,
   BookOpenIcon,
+  BotIcon,
   ChevronRightIcon,
   ClockIcon,
+  FilePlusIcon,
+  FileTextIcon,
   FolderIcon,
   FolderOpenIcon,
   FolderPlusIcon,
-  FileTextIcon,
-  FilePlusIcon,
   PlugZapIcon,
   PlusIcon,
   Trash2Icon,
   UploadIcon,
-  AlertTriangleIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { RefreshingBar } from "@/components/loading-indicator";
+import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,27 +40,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import type { Agent, SkillItem, MCPServer, SkillCall, MissingSkill } from "@/lib/types";
+import type { Agent, MCPServer, MissingSkill, SkillCall, SkillItem } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 function fmtTime(ts?: string) {
   if (!ts) return "从未调用";
@@ -71,7 +68,7 @@ function fmtTime(ts?: string) {
 // ── Tree node ──────────────────────────────────────────────────────────────
 interface TreeNode {
   name: string;
-  path: string;   // relative to skill root, dirs WITHOUT trailing slash
+  path: string; // relative to skill root, dirs WITHOUT trailing slash
   type: "file" | "dir";
   children: TreeNode[];
 }
@@ -137,9 +134,7 @@ function sortNodes(nodes: TreeNode[]): void {
 }
 
 // ── State types ───────────────────────────────────────────────────────────
-type Selected =
-  | { skill: string; path: null }
-  | { skill: string; path: string };
+type Selected = { skill: string; path: null } | { skill: string; path: string };
 
 type Creating = {
   skill: string;
@@ -206,15 +201,25 @@ function SkillsOverview({
   const stats: { label: string; value: React.ReactNode; hint?: string }[] = [
     { label: "Skill 总数", value: skills.length, hint: `${agg.usedCount} 个被调用过` },
     { label: "累计调用", value: agg.totalCalls },
-    { label: "未使用", value: agg.neverUsed.length, hint: agg.neverUsed.length > 0 ? "从未被任何 agent 加载" : "全部用过" },
-    { label: "未命中调用", value: agg.missingCalls, hint: missing.length > 0 ? `${missing.length} 个不存在的 skill` : "无" },
+    {
+      label: "未使用",
+      value: agg.neverUsed.length,
+      hint: agg.neverUsed.length > 0 ? "从未被任何 agent 加载" : "全部用过",
+    },
+    {
+      label: "未命中调用",
+      value: agg.missingCalls,
+      hint: missing.length > 0 ? `${missing.length} 个不存在的 skill` : "无",
+    },
   ];
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
       <div>
         <h2 className="text-base font-semibold">技能库总览</h2>
-        <p className="text-muted-foreground text-sm">选择左侧的 Skill 查看详情与调用记录，或从这里快速了解整体使用情况。</p>
+        <p className="text-muted-foreground text-sm">
+          选择左侧的 Skill 查看详情与调用记录，或从这里快速了解整体使用情况。
+        </p>
       </div>
 
       {/* 指标卡 */}
@@ -244,7 +249,9 @@ function SkillsOverview({
                 onClick={() => onSelect(s.name)}
                 className="group flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-muted"
               >
-                <span className="w-40 shrink-0 truncate font-mono text-xs" title={s.name}>{s.name}</span>
+                <span className="w-40 shrink-0 truncate font-mono text-xs" title={s.name}>
+                  {s.name}
+                </span>
                 <span className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted">
                   <span
                     className="absolute inset-y-0 left-0 rounded-full bg-primary/70"
@@ -283,8 +290,12 @@ function SkillsOverview({
                   onClick={() => onSelect(s.name)}
                   className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-muted"
                 >
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs" title={s.name}>{s.name}</span>
-                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{fmtTime(s.last_used)}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs" title={s.name}>
+                    {s.name}
+                  </span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                    {fmtTime(s.last_used)}
+                  </span>
                 </button>
               ))}
             </div>
@@ -302,13 +313,11 @@ function SkillsOverview({
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {agg.neverUsed.map((s) => (
-                <button
-                  key={s.name}
-                  type="button"
-                  onClick={() => onSelect(s.name)}
-                  title={s.name}
-                >
-                  <Badge variant="outline" className="max-w-[12rem] cursor-pointer truncate font-mono text-xs font-normal hover:bg-muted">
+                <button key={s.name} type="button" onClick={() => onSelect(s.name)} title={s.name}>
+                  <Badge
+                    variant="outline"
+                    className="max-w-[12rem] cursor-pointer truncate font-mono text-xs font-normal hover:bg-muted"
+                  >
                     {s.name}
                   </Badge>
                 </button>
@@ -328,6 +337,11 @@ export default function SkillsPage() {
   const [selected, setSelected] = React.useState<Selected | null>(null);
   const [visibility, setVisibility] = React.useState<Record<string, string[]>>({});
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+
+  // 技能列表加载状态。首次加载与「新建/删除/上传后的后台刷新」要分开：
+  // 首次用空状态占位，之后目录树保留旧内容 + 顶部进度线，避免内容闪烁。
+  const [listLoading, setListLoading] = React.useState(false);
+  const [listLoaded, setListLoaded] = React.useState(false);
 
   // file editor
   const [fileContent, setFileContent] = React.useState("");
@@ -384,14 +398,21 @@ export default function SkillsPage() {
     // 列表加载失败若静默，页面会显示「（暂无 MCP，可在「MCP」页添加）」——
     // 把网络故障伪装成「你没配置」，用户会去重复新建。Skill 列表与 MCP
     // 列表必须把错误说出来。
-    api.agents().then(setAgents).catch(() => {});
+    setListLoading(true);
+    api
+      .agents()
+      .then(setAgents)
+      .catch(() => {});
     api
       .mcpServers()
       .then(setMcpOptions)
       .catch((e) => {
         toast.error(`加载 MCP 列表失败：${(e as Error)?.message ?? e}`);
       });
-    api.missingSkills().then(setMissing).catch(() => {});
+    api
+      .missingSkills()
+      .then(setMissing)
+      .catch(() => {});
     api
       .skills()
       .then((ss) => {
@@ -405,10 +426,16 @@ export default function SkillsPage() {
       })
       .catch((e) => {
         toast.error(`加载 Skill 列表失败：${(e as Error)?.message ?? e}`);
+      })
+      .finally(() => {
+        setListLoading(false);
+        setListLoaded(true);
       });
   }, []);
 
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => {
+    load();
+  }, [load]);
 
   // ── Upload a .zip skill ───────────────────────────────────────────────────
   // 返回是否安装成功：覆盖确认弹窗据此决定是关掉自己还是留在原地。
@@ -466,20 +493,32 @@ export default function SkillsPage() {
 
   // Recent calls for the selected skill (detail panel only).
   React.useEffect(() => {
-    if (!selected || selected.path !== null) { setUsageCalls([]); return; }
+    if (!selected || selected.path !== null) {
+      setUsageCalls([]);
+      return;
+    }
     const name = selected.skill;
     setUsageLoading(true);
-    api.skillUsage(name, 20)
+    api
+      .skillUsage(name, 20)
       .then((calls) => setUsageCalls(calls))
       .catch(() => setUsageCalls([]))
       .finally(() => setUsageLoading(false));
   }, [selected]);
 
   React.useEffect(() => {
-    if (!selected || selected.path === null) { setFileContent(""); setDirty(false); return; }
+    if (!selected || selected.path === null) {
+      setFileContent("");
+      setDirty(false);
+      return;
+    }
     setFileLoading(true);
-    api.readSkillFile(selected.skill, selected.path)
-      .then((c) => { setFileContent(c); setDirty(false); })
+    api
+      .readSkillFile(selected.skill, selected.path)
+      .then((c) => {
+        setFileContent(c);
+        setDirty(false);
+      })
       .catch(() => toast.error("读取文件失败"))
       .finally(() => setFileLoading(false));
   }, [selected]);
@@ -488,7 +527,8 @@ export default function SkillsPage() {
   function toggleExpanded(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -518,12 +558,19 @@ export default function SkillsPage() {
   // Use a ref snapshot so commitCreate reads the latest creating value
   // without depending on potentially stale closure state.
   const creatingRef = React.useRef<Creating>(null);
-  React.useEffect(() => { creatingRef.current = creating; }, [creating]);
+  React.useEffect(() => {
+    creatingRef.current = creating;
+  }, [creating]);
   const newEntryRef = React.useRef("");
-  React.useEffect(() => { newEntryRef.current = newEntryName; }, [newEntryName]);
+  React.useEffect(() => {
+    newEntryRef.current = newEntryName;
+  }, [newEntryName]);
 
   async function commitCreate() {
-    if (cancelRef.current) { cancelRef.current = false; return; }
+    if (cancelRef.current) {
+      cancelRef.current = false;
+      return;
+    }
     const c = creatingRef.current;
     const name = newEntryRef.current.trim();
     setCreating(null);
@@ -598,13 +645,13 @@ export default function SkillsPage() {
       setDirty(false);
     } catch (e) {
       toast.error("保存失败：" + (e as Error).message);
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function toggleSkillMcp(skillName: string, mcpName: string, mcpOn: boolean) {
-    const next = mcpOn
-      ? [...detailMcps, mcpName]
-      : detailMcps.filter((n) => n !== mcpName);
+    const next = mcpOn ? [...detailMcps, mcpName] : detailMcps.filter((n) => n !== mcpName);
     setDetailMcps(next);
     try {
       await api.updateSkillMeta(skillName, { mcps: next });
@@ -630,13 +677,20 @@ export default function SkillsPage() {
   }
 
   async function createNewSkill() {
-    if (!newName.trim()) { toast.error("请填写 name"); return; }
-    if (!newDesc.trim()) { toast.error("description 为必填项"); return; }
+    if (!newName.trim()) {
+      toast.error("请填写 name");
+      return;
+    }
+    if (!newDesc.trim()) {
+      toast.error("description 为必填项");
+      return;
+    }
     setCreatingSkill(true);
     try {
       const name = newName.trim();
       await api.createSkill({
-        name, description: newDesc.trim(),
+        name,
+        description: newDesc.trim(),
         license: newLicense.trim() || undefined,
         compatibility: newCompat.trim() || undefined,
         mcps: newMcps.length ? newMcps : undefined,
@@ -646,27 +700,31 @@ export default function SkillsPage() {
       await Promise.all(newVisibility.map((id) => api.toggleSkillVisibility(id, name, true)));
       toast.success("已创建 Skill");
       setNewOpen(false);
-      setNewName(""); setNewDesc(""); setNewLicense(""); setNewCompat(""); setNewInst("");
-      setNewMcps([]); setNewVisibility([]);
+      setNewName("");
+      setNewDesc("");
+      setNewLicense("");
+      setNewCompat("");
+      setNewInst("");
+      setNewMcps([]);
+      setNewVisibility([]);
       load();
     } catch (e) {
       toast.error("创建失败：" + (e as Error).message);
-    } finally { setCreatingSkill(false); }
+    } finally {
+      setCreatingSkill(false);
+    }
   }
 
   // ── Inline input JSX helper (NOT a React component — avoids remount on re-render) ──
   // Defined as a plain function returning JSX so React never sees a new component type.
   function inlineInputJSX(indent: number) {
     return (
-      <div
-        key="__inline_create__"
-        className="flex items-center gap-1 py-0.5 pr-2"
-        style={{ paddingLeft: indent }}
-      >
-        {creating?.kind === "dir"
-          ? <FolderIcon className="size-3.5 shrink-0 text-amber-500" />
-          : <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        }
+      <div key="__inline_create__" className="flex items-center gap-1 py-0.5 pr-2" style={{ paddingLeft: indent }}>
+        {creating?.kind === "dir" ? (
+          <FolderIcon className="size-3.5 shrink-0 text-amber-500" />
+        ) : (
+          <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        )}
         <Input
           ref={inlineRef}
           className="h-6 flex-1 px-1 py-0 font-mono text-xs"
@@ -674,10 +732,15 @@ export default function SkillsPage() {
           value={newEntryName}
           onChange={(e) => setNewEntryName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") { cancelRef.current = false; void commitCreate(); }
+            if (e.key === "Enter") {
+              cancelRef.current = false;
+              void commitCreate();
+            }
             if (e.key === "Escape") cancelCreate();
           }}
-          onBlur={() => { void commitCreate(); }}
+          onBlur={() => {
+            void commitCreate();
+          }}
         />
       </div>
     );
@@ -700,23 +763,50 @@ export default function SkillsPage() {
               onClick={() => toggleExpanded(key)}
             >
               <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-              {open
-                ? <FolderOpenIcon className="size-3.5 shrink-0 text-amber-500" />
-                : <FolderIcon className="size-3.5 shrink-0 text-amber-500" />
-              }
-              <span className="min-w-0 flex-1 truncate" title={node.path}>{node.name}</span>
+              {open ? (
+                <FolderOpenIcon className="size-3.5 shrink-0 text-amber-500" />
+              ) : (
+                <FolderIcon className="size-3.5 shrink-0 text-amber-500" />
+              )}
+              <span className="min-w-0 flex-1 truncate" title={node.path}>
+                {node.name}
+              </span>
               {/* Absolute so a long name can never push the actions out of view */}
               <span className="absolute inset-y-0 right-1 hidden items-center gap-0.5 rounded bg-muted pl-1 group-hover:flex">
-                <Button size="icon" variant="ghost" className="size-5" title="新建文件"
-                  onClick={(e) => { e.stopPropagation(); startCreate(skill, node.path, "file"); }}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-5"
+                  title="新建文件"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startCreate(skill, node.path, "file");
+                  }}
+                >
                   <FilePlusIcon className="size-3 text-muted-foreground" />
                 </Button>
-                <Button size="icon" variant="ghost" className="size-5" title="新建文件夹"
-                  onClick={(e) => { e.stopPropagation(); startCreate(skill, node.path, "dir"); }}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-5"
+                  title="新建文件夹"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startCreate(skill, node.path, "dir");
+                  }}
+                >
                   <FolderPlusIcon className="size-3 text-muted-foreground" />
                 </Button>
-                <Button size="icon" variant="ghost" className="size-5" title="删除文件夹"
-                  onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: "dir", skill, path: node.path }); }}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-5"
+                  title="删除文件夹"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPendingDelete({ kind: "dir", skill, path: node.path });
+                  }}
+                >
                   <Trash2Icon className="size-3 text-destructive" />
                 </Button>
               </span>
@@ -724,8 +814,7 @@ export default function SkillsPage() {
             {open && (
               <>
                 {renderTree(node.children, skill, depth + 1)}
-                {creating?.skill === skill && creating.inDir === node.path &&
-                  inlineInputJSX(baseIndent + 14)}
+                {creating?.skill === skill && creating.inDir === node.path && inlineInputJSX(baseIndent + 14)}
               </>
             )}
           </div>
@@ -745,14 +834,25 @@ export default function SkillsPage() {
           onClick={() => setSelected({ skill, path: node.path })}
         >
           <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate font-mono text-xs" title={node.path}>{node.name}</span>
-          <span className={cn(
-            "absolute inset-y-0 right-1 hidden items-center rounded pl-1 group-hover:flex",
-            isSelected ? "bg-accent" : "bg-muted",
-          )}>
-            <Button size="icon" variant="ghost" className="size-5"
+          <span className="min-w-0 flex-1 truncate font-mono text-xs" title={node.path}>
+            {node.name}
+          </span>
+          <span
+            className={cn(
+              "absolute inset-y-0 right-1 hidden items-center rounded pl-1 group-hover:flex",
+              isSelected ? "bg-accent" : "bg-muted",
+            )}
+          >
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-5"
               title="删除文件"
-              onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: "file", skill, path: node.path }); }}>
+              onClick={(e) => {
+                e.stopPropagation();
+                setPendingDelete({ kind: "file", skill, path: node.path });
+              }}
+            >
               <Trash2Icon className="size-3 text-destructive" />
             </Button>
           </span>
@@ -761,17 +861,12 @@ export default function SkillsPage() {
     });
   }
 
-  const selectedSkill = selected
-    ? skills.find((s) => s.name === selected.skill) ?? null
-    : null;
+  const selectedSkill = selected ? (skills.find((s) => s.name === selected.skill) ?? null) : null;
 
   return (
     <div data-content-padding="false" className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-3 border-b px-4 py-2.5 lg:px-6">
-        <div className="flex flex-col gap-0.5">
-          <h1 className="text-sm font-semibold leading-tight">Skill</h1>
-          <p className="text-muted-foreground text-xs">技能库 · agentskills.io 规范 · 按 Agent 授权可见</p>
-        </div>
+        <PageHeader size="sm" title="Skill" description="技能库 · agentskills.io 规范 · 按 Agent 授权可见" />
         {/* 缺口清单：agent 点名调用、但库里没有的 skill —— 直接是该补什么的依据。 */}
         {missing.length > 0 && (
           <Popover>
@@ -788,7 +883,9 @@ export default function SkillsPage() {
               <div className="space-y-1">
                 {missing.map((m) => (
                   <div key={m.skill} className="flex items-center gap-2 text-sm">
-                    <code className="min-w-0 flex-1 truncate font-mono text-xs" title={m.skill}>{m.skill}</code>
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs" title={m.skill}>
+                      {m.skill}
+                    </code>
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{m.calls} 次</span>
                     <span className="shrink-0 text-xs text-muted-foreground">{fmtTime(m.last_used)}</span>
                   </div>
@@ -800,10 +897,14 @@ export default function SkillsPage() {
       </div>
       <div className="flex flex-1 overflow-hidden">
         {/* ── 左侧文件树 ── */}
-        <div className="flex w-64 shrink-0 flex-col border-r">
+        <div className="relative flex w-64 shrink-0 flex-col border-r">
+          {/* 新建/删除/上传 Skill 后的后台刷新指示：目录树保持可见（不闪成空状态），
+              顶部一条进度线告诉用户「在更新」。 */}
+          <RefreshingBar active={listLoading && listLoaded} />
           <div className="flex flex-col gap-2 border-b p-2">
             <Button size="sm" variant="outline" className="w-full" onClick={() => setNewOpen(true)}>
-              <PlusIcon className="size-3.5" />新建 Skill
+              <PlusIcon className="size-3.5" />
+              新建 Skill
             </Button>
             <input
               ref={uploadRef}
@@ -846,12 +947,17 @@ export default function SkillsPage() {
                         setSelected({ skill: s.name, path: null });
                       }}
                     >
-                      <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", isOpen && "rotate-90")} />
-                      {isOpen
-                        ? <FolderOpenIcon className="size-3.5 shrink-0 text-blue-500" />
-                        : <FolderIcon className="size-3.5 shrink-0 text-blue-500" />
-                      }
-                      <span className="min-w-0 flex-1 truncate font-semibold" title={s.name}>{s.name}</span>
+                      <ChevronRightIcon
+                        className={cn("size-3.5 shrink-0 transition-transform", isOpen && "rotate-90")}
+                      />
+                      {isOpen ? (
+                        <FolderOpenIcon className="size-3.5 shrink-0 text-blue-500" />
+                      ) : (
+                        <FolderIcon className="size-3.5 shrink-0 text-blue-500" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate font-semibold" title={s.name}>
+                        {s.name}
+                      </span>
                       {s.calls > 0 && (
                         <span
                           className="shrink-0 rounded bg-muted px-1 text-[10px] tabular-nums text-muted-foreground"
@@ -860,20 +966,46 @@ export default function SkillsPage() {
                           {s.calls}
                         </span>
                       )}
-                      <span className={cn(
-                        "absolute inset-y-0 right-1 hidden items-center gap-0.5 rounded pl-1 group-hover:flex",
-                        isSkillSelected ? "bg-accent" : "bg-muted",
-                      )}>
-                        <Button size="icon" variant="ghost" className="size-5" title="新建文件"
-                          onClick={(e) => { e.stopPropagation(); startCreate(s.name, "", "file"); }}>
+                      <span
+                        className={cn(
+                          "absolute inset-y-0 right-1 hidden items-center gap-0.5 rounded pl-1 group-hover:flex",
+                          isSkillSelected ? "bg-accent" : "bg-muted",
+                        )}
+                      >
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-5"
+                          title="新建文件"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startCreate(s.name, "", "file");
+                          }}
+                        >
                           <FilePlusIcon className="size-3 text-muted-foreground" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="size-5" title="新建文件夹"
-                          onClick={(e) => { e.stopPropagation(); startCreate(s.name, "", "dir"); }}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-5"
+                          title="新建文件夹"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startCreate(s.name, "", "dir");
+                          }}
+                        >
                           <FolderPlusIcon className="size-3 text-muted-foreground" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="size-5" title="删除 Skill"
-                          onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: "skill", skill: s.name }); }}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-5"
+                          title="删除 Skill"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDelete({ kind: "skill", skill: s.name });
+                          }}
+                        >
                           <Trash2Icon className="size-3 text-destructive" />
                         </Button>
                       </span>
@@ -883,8 +1015,7 @@ export default function SkillsPage() {
                     {isOpen && (
                       <>
                         {renderTree(tree, s.name, 0)}
-                        {creating?.skill === s.name && creating.inDir === "" &&
-                          inlineInputJSX(22)}
+                        {creating?.skill === s.name && creating.inDir === "" && inlineInputJSX(22)}
                       </>
                     )}
                   </div>
@@ -925,10 +1056,14 @@ export default function SkillsPage() {
                 )}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {selectedSkill.license && (
-                    <Badge variant="outline" className="text-xs font-normal">License: {selectedSkill.license}</Badge>
+                    <Badge variant="outline" className="text-xs font-normal">
+                      License: {selectedSkill.license}
+                    </Badge>
                   )}
                   {selectedSkill.compatibility && (
-                    <Badge variant="secondary" className="text-xs font-normal">{selectedSkill.compatibility}</Badge>
+                    <Badge variant="secondary" className="text-xs font-normal">
+                      {selectedSkill.compatibility}
+                    </Badge>
                   )}
                 </div>
               </div>
@@ -960,7 +1095,9 @@ export default function SkillsPage() {
                     <div className="flex flex-wrap items-center gap-1">
                       <span className="text-xs text-muted-foreground">调用方：</span>
                       {selectedSkill.usage_agents.map((k) => (
-                        <Badge key={k} variant="secondary" className="text-xs font-normal">{k}</Badge>
+                        <Badge key={k} variant="secondary" className="text-xs font-normal">
+                          {k}
+                        </Badge>
                       ))}
                     </div>
                   )}
@@ -968,12 +1105,19 @@ export default function SkillsPage() {
                     <p className="text-xs text-muted-foreground">加载调用明细…</p>
                   ) : usageCalls.length > 0 ? (
                     <div className="rounded-md border">
-                      <div className="border-b px-2 py-1 text-xs text-muted-foreground">最近 {usageCalls.length} 次调用</div>
+                      <div className="border-b px-2 py-1 text-xs text-muted-foreground">
+                        最近 {usageCalls.length} 次调用
+                      </div>
                       <div className="max-h-56 overflow-y-auto">
                         {usageCalls.map((c, i) => (
-                          <div key={`${c.ts}-${i}`} className="flex items-center gap-2 border-b px-2 py-1 text-xs last:border-b-0">
+                          <div
+                            key={`${c.ts}-${i}`}
+                            className="flex items-center gap-2 border-b px-2 py-1 text-xs last:border-b-0"
+                          >
                             <span className="tabular-nums text-muted-foreground">{fmtTime(c.ts)}</span>
-                            <Badge variant="outline" className="font-normal">{c.agent_key || "—"}</Badge>
+                            <Badge variant="outline" className="font-normal">
+                              {c.agent_key || "—"}
+                            </Badge>
                             <span className="ml-auto text-muted-foreground">
                               {c.task_id > 0 ? `任务 #${c.task_id}` : c.session_id ? "对话会话" : "—"}
                             </span>
@@ -1064,7 +1208,10 @@ export default function SkillsPage() {
                 <Textarea
                   className="flex-1 resize-none font-mono text-xs"
                   value={fileContent}
-                  onChange={(e) => { setFileContent(e.target.value); setDirty(true); }}
+                  onChange={(e) => {
+                    setFileContent(e.target.value);
+                    setDirty(true);
+                  }}
                 />
               )}
             </div>
@@ -1073,7 +1220,12 @@ export default function SkillsPage() {
       </div>
 
       {/* ── 删除二次确认 ── */}
-      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => { if (!o) setPendingDelete(null); }}>
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => {
+          if (!o) setPendingDelete(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -1093,7 +1245,10 @@ export default function SkillsPage() {
             <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
             <AlertDialogAction
               disabled={deleting}
-              onClick={(e) => { e.preventDefault(); void runPendingDelete(); }}
+              onClick={(e) => {
+                e.preventDefault();
+                void runPendingDelete();
+              }}
             >
               {deleting ? "删除中…" : "删除"}
             </AlertDialogAction>
@@ -1144,34 +1299,64 @@ export default function SkillsPage() {
             </TabsList>
 
             {/* 基本信息 */}
-            <TabsContent value="basic" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-4 data-[state=inactive]:hidden">
+            <TabsContent
+              value="basic"
+              className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-4 data-[state=inactive]:hidden"
+            >
               <div className="grid gap-1.5">
-                <Label htmlFor="sk-name">名称 <span className="text-destructive">*</span></Label>
-                <Input id="sk-name" placeholder="sqli-deepdive" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                <Label htmlFor="sk-name">
+                  名称 <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="sk-name"
+                  placeholder="sqli-deepdive"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
                 <p className="text-muted-foreground text-xs">小写字母 / 数字 / 连字符，1–64 字符</p>
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="sk-desc">描述 <span className="text-destructive">*</span></Label>
-                <Textarea id="sk-desc" rows={2} className="resize-none"
+                <Label htmlFor="sk-desc">
+                  描述 <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  id="sk-desc"
+                  rows={2}
+                  className="resize-none"
                   placeholder="这个 skill 做什么、何时使用。"
-                  value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label className="text-muted-foreground text-xs">许可证</Label>
-                  <Input placeholder="MIT / Proprietary" value={newLicense} onChange={(e) => setNewLicense(e.target.value)} />
+                  <Input
+                    placeholder="MIT / Proprietary"
+                    value={newLicense}
+                    onChange={(e) => setNewLicense(e.target.value)}
+                  />
                 </div>
                 <div className="grid gap-1.5">
                   <Label className="text-muted-foreground text-xs">兼容性</Label>
-                  <Input placeholder="需要 sqlmap、python3" value={newCompat} onChange={(e) => setNewCompat(e.target.value)} />
+                  <Input
+                    placeholder="需要 sqlmap、python3"
+                    value={newCompat}
+                    onChange={(e) => setNewCompat(e.target.value)}
+                  />
                 </div>
               </div>
               <div className="flex min-h-0 flex-1 flex-col gap-1.5">
-                <Label htmlFor="sk-inst">正文 <span className="text-muted-foreground text-xs font-normal">（留空自动生成骨架）</span></Label>
-                <Textarea id="sk-inst"
+                <Label htmlFor="sk-inst">
+                  正文 <span className="text-muted-foreground text-xs font-normal">（留空自动生成骨架）</span>
+                </Label>
+                <Textarea
+                  id="sk-inst"
                   className="min-h-40 flex-1 resize-none font-mono text-sm leading-relaxed"
                   placeholder={"## 执行方法\n\n1. 先探测错误\n2. 区分盲注类型\n\n脚本放 scripts/ 目录。"}
-                  value={newInst} onChange={(e) => setNewInst(e.target.value)} />
+                  value={newInst}
+                  onChange={(e) => setNewInst(e.target.value)}
+                />
               </div>
             </TabsContent>
 
@@ -1195,7 +1380,7 @@ export default function SkillsPage() {
                       <Checkbox
                         checked={newMcps.includes(m.name)}
                         onCheckedChange={(on) =>
-                          setNewMcps((cur) => on ? [...cur, m.name] : cur.filter((n) => n !== m.name))
+                          setNewMcps((cur) => (on ? [...cur, m.name] : cur.filter((n) => n !== m.name)))
                         }
                       />
                       {m.name}
@@ -1225,7 +1410,7 @@ export default function SkillsPage() {
                       <Checkbox
                         checked={newVisibility.includes(a.id)}
                         onCheckedChange={(on) =>
-                          setNewVisibility((cur) => on ? [...cur, a.id] : cur.filter((id) => id !== a.id))
+                          setNewVisibility((cur) => (on ? [...cur, a.id] : cur.filter((id) => id !== a.id)))
                         }
                       />
                       {a.name}
@@ -1237,8 +1422,12 @@ export default function SkillsPage() {
           </Tabs>
 
           <SheetFooter className="flex-row justify-end gap-2 border-t px-4 py-3">
-            <Button variant="outline" onClick={() => setNewOpen(false)}>取消</Button>
-            <Button onClick={createNewSkill} disabled={creatingSkill}>{creatingSkill ? "创建中…" : "创建"}</Button>
+            <Button variant="outline" onClick={() => setNewOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={createNewSkill} disabled={creatingSkill}>
+              {creatingSkill ? "创建中…" : "创建"}
+            </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

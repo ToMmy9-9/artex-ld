@@ -14,6 +14,7 @@ import { BanIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -189,17 +190,13 @@ export default function AssetInterceptPage() {
   const placeholder = KIND_OPTIONS.find((o) => o.value === form.kind)?.placeholder ?? "";
 
   return (
-    <div className="flex flex-1 flex-col gap-5 p-6">
+    <div className="flex flex-1 flex-col gap-5">
       {/* header */}
-      <div className="flex items-center gap-2.5">
-        <BanIcon className="h-5 w-5 shrink-0" />
-        <div>
-          <h1 className="text-lg font-semibold leading-tight">资产拦截</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            全局资产黑名单：命中的域名 / IP / URL / 网段将被拦截，不对其执行任何操作
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={<BanIcon />}
+        title="资产拦截"
+        description="全局资产黑名单：命中的域名 / IP / URL / 网段将被拦截，不对其执行任何操作"
+      />
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,11 +54,8 @@ const ASSET_TYPES: { key: string; label: string }[] = [
 
 export default function AssetSyncPage() {
   return (
-    <div className="p-4 md:p-6">
-      <div className="mb-4">
-        <h1 className="font-semibold text-xl">资产同步</h1>
-        <p className="text-muted-foreground text-sm">从外部数据源同步资产入库</p>
-      </div>
+    <div className="flex flex-1 flex-col">
+      <PageHeader title="资产同步" description="从外部数据源同步资产入库" className="mb-4" />
       <Tabs defaultValue="scopesentry">
         <TabsList>
           <TabsTrigger value="scopesentry">ScopeSentry</TabsTrigger>

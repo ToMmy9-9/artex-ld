@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -350,7 +351,11 @@ function ProfileSheet({
   React.useEffect(() => {
     if (!open) return;
     setName(profile?.name ?? "");
-    setFormat(profile?.format === "openai" || profile?.format === "openai-responses" || profile?.format === "jev" ? profile.format : "anthropic");
+    setFormat(
+      profile?.format === "openai" || profile?.format === "openai-responses" || profile?.format === "jev"
+        ? profile.format
+        : "anthropic",
+    );
     setModel(profile?.model ?? (profile?.format === "jev" ? "jev-latest" : ""));
     setBaseUrl(profile?.base_url ?? "");
     setProxy(profile?.proxy ?? "");
@@ -502,11 +507,14 @@ function ProfileSheet({
             </div>
             <div className="grid gap-2">
               <Label>格式</Label>
-              <Select value={format} onValueChange={(v) => {
-                const next = v as "anthropic" | "openai" | "openai-responses" | "jev";
-                setFormat(next);
-                if (next === "jev" && !model.trim()) setModel("jev-latest");
-              }}>
+              <Select
+                value={format}
+                onValueChange={(v) => {
+                  const next = v as "anthropic" | "openai" | "openai-responses" | "jev";
+                  setFormat(next);
+                  if (next === "jev" && !model.trim()) setModel("jev-latest");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="选择格式" />
                 </SelectTrigger>
@@ -566,7 +574,9 @@ function ProfileSheet({
               </Popover>
             </div>
             {format === "jev" && (
-              <p className="text-muted-foreground text-xs">Jev / System One 支持加载账号可用模型，默认模型为 <code className="font-mono">jev-latest</code>。</p>
+              <p className="text-muted-foreground text-xs">
+                Jev / System One 支持加载账号可用模型，默认模型为 <code className="font-mono">jev-latest</code>。
+              </p>
             )}
           </div>
 
@@ -845,9 +855,12 @@ export default function LLMPage() {
 
   // 引用关系只用于删除前的提示文案，失败可以静默——拿不到名单不该挡住删除。
   React.useEffect(() => {
-    api.agents().then(setAgents).catch(() => {
-      // 忽略：拿不到 Agent 名单只影响提示文案
-    });
+    api
+      .agents()
+      .then(setAgents)
+      .catch(() => {
+        // 忽略：拿不到 Agent 名单只影响提示文案
+      });
   }, []);
 
   // 卡片上的健康徽章按 profile id 取轮询状态。
@@ -906,13 +919,8 @@ export default function LLMPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
+      <PageHeader title="LLM" description="全 Agent 共享的格式 / 模型 / 限速配置。点击卡片编辑，星标为当前激活配置。" />
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-semibold text-xl tracking-tight">LLM</h1>
-          <p className="text-muted-foreground text-sm">
-            全 Agent 共享的格式 / 模型 / 限速配置。点击卡片编辑，星标为当前激活配置。
-          </p>
-        </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setPoolOpen(true)}>
             <ZapIcon /> 轮询配置

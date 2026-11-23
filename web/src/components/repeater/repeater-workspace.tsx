@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { Library, Plus, X } from "lucide-react";
 
+import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -77,10 +78,7 @@ export function RepeaterWorkspace() {
   return (
     <div className="flex min-h-[calc(100dvh-7rem)] min-w-0 flex-col gap-2 xl:h-[calc(100dvh-8rem)] xl:min-h-[600px]">
       <div className="flex flex-wrap items-center gap-2 border-b pb-2">
-        <div className="min-w-0">
-          <h1 className="font-semibold text-lg tracking-tight">请求重发</h1>
-          <p className="text-muted-foreground text-xs">Repeater · 草稿与历史响应保存在此浏览器</p>
-        </div>
+        <PageHeader size="sm" title="请求重发" description="Repeater · 草稿与历史响应保存在此浏览器" />
         <div className="ml-auto flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => setLibraryOpen(true)}>
             <Library data-icon="inline-start" />

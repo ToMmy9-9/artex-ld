@@ -318,10 +318,15 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
             </p>
           </div>
           {input.script_files.map((file) => (
-            <div key={`${file.path}:${file.source ?? ""}:${file.sha256 ?? file.read_error ?? ""}`} className="flex min-w-0 flex-col gap-2 rounded-lg border p-3">
+            <div
+              key={`${file.path}:${file.source ?? ""}:${file.sha256 ?? file.read_error ?? ""}`}
+              className="flex min-w-0 flex-col gap-2 rounded-lg border p-3"
+            >
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <span className="break-all font-mono">{file.path}</span>
-                {file.source ? <span className="text-muted-foreground">{file.source === "command" ? "命令内生成" : "引用文件"}</span> : null}
+                {file.source ? (
+                  <span className="text-muted-foreground">{file.source === "command" ? "命令内生成" : "引用文件"}</span>
+                ) : null}
                 {file.sha256 ? <span className="text-muted-foreground">SHA-256 {file.sha256}</span> : null}
                 {file.bytes != null ? <span className="text-muted-foreground">{file.bytes} 字节</span> : null}
               </div>
@@ -338,7 +343,9 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
           ))}
           {input.script_capture_status === "incomplete" ? (
             <Alert variant="destructive">
-              <AlertDescription>无法完整读取当前执行脚本；默认继续交给模型审查，也可以在模型设置中选择转人工审查。</AlertDescription>
+              <AlertDescription>
+                无法完整读取当前执行脚本；默认继续交给模型审查，也可以在模型设置中选择转人工审查。
+              </AlertDescription>
             </Alert>
           ) : null}
         </section>
@@ -958,7 +965,7 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <ClipboardListIcon className="size-5 text-muted-foreground" />
-          <h1 className="font-semibold text-xl">{title}</h1>
+          <h1 className="font-semibold tracking-tight text-xl">{title}</h1>
           {pending.length ? <Badge variant="secondary">{pending.length} 待审批</Badge> : null}
         </div>
         <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={loading || refreshing}>

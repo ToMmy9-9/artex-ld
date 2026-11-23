@@ -11,6 +11,7 @@ import * as React from "react";
 import { BarChart3Icon, Loader2Icon, SearchIcon, TerminalIcon } from "lucide-react";
 
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
+import { RefreshingBar } from "@/components/loading-indicator";
 import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,10 @@ export default function CommandsPage() {
   const [commands, setCommands] = React.useState<CommandRecord[]>([]);
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(false);
+  // loaded：是否已成功加载过一次。用来区分「首次加载」（显示 Spinner）和
+  // 「后台刷新」（保留旧内容 + 顶部进度线）。没有它，切筛选条件时列表会
+  // 一直替换成 Spinner，用户以为筛选没生效。
+  const [loaded, setLoaded] = React.useState(false);
 
   // 各工具调用次数。弹窗打开时才拉取（多一次聚合查询，不必每次翻页都付）。
   const [statsOpen, setStatsOpen] = React.useState(false);
@@ -95,6 +100,7 @@ export default function CommandsPage() {
         if (!alive) return;
         setCommands(r.commands ?? []);
         setTotal(r.total ?? 0);
+        setLoaded(true);
       })
       .catch(() => {
         if (!alive) return;
@@ -162,7 +168,9 @@ export default function CommandsPage() {
 
       {/* History table */}
       <div className="flex h-[calc(100vh-13rem)] min-h-0 flex-col">
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
+        <Card className="relative flex min-h-0 flex-1 flex-col overflow-hidden py-0">
+          {/* 后台刷新指示：保留旧内容 + 顶部进度线，不闪成 Spinner。 */}
+          <RefreshingBar active={loading && loaded} />
           <div className="min-h-0 flex-1 overflow-auto">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
@@ -176,7 +184,7 @@ export default function CommandsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading && commands.length === 0 ? (
+                {loading && !loaded ? (
                   <TableRow>
                     <TableCell colSpan={6} className="py-12 text-center">
                       <Loader2Icon className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />

@@ -14,6 +14,7 @@ import { toast } from "sonner";
 
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { HttpPacketSyntax } from "@/components/http-code-block";
+import { RefreshingBar } from "@/components/loading-indicator";
 import { TablePagination } from "@/components/table-pagination";
 import {
   AlertDialog,
@@ -97,6 +98,9 @@ export default function LLMRecordsPage() {
   const [records, setRecords] = React.useState<LLMRecordItem[]>([]);
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(false);
+  // 首次加载与「切筛选条件后的后台刷新」要分开：首次用转圈占位，
+  // 之后表格保留旧数据 + 顶部进度线，避免内容闪烁。
+  const [loaded, setLoaded] = React.useState(false);
 
   // Recording on/off toggle (settings.llm_record; default off). When off the
   // backend records nothing.
@@ -253,7 +257,11 @@ export default function LLMRecordsPage() {
         setTotal(0);
         toast.error(`加载 LLM 记录失败：${(e as Error)?.message ?? e}`);
       })
-      .finally(() => alive && setLoading(false));
+      .finally(() => {
+        if (!alive) return;
+        setLoading(false);
+        setLoaded(true);
+      });
     api
       .llmTasks()
       .then((r) => {
@@ -318,7 +326,7 @@ export default function LLMRecordsPage() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <RadioIcon className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-xl font-semibold tracking-tight">LLM 录制</h1>
+          <h1 className="font-semibold tracking-tight text-xl">LLM 录制</h1>
           <Badge variant="secondary">{total}</Badge>
         </div>
       </div>
@@ -431,7 +439,10 @@ export default function LLMRecordsPage() {
 
       {/* History table + inline detail (Burp-style split) */}
       <div className="flex h-[calc(100vh-13rem)] min-h-0 flex-col gap-3">
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
+        <Card className="relative flex min-h-0 flex-1 flex-col overflow-hidden py-0">
+          {/* 切筛选条件时的后台刷新指示：内容保持可见（不闪成转圈占位），
+              顶部一条进度线告诉用户「在更新」。 */}
+          <RefreshingBar active={loading && loaded} />
           <div className="min-h-0 flex-1 overflow-auto">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
@@ -447,7 +458,7 @@ export default function LLMRecordsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading && records.length === 0 ? (
+                {loading && !loaded ? (
                   <TableRow>
                     <TableCell colSpan={8} className="py-12 text-center">
                       <Loader2Icon className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />

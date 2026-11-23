@@ -154,6 +154,17 @@ These serve as the fallback; there is no separate default.css file. */
 }
 
 @layer utilities {
+  /* 后台刷新时顶部扫过的进度线（配合 components/loading-indicator.tsx）。
+     不用骨架屏替换内容 —— 那样会造成内容闪烁；进度线 + 降透明度更稳。 */
+  @keyframes loading-bar {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(300%);
+    }
+  }
+
   [data-theme-preset]:not([data-theme-preset="default"]) .shadow-2xs {
     box-shadow: var(--shadow-2xs);
   }

@@ -106,7 +106,7 @@ function CaseDetail() {
         <Button asChild variant="outline">
           <Link href="/function/findings">返回漏洞列表</Link>
         </Button>
-        <h1 className="font-semibold text-xl">{c.title}</h1>
+        <h1 className="font-semibold tracking-tight text-xl">{c.title}</h1>
         <FindingSeverityCounts counts={c} />
       </div>
       {error ? (

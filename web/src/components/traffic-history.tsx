@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { HttpCodeBlock } from "@/components/http-code-block";
 import { LinkTrafficDialog } from "@/components/link-traffic-dialog";
+import { RefreshingBar } from "@/components/loading-indicator";
 import { requestFromTraffic } from "@/components/repeater/repeater-http";
 import { seedFromEvidence } from "@/components/repeater/repeater-store";
 import { SelectAllControl } from "@/components/select-all-control";
@@ -172,6 +173,11 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
   const [detail, setDetail] = React.useState<TrafficDetail | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
 
+  // 列表加载状态。首次加载与「切筛选条件后的后台刷新」要分开：首次用
+  // 「加载中…」占位，之后表格保留旧数据 + 顶部进度线，避免内容闪烁。
+  const [listLoading, setListLoading] = React.useState(false);
+  const [listLoaded, setListLoaded] = React.useState(false);
+
   const [hosts, setHosts] = React.useState<TrafficHost[]>([]); // target picker
   const [selectedHosts, setSelectedHosts] = React.useState<string[]>([]); // checked in picker
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -244,7 +250,10 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadTick is an explicit manual-refetch trigger.
   React.useEffect(() => {
     let alive = true;
-    const load = () => {
+    // silent=true 用于后台轮询（每 5 秒一次，不该让进度线闪来闪去）；
+    // 切筛选条件与翻页触发的刷新才亮进度线。
+    const load = (silent = false) => {
+      if (!silent) setListLoading(true);
       api
         .traffic(page, size, hostQ, method, queryQ, {
           taskId,
@@ -261,6 +270,11 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
         })
         .catch(() => {
           // Keep the last successful snapshot during transient refresh failures.
+        })
+        .finally(() => {
+          if (!alive) return;
+          setListLoaded(true);
+          if (!silent) setListLoading(false);
         });
       if (!taskScoped) {
         api
@@ -278,7 +292,7 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
     load();
     const t = setInterval(() => {
       if (page !== 0) return; // only auto-refresh the newest page
-      load();
+      load(true);
     }, 5000);
     return () => {
       alive = false;
@@ -470,7 +484,7 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">流量</h1>
+          <h1 className="font-semibold tracking-tight text-xl">流量</h1>
           <p className="text-muted-foreground text-sm">
             {taskScoped ? "当前任务资产范围内的 HTTP 往来" : "全局录制代理 · 所有 HTTP 往来"}
           </p>
@@ -763,7 +777,10 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
       </div>
       {/* History table */}
       <div className="flex h-[calc(100vh-15rem)] min-h-0 flex-col">
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
+        <Card className="relative flex min-h-0 flex-1 flex-col overflow-hidden py-0">
+          {/* 切筛选条件时的后台刷新指示：表格保持可见（不闪成「加载中…」），
+              顶部一条进度线告诉用户「在更新」。 */}
+          <RefreshingBar active={listLoading && listLoaded} />
           <div className="min-h-0 flex-1 overflow-auto">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">

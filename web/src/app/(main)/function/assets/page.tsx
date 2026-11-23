@@ -30,8 +30,9 @@ import {
 import { toast } from "sonner";
 
 import { AssetDslSearch } from "@/components/asset-dsl-search";
-import { IntelligencePanel } from "@/components/intelligence-panel";
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
+import { IntelligencePanel } from "@/components/intelligence-panel";
+import { RefreshingBar } from "@/components/loading-indicator";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
 import { SelectAllControl } from "@/components/select-all-control";
 import {
@@ -502,7 +503,11 @@ function AssetsContent() {
             onClick={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
             title={sortOrder === "desc" ? "当前：降序，点击切换为升序" : "当前：升序，点击切换为降序"}
           >
-            {sortOrder === "desc" ? <ArrowDownWideNarrowIcon className="size-3.5" /> : <ArrowUpNarrowWideIcon className="size-3.5" />}
+            {sortOrder === "desc" ? (
+              <ArrowDownWideNarrowIcon className="size-3.5" />
+            ) : (
+              <ArrowUpNarrowWideIcon className="size-3.5" />
+            )}
             {sortOrder === "desc" ? "降序" : "升序"}
           </Button>
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
@@ -600,6 +605,7 @@ function AssetsContent() {
           <AssetCard
             cols={["", "域名", "ICP 备案", "归属企业", ""]}
             loaded={loaded}
+            loading={loading}
             total={total}
             page={page}
             size={size}
@@ -607,7 +613,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -646,6 +652,7 @@ function AssetsContent() {
           <AssetCard
             cols={["", "IP", "C段", "绑定域名", "开放端口", ""]}
             loaded={loaded}
+            loading={loading}
             total={total}
             page={page}
             size={size}
@@ -653,7 +660,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -698,6 +705,7 @@ function AssetsContent() {
           <AssetCard
             cols={["", "域名", "根域名", "解析类型", "解析值", ""]}
             loaded={loaded}
+            loading={loading}
             total={total}
             page={page}
             size={size}
@@ -705,7 +713,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -745,6 +753,7 @@ function AssetsContent() {
           <AssetCard
             cols={["", "应用名", "Bundle ID", "分类", "ICP 备案", ""]}
             loaded={loaded}
+            loading={loading}
             total={total}
             page={page}
             size={size}
@@ -752,7 +761,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -790,6 +799,7 @@ function AssetsContent() {
           <AssetCard
             cols={["", "服务", "域名", "IP", "端口", "状态码", "标题", "指纹", "认证", ""]}
             loaded={loaded}
+            loading={loading}
             total={total}
             page={page}
             size={size}
@@ -797,7 +807,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -888,7 +898,10 @@ function AssetsContent() {
         {/* 宿主：同一页面内的六列投影和发现列表 */}
         <TabsContent value="host" className="mt-0 flex min-h-0 flex-1 flex-col gap-2">
           {searchBox}
-          <Card className="flex min-h-0 flex-1 flex-col overflow-auto py-0">
+          <Card className="relative flex min-h-0 flex-1 flex-col overflow-auto py-0">
+            {/* 切筛选条件时的后台刷新指示：内容保持可见（不闪成「加载中…」），
+                顶部一条进度线告诉用户「在更新」。 */}
+            <RefreshingBar active={loading && loaded} />
             <div className="min-h-0 flex-1 overflow-auto p-4">
               {loaded && hostRows.length === 0 ? (
                 <div className="py-12 text-center text-sm text-muted-foreground">暂无数据。</div>
@@ -953,6 +966,7 @@ function AssetsContent() {
           <AssetCard
             cols={["", "方法", "完整地址", "参数", ""]}
             loaded={loaded}
+            loading={loading}
             total={total}
             page={page}
             size={size}
@@ -960,7 +974,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -1007,24 +1021,24 @@ function AssetsContent() {
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-          <AlertDialogTitle>确认删除</AlertDialogTitle>
-          <AlertDialogDescription>
-            将永久删除 <span className="font-semibold tabular-nums">{deleteIds.length}</span>{" "}
-            条资产记录，此操作不可撤销。
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        {/* 列出将被删除的资产：任务页的批量删除已有这个清单预览，资产页原来只有
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              将永久删除 <span className="font-semibold tabular-nums">{deleteIds.length}</span>{" "}
+              条资产记录，此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {/* 列出将被删除的资产：任务页的批量删除已有这个清单预览，资产页原来只有
             一个数字。跨页全选后用户更看不到删的是哪些，必须给出来。 */}
-        {deleteIds.length > 0 ? (
-          <div className="text-muted-foreground flex max-h-40 flex-wrap gap-1 overflow-y-auto text-xs">
-            {deleteIds.slice(0, 30).map((id) => (
-              <code key={id} className="bg-muted rounded px-1.5 py-0.5 font-mono" title={`资产 #${id}`}>
-                {selectedLabels[String(id)] || `#${id}`}
-              </code>
-            ))}
-            {deleteIds.length > 30 && <span className="self-center">…等 {deleteIds.length} 个</span>}
-          </div>
-        ) : null}
+          {deleteIds.length > 0 ? (
+            <div className="text-muted-foreground flex max-h-40 flex-wrap gap-1 overflow-y-auto text-xs">
+              {deleteIds.slice(0, 30).map((id) => (
+                <code key={id} className="bg-muted rounded px-1.5 py-0.5 font-mono" title={`资产 #${id}`}>
+                  {selectedLabels[String(id)] || `#${id}`}
+                </code>
+              ))}
+              {deleteIds.length > 30 && <span className="self-center">…等 {deleteIds.length} 个</span>}
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
             <AlertDialogAction
@@ -1095,6 +1109,7 @@ function AssetsContent() {
 function AssetCard({
   cols,
   loaded,
+  loading = false,
   total,
   page,
   size,
@@ -1102,7 +1117,8 @@ function AssetCard({
   onPage,
   rows: dataRows,
   selected,
-  onToggleAll,
+  onToggleAll,
+
   onSelectAllMatching,
   selectingAllMatching,
   onClearSelection,
@@ -1112,6 +1128,7 @@ function AssetCard({
 }: {
   cols: string[];
   loaded: boolean;
+  loading?: boolean;
   total: number;
   page: number;
   size: number;
@@ -1119,7 +1136,8 @@ function AssetCard({
   onPage: React.Dispatch<React.SetStateAction<number>>;
   rows?: Asset[];
   selected?: Set<number>;
-  onToggleAll?: (ids: number[]) => void;
+  onToggleAll?: (ids: number[]) => void;
+
   onSelectAllMatching?: () => void;
   selectingAllMatching?: boolean;
   onClearSelection?: () => void;
@@ -1135,7 +1153,10 @@ function AssetCard({
   const pageIds = dataRows?.map((r) => r.id) ?? [];
 
   return (
-    <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
+    <Card className="relative flex min-h-0 flex-1 flex-col overflow-hidden py-0">
+      {/* 切筛选条件时的后台刷新指示：内容保持可见（不闪成「加载中…」），
+          顶部一条进度线告诉用户「在更新」。 */}
+      <RefreshingBar active={loading && loaded} />
       <div className="min-h-0 flex-1 overflow-auto scrollbar-thin scrollbar-track-transparent">
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-card">

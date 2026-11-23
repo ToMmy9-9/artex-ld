@@ -7,7 +7,7 @@ import { AuditRecords } from "@/components/audit-records";
 
 export default function AuditPage() {
   return (
-    <div className="flex min-w-0 flex-1 flex-col p-4 sm:p-6">
+    <div className="flex min-w-0 flex-1 flex-col">
       <AuditRecords />
     </div>
   );

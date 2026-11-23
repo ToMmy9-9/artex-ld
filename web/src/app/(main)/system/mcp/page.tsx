@@ -8,29 +8,25 @@
 "use client";
 
 import * as React from "react";
+
+import { PlugZapIcon, PlusIcon, RefreshCwIcon, ServerIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { PlusIcon, PlugZapIcon, RefreshCwIcon, ServerIcon, Trash2Icon } from "lucide-react";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { RefreshingBar } from "@/components/loading-indicator";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import type { MCPServer, MCPTool, Agent } from "@/lib/types";
+import type { Agent, MCPServer, MCPTool } from "@/lib/types";
 
 type Transport = "stdio" | "http" | "sse";
 type FormState = {
@@ -66,12 +62,21 @@ export default function MCPPage() {
   const [toolsLoading, setToolsLoading] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
 
+  // 服务器列表加载状态。首次加载与「新增/删除/启停后的后台刷新」要分开：
+  // 首次列表本来就是空的，之后卡片保留旧内容 + 顶部进度线，避免内容闪烁。
+  const [listLoading, setListLoading] = React.useState(false);
+  const [listLoaded, setListLoaded] = React.useState(false);
+
   // 删除确认
   const [deleteTarget, setDeleteTarget] = React.useState<MCPServer | null>(null);
   const [deleting, setDeleting] = React.useState(false);
 
   const load = React.useCallback(() => {
-    api.agents().then(setAgents).catch(() => {});
+    setListLoading(true);
+    api
+      .agents()
+      .then(setAgents)
+      .catch(() => {});
     api
       .mcpServers()
       .then((ss) => {
@@ -87,6 +92,10 @@ export default function MCPPage() {
       // 「还没配 MCP」，然后去重复新建。必须把故障说出来。
       .catch((e) => {
         toast.error(`加载 MCP 服务器失败：${(e as Error)?.message ?? e}`);
+      })
+      .finally(() => {
+        setListLoading(false);
+        setListLoaded(true);
       });
   }, []);
   React.useEffect(() => {
@@ -130,7 +139,7 @@ export default function MCPPage() {
       name: s.name,
       transport: s.transport,
       command: s.command ?? "",
-      args: (s.args ?? []).join(" "),
+      args: s.args.join(" "),
       url: s.url ?? "",
       env: envToText(s.env),
       insecure: s.insecure ?? false,
@@ -321,10 +330,7 @@ export default function MCPPage() {
               onChange={(e) => setF({ url: e.target.value })}
             />
             <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={form.insecure}
-                onCheckedChange={(v) => setF({ insecure: v === true })}
-              />
+              <Checkbox checked={form.insecure} onCheckedChange={(v) => setF({ insecure: v === true })} />
               跳过 TLS 证书校验（自签证书）
             </label>
           </div>
@@ -338,9 +344,7 @@ export default function MCPPage() {
           <Textarea
             id="m-env"
             className="font-mono"
-            placeholder={
-              form.transport !== "stdio" ? "Authorization=Bearer xxxx" : "API_KEY=xxxx\nFOO=bar"
-            }
+            placeholder={form.transport !== "stdio" ? "Authorization=Bearer xxxx" : "API_KEY=xxxx\nFOO=bar"}
             value={form.env}
             onChange={(e) => setF({ env: e.target.value })}
           />
@@ -376,9 +380,7 @@ export default function MCPPage() {
               <div key={t.name} className="py-2.5">
                 <code className="font-mono text-sm">{t.name}</code>
                 {t.description && (
-                  <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-                    {t.description}
-                  </p>
+                  <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{t.description}</p>
                 )}
               </div>
             ))}
@@ -391,11 +393,14 @@ export default function MCPPage() {
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">MCP</h1>
+        <h1 className="font-semibold tracking-tight text-xl">MCP</h1>
         <p className="text-muted-foreground text-sm">外部 MCP 工具服务器 · 按 Agent 授权可见</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="relative grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* 新增/删除/启停 MCP 后的后台刷新指示：卡片保持可见（不闪成空网格），
+            顶部一条进度线告诉用户「在更新」。 */}
+        <RefreshingBar active={listLoading && listLoaded} />
         <button
           type="button"
           onClick={openAdd}
@@ -419,11 +424,7 @@ export default function MCPPage() {
                   {s.transport}
                 </Badge>
                 <div className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                  <Switch
-                    checked={s.enabled}
-                    onCheckedChange={() => toggleEnabled(s)}
-                    aria-label="启用"
-                  />
+                  <Switch checked={s.enabled} onCheckedChange={() => toggleEnabled(s)} aria-label="启用" />
                   <Button
                     size="icon"
                     variant="outline"
@@ -480,15 +481,10 @@ export default function MCPPage() {
       />
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent
-          side="right"
-          className="w-full data-[side=right]:sm:max-w-lg"
-        >
+        <SheetContent side="right" className="w-full data-[side=right]:sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>{editing ? editing.name : "添加 MCP 服务器"}</SheetTitle>
-            <SheetDescription>
-              stdio（本地起进程）或 http（远程 Streamable HTTP）
-            </SheetDescription>
+            <SheetDescription>stdio（本地起进程）或 http（远程 Streamable HTTP）</SheetDescription>
           </SheetHeader>
 
           {editing ? (
@@ -499,9 +495,7 @@ export default function MCPPage() {
             >
               <TabsList>
                 <TabsTrigger value="config">配置</TabsTrigger>
-                <TabsTrigger value="tools">
-                  工具列表{tools.length ? `（${tools.length}）` : ""}
-                </TabsTrigger>
+                <TabsTrigger value="tools">工具列表{tools.length ? `（${tools.length}）` : ""}</TabsTrigger>
               </TabsList>
               <TabsContent value="config" className="min-h-0 flex-1 overflow-y-auto">
                 {renderForm()}

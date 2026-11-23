@@ -28,6 +28,7 @@ import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { FindingCaseList } from "@/components/finding-case-list";
 import { FindingDateFilter, type FindingDateRange } from "@/components/finding-date-filter";
 import { FindingRetestDialog } from "@/components/finding-retest-dialog";
+import { RefreshingBar } from "@/components/loading-indicator";
 import { SelectAllToolbarButton } from "@/components/select-all-control";
 import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
@@ -923,7 +924,10 @@ export default function FindingsPage() {
 
   // 平铺视图与资产视图右侧是同一张表 + 同一份分页,只是筛选条件不同。
   const flatListCard = (
-    <Card className="gap-0 py-0">
+    <Card className="relative gap-0 py-0">
+      {/* 切筛选条件时的后台刷新指示：内容保持可见（不闪成骨架屏），
+          顶部一条进度线 + 轻微降透明度告诉用户「在更新」。 */}
+      <RefreshingBar active={flat.loading && flat.loaded} />
       <CardContent className="px-0">
         {flat.loading && !flat.loaded ? (
           <div className="flex min-h-36 items-center justify-center">
@@ -959,7 +963,7 @@ export default function FindingsPage() {
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">发现</h1>
+          <h1 className="font-semibold tracking-tight text-xl">发现</h1>
           <p className="text-muted-foreground text-sm">跨任务漏洞汇总</p>
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as FindingView)}>
@@ -1125,7 +1129,8 @@ export default function FindingsPage() {
 
         {view === "asset" && (
           <div className="grid min-h-0 items-start gap-4 lg:grid-cols-[20rem_minmax(0,1fr)] xl:grid-cols-[24rem_minmax(0,1fr)]">
-            <Card className="gap-0 py-3 lg:sticky lg:top-4">
+            <Card className="relative gap-0 py-3 lg:sticky lg:top-4">
+              <RefreshingBar active={assetTree.loading && assetTree.loaded} />
               <CardContent className="flex flex-col px-3">
                 {assetTree.loading && !assetTree.loaded ? (
                   <div className="flex min-h-36 items-center justify-center">
@@ -1202,7 +1207,8 @@ export default function FindingsPage() {
                 loading: false,
               };
               return (
-                <Card key={key} className="gap-0 py-0">
+                <Card key={key} className="relative gap-0 py-0">
+                  <RefreshingBar active={state.loading && state.loaded} />
                   <CardHeader className="px-4 py-3">
                     <div className="flex min-w-0 flex-wrap items-center gap-3">
                       <button

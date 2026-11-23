@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { DateSelect } from "@/components/date-select";
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
+import { RefreshingBar } from "@/components/loading-indicator";
 import { RemarkEditor, ScheduleNameEditor } from "@/components/remark-editor";
 import { SelectAllControl } from "@/components/select-all-control";
 import { TablePagination } from "@/components/table-pagination";
@@ -445,6 +446,9 @@ export default function SchedulesPage() {
   const [items, setItems] = React.useState<TaskSchedule[]>([]);
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
+  // 首次加载与「改完计划后的后台刷新」要分开：首次用转圈占位，
+  // 之后列表保留旧数据 + 顶部进度线，避免内容闪烁。
+  const [loaded, setLoaded] = React.useState(false);
   const [editing, setEditing] = React.useState<{ id?: number; value: ScheduleInput } | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -468,6 +472,7 @@ export default function SchedulesPage() {
       toast.error((e as Error).message);
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
   }, []);
   React.useEffect(() => {
@@ -487,8 +492,6 @@ export default function SchedulesPage() {
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / size));
   const visibleItems = filteredItems.slice((page - 1) * size, page * size);
   const visibleIds = visibleItems.map((item) => item.id);
-  const selectedVisibleCount = visibleIds.filter((id) => selectedIds.includes(id)).length;
-  const allVisibleSelected = visibleItems.length > 0 && selectedVisibleCount === visibleItems.length;
   React.useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
   }, [totalPages]);
@@ -657,7 +660,7 @@ export default function SchedulesPage() {
     await load();
   };
   let scheduleContent: React.ReactNode;
-  if (loading) {
+  if (loading && !loaded) {
     scheduleContent = (
       <div className="flex items-center gap-2 text-muted-foreground">
         <Loader2 className="animate-spin" />
@@ -674,7 +677,10 @@ export default function SchedulesPage() {
     );
   } else {
     scheduleContent = (
-      <div className="grid gap-3">
+      <div className="relative grid gap-3">
+        {/* 改完计划后的后台刷新指示：列表保持可见（不闪成「加载计划中…」），
+            顶部一条进度线告诉用户「在更新」。 */}
+        <RefreshingBar active={loading && loaded} />
         <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative min-w-0 flex-1 sm:max-w-md">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -935,7 +941,7 @@ export default function SchedulesPage() {
     );
   }
   return (
-    <div className="flex flex-1 flex-col gap-5 p-5">
+    <div className="flex flex-1 flex-col gap-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 font-semibold text-xl">
