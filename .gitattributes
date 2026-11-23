@@ -1,2 +1,35 @@
+# 行尾统一：文本文件一律 LF。
+#
+# 背景：biome 的 formatter.lineEnding = "lf"，而仓库只给 .bat/.sh 指定了行尾，
+# 其余文件走 core.autocrlf=true 检出成 CRLF —— 两者永远不一致，导致每次 clone
+# 后 biome 都报 188 个 format error（假的），真正的 lint 问题被淹没在噪声里。
+# 这里给通配规则统一行尾，从根上消掉这批噪声。
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF（cmd.exe 依赖它）
 *.bat text eol=crlf
-*.sh  text eol=lf
+*.cmd text eol=crlf
+
+# Shell 脚本必须是 LF（否则在 Linux/macOS 上无法执行）
+*.sh text eol=lf
+
+# 二进制文件不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.mp4 binary
+*.mp3 binary
