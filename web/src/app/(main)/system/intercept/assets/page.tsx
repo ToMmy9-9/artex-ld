@@ -13,6 +13,7 @@ import * as React from "react";
 import { BanIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -152,14 +153,27 @@ export default function AssetInterceptPage() {
     }
   }
 
+  // 删除确认状态
+  const [pendingDelete, setPendingDelete] = React.useState<AssetInterceptRule | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
   async function handleDelete(rule: AssetInterceptRule) {
-    if (!window.confirm(`确定删除资产拦截规则「${rule.pattern}」？`)) return;
+    setPendingDelete(rule);
+  }
+
+  async function confirmDelete() {
+    const rule = pendingDelete;
+    if (!rule) return;
+    setDeleting(true);
     try {
       await api.deleteAssetInterceptRule(rule.id);
       toast.success("规则已删除");
+      setPendingDelete(null);
       load();
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -368,6 +382,18 @@ export default function AssetInterceptPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <ConfirmDeleteDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setPendingDelete(null);
+        }}
+        title={`删除资产拦截规则「${pendingDelete?.pattern ?? ""}」？`}
+        description="删除后匹配该模式的资产将不再被拦截，此操作不可撤销。"
+        deleting={deleting}
+        onConfirm={() => void confirmDelete()}
+        onError={(msg) => toast.error(msg)}
+      />
     </div>
   );
 }

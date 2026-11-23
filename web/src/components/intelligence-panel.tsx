@@ -9,10 +9,11 @@ import { toast } from "sonner";
 
 import { CredentialContent, CredentialTrafficViewer, intelligencePreview } from "@/components/credential-content";
 import { StatusBadge, ToneDot } from "@/components/status-badge";
+import { TablePagination } from "@/components/table-pagination";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -77,6 +78,7 @@ export function IntelligencePanel({
   const [search, setSearch] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [page, setPage] = React.useState(0);
+  const [pageSize, setPageSize] = React.useState(25);
   const [data, setData] = React.useState<IntelligencePage | null>(null);
   const [error, setError] = React.useState("");
   const [refresh, setRefresh] = React.useState(0);
@@ -103,7 +105,7 @@ export function IntelligencePanel({
       if (busy) return;
       busy = true;
       try {
-        const params = new URLSearchParams({ limit: "25", offset: String(page * 25) });
+        const params = new URLSearchParams({ limit: String(pageSize), offset: String(page * pageSize) });
         if (kind !== "all") params.set("kind", kind);
         if (status !== "all") params.set("status", status);
         if (query) params.set("q", query);
@@ -126,7 +128,7 @@ export function IntelligencePanel({
       alive = false;
       clearInterval(timer);
     };
-  }, [scope, scopeId, kind, status, query, page, refresh]);
+  }, [scope, scopeId, kind, status, query, page, pageSize, refresh]);
   const open = (item: TaskIntelligence) => setSelected(item);
   const close = () => setSelected(null);
   const navigate = () => {
@@ -334,22 +336,19 @@ export function IntelligencePanel({
             </Empty>
           ) : null}
         </CardContent>
-        <CardFooter className="flex items-center justify-between gap-2">
-          <span className="text-sm text-muted-foreground">共 {data?.total ?? 0} 条 · 每页 25 条</span>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((n) => n - 1)}>
-              上一页
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!data || (page + 1) * 25 >= (data.total ?? 0)}
-              onClick={() => setPage((n) => n + 1)}
-            >
-              下一页
-            </Button>
-          </div>
-        </CardFooter>
+        {/* 列表分页：情报接口用 limit/offset（0-based），这里用 pageBase={0} 对齐。 */}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          total={data?.total ?? 0}
+          onPageChange={setPage}
+          onPageSizeChange={(nextSize) => {
+            setPageSize(nextSize);
+            setPage(0);
+          }}
+          pageSizeOptions={[10, 25, 50]}
+          pageBase={0}
+        />
       </Card>
       <Dialog
         open={!!selected}

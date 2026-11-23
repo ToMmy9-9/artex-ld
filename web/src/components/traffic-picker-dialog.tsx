@@ -9,6 +9,7 @@ import * as React from "react";
 
 import { toast } from "sonner";
 
+import { TablePagination } from "@/components/table-pagination";
 import { CapturedTrafficViewer } from "@/components/traffic-evidence-viewer";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +49,7 @@ export function TrafficPickerDialog({
   const [method, setMethod] = React.useState("all");
   const [query, setQuery] = React.useState("");
   const [page, setPage] = React.useState(0);
+  const [pageSize, setPageSize] = React.useState(25);
   const [data, setData] = React.useState<TrafficResp | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [preview, setPreview] = React.useState<string | null>(null);
@@ -61,7 +63,7 @@ export function TrafficPickerDialog({
     setError("");
     const timer = setTimeout(() => {
       api
-        .traffic(page, 25, host, method === "all" ? "" : method, query)
+        .traffic(page, pageSize, host, method === "all" ? "" : method, query)
         .then((d) => {
           if (active) setData(d);
         })
@@ -76,7 +78,7 @@ export function TrafficPickerDialog({
       active = false;
       clearTimeout(timer);
     };
-  }, [page, host, method, query]);
+  }, [page, pageSize, host, method, query]);
 
   const rows = data?.exchanges ?? [];
   const selectable = rows.filter((e) => !alreadyBound.has(e.id));
@@ -243,29 +245,20 @@ export function TrafficPickerDialog({
             </Table>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm">
-              已选 {selected.size} 条 · 共 {data?.total ?? 0} 条
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loading || page === 0}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                上一页
-              </Button>
-              <span className="text-xs">第 {page + 1} 页</span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loading || (page + 1) * 25 >= (data?.total ?? 0)}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                下一页
-              </Button>
-            </div>
+            <span className="text-sm">已选 {selected.size} 条</span>
           </div>
+          {/* 列表分页：后端 /traffic 用 0-based page，这里用 pageBase={0} 对齐。 */}
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={data?.total ?? 0}
+            onPageChange={setPage}
+            onPageSizeChange={(nextSize) => {
+              setPageSize(nextSize);
+              setPage(0);
+            }}
+            pageBase={0}
+          />
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={onClose}>
               取消

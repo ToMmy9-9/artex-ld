@@ -15,12 +15,16 @@ import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem } fro
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface TablePaginationProps {
-  page: number; // 1-based
+  page: number; // 1-based by default; see pageBase
   pageSize: number;
   total: number; // total (after filtering)
   onPageChange: (p: number) => void;
   onPageSizeChange: (s: number) => void;
   pageSizeOptions?: number[];
+  // 页码基准。1 = 第 1 页是 1（多数页面）；0 = 第 1 页是 0（部分后端分页接口
+  // 用 offset/limit 推导出来的 0-based 页码）。组件内部一律用 1-based 计算，
+  // 只在对外读写时做偏移，避免每个页面自己写 ±1 的换算。
+  pageBase?: 0 | 1;
 }
 
 // pageWindows returns the sequence of page numbers / ellipsis to render.
@@ -43,17 +47,23 @@ export function TablePagination({
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = [10, 20, 50],
+  pageBase = 1,
 }: TablePaginationProps) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(Math.max(1, page), totalPages);
+  // 归一到 1-based 内部表示。
+  const safePage = Math.min(Math.max(1, page - pageBase + 1), totalPages);
   const from = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
   const to = Math.min(safePage * pageSize, total);
   const onPageChangeRef = useRef(onPageChange);
   onPageChangeRef.current = onPageChange;
+  const baseRef = useRef(pageBase);
+  baseRef.current = pageBase;
 
   useEffect(() => {
-    if (page !== safePage) onPageChangeRef.current(safePage);
+    if (page !== safePage) onPageChangeRef.current(safePage - 1 + baseRef.current);
   }, [page, safePage]);
+
+  const go = (target: number) => onPageChange(target - 1 + pageBase);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2 lg:px-6">
@@ -88,7 +98,7 @@ export function TablePagination({
                 variant="ghost"
                 size="icon-sm"
                 disabled={safePage === 1}
-                onClick={() => onPageChange(safePage - 1)}
+                onClick={() => go(safePage - 1)}
                 aria-label="上一页"
               >
                 <ChevronLeftIcon className="size-4" />
@@ -104,7 +114,7 @@ export function TablePagination({
                   <Button
                     variant={p === safePage ? "outline" : "ghost"}
                     size="icon-sm"
-                    onClick={() => onPageChange(p)}
+                    onClick={() => go(p)}
                     aria-current={p === safePage ? "page" : undefined}
                   >
                     {p}
@@ -117,7 +127,7 @@ export function TablePagination({
                 variant="ghost"
                 size="icon-sm"
                 disabled={safePage === totalPages}
-                onClick={() => onPageChange(safePage + 1)}
+                onClick={() => go(safePage + 1)}
                 aria-label="下一页"
               >
                 <ChevronRightIcon className="size-4" />

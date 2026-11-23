@@ -8,15 +8,15 @@
 
 import * as React from "react";
 
-import { BarChart3Icon, ChevronLeftIcon, ChevronRightIcon, Loader2Icon, SearchIcon, TerminalIcon } from "lucide-react";
+import { BarChart3Icon, Loader2Icon, SearchIcon, TerminalIcon } from "lucide-react";
 
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
+import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
@@ -125,9 +125,6 @@ export default function CommandsPage() {
   const statsTotal = stats.reduce((n, s) => n + s.total, 0);
   const statsErrors = stats.reduce((n, s) => n + s.errors, 0);
   const statsMax = stats.reduce((n, s) => Math.max(n, s.total), 0);
-  const totalPages = Math.max(1, Math.ceil(total / size));
-  const rangeStart = total === 0 ? 0 : page * size + 1;
-  const rangeEnd = page * size + commands.length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -157,52 +154,10 @@ export default function CommandsPage() {
           value={taskFilter}
           onChange={(e) => setTaskFilter(e.target.value.replace(/\D/g, ""))}
         />
-        <Select value={String(size)} onValueChange={(v) => setSize(Number(v))}>
-          <SelectTrigger size="sm" className="w-28">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PAGE_SIZES.map((n) => (
-              <SelectItem key={n} value={String(n)}>
-                {n} / 页
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         <Button variant="outline" size="sm" className="h-8" onClick={() => setStatsOpen(true)}>
           <BarChart3Icon className="size-4" />
           统计
         </Button>
-
-        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="tabular-nums">
-            {rangeStart}–{rangeEnd} / {total}
-          </span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
-            disabled={page <= 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            aria-label="上一页"
-          >
-            <ChevronLeftIcon />
-          </Button>
-          <span className="tabular-nums">
-            {page + 1} / {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
-            disabled={page + 1 >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            aria-label="下一页"
-          >
-            <ChevronRightIcon />
-          </Button>
-        </div>
       </div>
 
       {/* History table */}
@@ -282,6 +237,19 @@ export default function CommandsPage() {
               </TableBody>
             </Table>
           </div>
+          {/* 列表分页：后端 /commands 用 0-based page，这里用 pageBase={0} 对齐。 */}
+          <TablePagination
+            page={page}
+            pageSize={size}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={(nextSize) => {
+              setSize(nextSize);
+              setPage(0);
+            }}
+            pageSizeOptions={PAGE_SIZES}
+            pageBase={0}
+          />
         </Card>
       </div>
 

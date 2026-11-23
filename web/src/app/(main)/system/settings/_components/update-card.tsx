@@ -186,6 +186,9 @@ export function UpdateCard() {
   const doUpdate = () => {
     if (!info) return;
     const from = info.current;
+    // 这里刻意保留原生 window.confirm，而不是项目的 ConfirmDeleteDialog：
+    // 文案是多行长文本（含工具链注意事项），原生弹窗对长文本的可读性更好，
+    // 且系统级操作（重启程序、回滚数据库）用浏览器原生确认更符合直觉。
     const ok = window.confirm(
       `确定更新到 ${info.latest}？\n\n` +
         "更新会重启程序，正在运行的任务会被中断。\n" +

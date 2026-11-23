@@ -8,20 +8,13 @@
 "use client";
 
 import * as React from "react";
-import {
-  RadioIcon,
-  SearchIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  Loader2Icon,
-  XIcon,
-  Trash2Icon,
-  CopyIcon,
-  CheckIcon,
-} from "lucide-react";
+
+import { CheckIcon, CopyIcon, Loader2Icon, RadioIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
+import { toast } from "sonner";
 
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
-import { toast } from "sonner";
+import { HttpPacketSyntax } from "@/components/http-code-block";
+import { TablePagination } from "@/components/table-pagination";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,31 +25,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn, copyText, fmtTime, fmtTokens } from "@/lib/utils";
-import { HttpPacketSyntax } from "@/components/http-code-block";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
-import type { LLMRecordItem, LLMRecordDetail, LLMTask } from "@/lib/types";
+import type { LLMRecordDetail, LLMRecordItem, LLMTask } from "@/lib/types";
+import { cn, copyText, fmtTime, fmtTokens } from "@/lib/utils";
 
 function fmtLatency(ms: number) {
   if (ms < 1000) return `${ms}ms`;
@@ -158,7 +136,10 @@ export default function LLMRecordsPage() {
       .then((s) => {
         if (alive) setRecEnabled(!!s.llm_record);
       })
-      .catch(() => {});
+      .catch((e) => {
+        // 静默失败会让用户以为「录制没开」，实际是读取失败。
+        if (alive) toast.error(`读取录制设置失败：${(e as Error)?.message ?? e}`);
+      });
     return () => {
       alive = false;
     };
@@ -227,7 +208,9 @@ export default function LLMRecordsPage() {
       .then((r) => {
         if (alive) setTasks(r.tasks ?? []);
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (alive) toast.error(`加载任务列表失败：${(e as Error)?.message ?? e}`);
+      });
     return () => {
       alive = false;
     };
@@ -267,7 +250,9 @@ export default function LLMRecordsPage() {
       .then((d) => {
         if (alive) setDetail(d);
       })
-      .catch(() => {})
+      .catch((e) => {
+        if (alive) toast.error(`加载对话详情失败：${(e as Error)?.message ?? e}`);
+      })
       .finally(() => {
         if (alive) setDetailLoading(false);
       });
@@ -275,10 +260,6 @@ export default function LLMRecordsPage() {
       alive = false;
     };
   }, [selected]);
-
-  const totalPages = Math.max(1, Math.ceil(total / size));
-  const rangeStart = total === 0 ? 0 : page * size + 1;
-  const rangeEnd = page * size + records.length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -333,18 +314,6 @@ export default function LLMRecordsPage() {
           <Trash2Icon className="size-3.5" />
           删除任务对话
         </Button>
-        <Select value={String(size)} onValueChange={(v) => setSize(Number(v))}>
-          <SelectTrigger size="sm" className="w-28">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PAGE_SIZES.map((n) => (
-              <SelectItem key={n} value={String(n)}>
-                {n} / 页
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         {/* Recording on/off — off means no LLM calls are recorded */}
         <div className="flex items-center gap-2 rounded-md border px-2.5 py-1">
@@ -364,35 +333,6 @@ export default function LLMRecordsPage() {
           >
             {recEnabled ? "录制中" : "已关闭"}
           </label>
-        </div>
-
-        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="tabular-nums">
-            {rangeStart}–{rangeEnd} / {total}
-          </span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
-            disabled={page <= 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            aria-label="上一页"
-          >
-            <ChevronLeftIcon />
-          </Button>
-          <span className="tabular-nums">
-            {page + 1} / {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
-            disabled={page + 1 >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            aria-label="下一页"
-          >
-            <ChevronRightIcon />
-          </Button>
         </div>
       </div>
 
@@ -481,6 +421,19 @@ export default function LLMRecordsPage() {
               </TableBody>
             </Table>
           </div>
+          {/* 列表分页：后端 /llm/records 用 0-based page，这里用 pageBase={0} 对齐。 */}
+          <TablePagination
+            page={page}
+            pageSize={size}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={(nextSize) => {
+              setSize(nextSize);
+              setPage(0);
+            }}
+            pageSizeOptions={PAGE_SIZES}
+            pageBase={0}
+          />
         </Card>
 
         {/* Inline detail panel */}

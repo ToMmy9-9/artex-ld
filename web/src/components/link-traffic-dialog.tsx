@@ -9,6 +9,7 @@ import * as React from "react";
 
 import { toast } from "sonner";
 
+import { TablePagination } from "@/components/table-pagination";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +36,7 @@ export function LinkTrafficDialog({
 }) {
   const [query, setQuery] = React.useState("");
   const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(20);
   const [data, setData] = React.useState<FindingsPage | null>(null);
   const [selected, setSelected] = React.useState<Finding | null>(null);
   const [error, setError] = React.useState("");
@@ -46,7 +48,7 @@ export function LinkTrafficDialog({
     setError("");
     const timer = setTimeout(() => {
       api
-        .findingsPage({ page, pageSize: 20, query })
+        .findingsPage({ page, pageSize, query })
         .then((d) => {
           if (active) setData(d);
         })
@@ -61,7 +63,7 @@ export function LinkTrafficDialog({
       active = false;
       clearTimeout(timer);
     };
-  }, [query, page]);
+  }, [query, page, pageSize]);
   async function save() {
     if (!selected?.finding_id) return;
     setBusy(true);
@@ -135,22 +137,18 @@ export function LinkTrafficDialog({
             </p>
           ) : null}
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <Button variant="outline" size="sm" disabled={loading || page <= 1} onClick={() => setPage((p) => p - 1)}>
-            上一页
-          </Button>
-          <span className="text-xs">
-            第 {page} 页 · 共 {data?.total ?? 0} 条
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={loading || page * 20 >= (data?.total ?? 0)}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            下一页
-          </Button>
-        </div>
+        {/* 列表分页：后端 /exploration/findings 用 1-based page，默认 pageBase=1 即可。 */}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          total={data?.total ?? 0}
+          onPageChange={setPage}
+          onPageSizeChange={(nextSize) => {
+            setPageSize(nextSize);
+            setPage(1);
+          }}
+          pageSizeOptions={[10, 20, 50]}
+        />
         <p className="text-sm">
           {selected ? `已选漏洞：#${selected.finding_id} ${selected.name || selected.vulnclass}` : "请选择一个漏洞"}
         </p>

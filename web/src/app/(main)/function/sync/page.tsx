@@ -12,6 +12,7 @@ import * as React from "react";
 import { AlertCircleIcon, CheckCircle2Icon, DownloadIcon, FolderIcon, ListChecksIcon, PlugZapIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -238,6 +239,7 @@ function SyncWorkbench() {
   const [search, setSearch] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(50);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const loadSeq = React.useRef(0);
 
@@ -249,10 +251,10 @@ function SyncWorkbench() {
     setLoading(true);
     const fn =
       dimension === "project"
-        ? api.ssProjects(page, 50, query).then((r) => {
+        ? api.ssProjects(page, pageSize, query).then((r) => {
             if (loadSeq.current === seq) setProjects(r.projects);
           })
-        : api.ssTasks(page, 50, query).then((r) => {
+        : api.ssTasks(page, pageSize, query).then((r) => {
             if (loadSeq.current === seq) setTasks(r);
           });
     fn.catch((e) => {
@@ -260,7 +262,7 @@ function SyncWorkbench() {
     }).finally(() => {
       if (loadSeq.current === seq) setLoading(false);
     });
-  }, [dimension, page, query]);
+  }, [dimension, page, pageSize, query]);
 
   React.useEffect(() => {
     // 输入停止 300ms 后才查询；仅实际 query 变化时重置页码。
@@ -511,8 +513,33 @@ function SyncWorkbench() {
           </Table>
         </div>
 
-        {/* 分页 */}
-        <div className="flex items-center justify-end gap-2">
+        {/* 分页
+            ScopeSentry 的 list 接口不返回 total（{list:[...]} 封装里没有总数），
+            所以这里没法用公共的 TablePagination —— 它需要 total 才能算页数与
+            范围。改为：每页条数可选 + 范围显示 + 满页才允许翻下一页。 */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Select
+            value={String(pageSize)}
+            onValueChange={(v) => {
+              setPageSize(Number(v));
+              setPage(1);
+            }}
+          >
+            <SelectTrigger size="sm" className="h-7 w-16">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[20, 50, 100].map((s) => (
+                <SelectItem key={s} value={String(s)}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-muted-foreground text-xs">条/页</span>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {(page - 1) * pageSize + 1}–{(page - 1) * pageSize + rows.length}
+          </span>
           <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
             上一页
           </Button>
@@ -520,7 +547,7 @@ function SyncWorkbench() {
           <Button
             variant="outline"
             size="sm"
-            disabled={rows.length < 50 || loading}
+            disabled={rows.length < pageSize || loading}
             onClick={() => setPage((p) => p + 1)}
           >
             下一页

@@ -16,11 +16,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { SelectAllControl } from "@/components/select-all-control";
-import { DateSelect } from "@/components/date-select";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { DateSelect } from "@/components/date-select";
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { RemarkEditor, ScheduleNameEditor } from "@/components/remark-editor";
+import { SelectAllControl } from "@/components/select-all-control";
+import { TablePagination } from "@/components/table-pagination";
 import { TimeSelect } from "@/components/time-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -630,13 +631,9 @@ export default function SchedulesPage() {
   };
   // 删除确认弹窗要用的清单：计划在前端全量，能直接取到名字。
   const pendingScheduleName =
-    items.find((item) => item.id === pendingDeleteId)?.name ??
-    (pendingDeleteId != null ? `#${pendingDeleteId}` : "");
+    items.find((item) => item.id === pendingDeleteId)?.name ?? (pendingDeleteId != null ? `#${pendingDeleteId}` : "");
   const selectedScheduleNames = React.useMemo(
-    () =>
-      selectedIds
-        .map((id) => items.find((item) => item.id === id)?.name ?? `#${id}`)
-        .sort(),
+    () => selectedIds.map((id) => items.find((item) => item.id === id)?.name ?? `#${id}`).sort(),
     [items, selectedIds],
   );
 
@@ -717,7 +714,8 @@ export default function SchedulesPage() {
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
                 全不选
-              </Button>            </div>
+              </Button>{" "}
+            </div>
           </div>
         ) : null}
         {filteredItems.length === 0 ? (
@@ -785,7 +783,9 @@ export default function SchedulesPage() {
                           label={`计划 #${item.id}`}
                           onSave={async (name) => {
                             const updated = await api.renameSchedule(item.id, name);
-                            setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: updated.name } : entry));
+                            setItems((current) =>
+                              current.map((entry) => (entry.id === item.id ? { ...entry, name: updated.name } : entry)),
+                            );
                           }}
                         />
                       </TableCell>
@@ -796,7 +796,9 @@ export default function SchedulesPage() {
                           onSave={async (remark) => {
                             const updated = await api.updateScheduleRemark(item.id, remark);
                             setItems((current) =>
-                              current.map((entry) => entry.id === item.id ? { ...entry, remark: updated.remark } : entry),
+                              current.map((entry) =>
+                                entry.id === item.id ? { ...entry, remark: updated.remark } : entry,
+                              ),
                             );
                           }}
                         />
@@ -918,24 +920,17 @@ export default function SchedulesPage() {
             </Table>
           </div>
         )}
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="text-muted-foreground">
-            第 {page} / {totalPages} 页
-          </span>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>
-              上一页
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={page >= totalPages}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              下一页
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={page}
+          pageSize={size}
+          total={filteredItems.length}
+          onPageChange={setPage}
+          onPageSizeChange={(value) => {
+            setPageSize(String(value));
+            setPage(1);
+          }}
+          pageSizeOptions={[10, 20, 50, 100]}
+        />
       </div>
     );
   }

@@ -12,6 +12,7 @@ import { RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { FilteredEmptyState } from "@/components/filtered-empty-state";
+import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -26,11 +27,11 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
   const [rows, setRows] = React.useState<NotificationDelivery[]>([]);
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(50);
   const [channelID, setChannelID] = React.useState<number | undefined>(undefined);
   const [state, setState] = React.useState<string | undefined>(undefined);
   const [loading, setLoading] = React.useState(false);
   const loadSeq = React.useRef(0);
-  const pageSize = 50;
 
   const load = React.useCallback(() => {
     const seq = ++loadSeq.current;
@@ -48,7 +49,7 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
       .finally(() => {
         if (loadSeq.current === seq) setLoading(false);
       });
-  }, [channelID, state, page]);
+  }, [channelID, state, page, pageSize]);
   React.useEffect(() => {
     load();
   }, [load]);
@@ -62,12 +63,6 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
       toast.error("重发失败：" + (e as Error).message);
     }
   }
-
-  const maxPage = Math.max(1, Math.ceil(total / pageSize));
-  React.useEffect(() => {
-    // 删除、重发或筛选导致总数缩小时，自动回到最后一个有效页。
-    if (page > maxPage) setPage(maxPage);
-  }, [maxPage, page]);
 
   // 生效中的筛选条件：渠道 / 投递状态。
   const hasFilters = channelID !== undefined || state !== undefined;
@@ -121,10 +116,9 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
         <Button size="sm" variant="outline" onClick={load} disabled={loading}>
           <RefreshCwIcon className={loading ? "animate-spin" : ""} /> 刷新
         </Button>
-        <span className="text-muted-foreground ml-auto text-xs">共 {total} 条</span>
       </div>
 
-      <Card className="py-0">
+      <Card className="gap-0 py-0">
         <Table>
           <TableHeader>
             <TableRow>
@@ -194,21 +188,18 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
             )}
           </TableBody>
         </Table>
+        {/* 列表分页：后端 /notify/deliveries 用 1-based page，默认 pageBase=1 即可。 */}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={setPage}
+          onPageSizeChange={(nextSize) => {
+            setPageSize(nextSize);
+            setPage(1);
+          }}
+        />
       </Card>
-
-      {maxPage > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            上一页
-          </Button>
-          <span className="text-muted-foreground text-sm">
-            {page} / {maxPage}
-          </span>
-          <Button size="sm" variant="outline" disabled={page >= maxPage} onClick={() => setPage((p) => p + 1)}>
-            下一页
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
