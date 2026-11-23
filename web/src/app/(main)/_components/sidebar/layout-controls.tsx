@@ -132,7 +132,11 @@ export function LayoutControls() {
                               (resolvedThemeMode ?? "light") === "dark" ? preset.primary.dark : preset.primary.light,
                           }}
                         />
+                        {/* 风格名保留英文（设计圈通用叫法），中文副标题说明它是什么风格 */}
                         {preset.label}
+                        {preset.labelZh ? (
+                          <span className="text-muted-foreground ml-1">{preset.labelZh}</span>
+                        ) : null}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -260,7 +264,7 @@ export function LayoutControls() {
             </div>
 
             <Button type="button" size="sm" variant="outline" className="w-full text-xs" onClick={handleRestore}>
-              Restore Defaults
+              恢复默认设置
             </Button>
           </div>
         </div>

@@ -797,7 +797,7 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
                     onSort={toggleSort}
                     className="w-36"
                   />
-                  <TableHead className="w-44">host</TableHead>
+                  <TableHead className="w-44">主机</TableHead>
                   <TableHead className="w-20">方法</TableHead>
                   <TableHead>URL</TableHead>
                   <SortableHead
@@ -808,7 +808,7 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
                     onSort={toggleSort}
                     className="w-20"
                   />
-                  <TableHead className="w-36">content-type</TableHead>
+                  <TableHead className="w-36">内容类型</TableHead>
                   <SortableHead
                     field="resp_len"
                     label="响应长度"

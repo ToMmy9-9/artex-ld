@@ -345,11 +345,11 @@ export default function LLMRecordsPage() {
                 <TableRow>
                   <TableHead className="w-[130px]">时间</TableHead>
                   <TableHead className="w-[60px]">任务</TableHead>
-                  <TableHead className="w-[90px]">Worker</TableHead>
-                  <TableHead className="w-[100px]">Profile</TableHead>
-                  <TableHead className="w-[140px]">Model</TableHead>
+                  <TableHead className="w-[90px]">工作节点</TableHead>
+                  <TableHead className="w-[100px]">模型配置</TableHead>
+                  <TableHead className="w-[140px]">模型</TableHead>
                   <TableHead className="w-[70px]">延迟</TableHead>
-                  <TableHead className="w-[90px]">Tokens</TableHead>
+                  <TableHead className="w-[90px]">令牌数</TableHead>
                   <TableHead className="w-[60px]">状态</TableHead>
                 </TableRow>
               </TableHeader>

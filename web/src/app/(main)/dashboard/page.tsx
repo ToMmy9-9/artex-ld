@@ -107,7 +107,13 @@ function statusBg(code: number): string {
 function SystemResourceStatus({ metrics }: { metrics: SystemMetrics | null }) {
   if (!metrics) return null;
   if (!metrics.supported) {
-    return <div className="ml-auto text-xs text-muted-foreground" role="status">资源状态：暂不支持</div>;
+    // 只有 Linux（读 cgroup）能拿到容器资源指标，Windows / macOS 拿不到。
+    // 说清「为什么没有」而不是笼统的「暂不支持」——否则用户会以为功能坏了。
+    return (
+      <div className="ml-auto text-xs text-muted-foreground" role="status">
+        资源状态：当前平台不支持容器资源指标
+      </div>
+    );
   }
   const items = [
     [CpuIcon, "CPU", metrics.cpu.percent],

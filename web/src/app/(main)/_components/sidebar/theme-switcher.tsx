@@ -14,6 +14,14 @@ import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
 
 const THEME_CYCLE = ["light", "dark", "system"] as const;
 
+// aria-label 是屏幕阅读器读出来的内容，必须用中文。THEME_MODE_OPTIONS 里的
+// label 是英文（Default/Dark/System），不能直接用。
+const THEME_MODE_LABELS: Record<(typeof THEME_CYCLE)[number], string> = {
+  light: "浅色",
+  dark: "深色",
+  system: "跟随系统",
+};
+
 export function ThemeSwitcher() {
   const themeMode = usePreferencesStore((s) => s.themeMode);
   const setThemeMode = usePreferencesStore((s) => s.setThemeMode);
@@ -27,7 +35,7 @@ export function ThemeSwitcher() {
   };
 
   return (
-    <Button size="icon" onClick={cycleTheme} aria-label={`Current theme: ${themeMode}. Click to cycle themes`}>
+    <Button size="icon" onClick={cycleTheme} aria-label={`当前主题：${THEME_MODE_LABELS[themeMode]}。点击切换`}>
       {/* SYSTEM */}
       <Monitor className="hidden [html[data-theme-mode=system]_&]:block" />
 

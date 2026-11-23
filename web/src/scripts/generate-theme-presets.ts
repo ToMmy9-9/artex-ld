@@ -14,6 +14,7 @@
  * - During local development, run manually after adding any new theme preset:
  *     npm run generate:presets
  * - Ensure that each new CSS preset includes `label:` and `value:` comments.
+ *   建议同时写 `labelZh:`（中文副标题），界面上会与英文风格名并列显示。
  * - This generation step is currently automated using a Husky pre-push hook.
  * - You may optionally integrate it directly into a build step if preferred.
  */
@@ -53,6 +54,9 @@ const presets = files.map((file) => {
 
   const label = labelMatch?.[1]?.trim() ?? file.replace(".css", "");
   const value = valueMatch?.[1]?.trim() ?? file.replace(".css", "");
+  // labelZh 是中文副标题（风格名的中文说明），可选 —— 没写就用英文 label。
+  const labelZhMatch = content.match(/labelZh:\s*(.+)/);
+  const labelZh = labelZhMatch?.[1]?.trim() ?? label;
 
   const lightPrimaryMatch = content.match(/:root\[data-theme-preset="[^"]*"\][\s\S]*?--primary:\s*([^;]+);/);
   const darkPrimaryMatch = content.match(/\.dark:root\[data-theme-preset="[^"]*"\][\s\S]*?--primary:\s*([^;]+);/);
@@ -66,7 +70,7 @@ const presets = files.map((file) => {
     console.warn(`⚠️ Missing --primary for ${file} (light or dark). Check CSS syntax.`);
   }
 
-  return { label, value, primary };
+  return { label, labelZh, value, primary };
 });
 
 const globalStylesPath = path.resolve(__dirname, "../app/globals.css");
@@ -91,7 +95,7 @@ const defaultPrimary = {
   dark: defaultDarkPrimaryMatch?.[1]?.trim() ?? "",
 };
 
-presets.unshift({ label: "Default", value: "default", primary: defaultPrimary });
+presets.unshift({ label: "Default", labelZh: "默认", value: "default", primary: defaultPrimary });
 
 const generatedBlock = `// --- generated:themePresets:start ---
 

@@ -19,6 +19,7 @@ export type ResolvedThemeMode = "light" | "dark";
 export const THEME_PRESET_OPTIONS = [
   {
     label: "Default",
+    labelZh: "默认",
     value: "default",
     primary: {
       light: "oklch(0.205 0 0)",
@@ -27,6 +28,7 @@ export const THEME_PRESET_OPTIONS = [
   },
   {
     label: "Brutalist",
+    labelZh: "粗野风",
     value: "brutalist",
     primary: {
       light: "oklch(0.6489 0.237 26.9728)",
@@ -35,6 +37,7 @@ export const THEME_PRESET_OPTIONS = [
   },
   {
     label: "Soft Pop",
+    labelZh: "柔和明快",
     value: "soft-pop",
     primary: {
       light: "oklch(0.5106 0.2301 276.9656)",
@@ -43,6 +46,7 @@ export const THEME_PRESET_OPTIONS = [
   },
   {
     label: "Tangerine",
+    labelZh: "橘色",
     value: "tangerine",
     primary: {
       light: "oklch(0.64 0.17 36.44)",

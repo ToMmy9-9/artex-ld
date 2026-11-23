@@ -169,7 +169,7 @@ export default function CommandsPage() {
                 <TableRow>
                   <TableHead className="w-[130px]">时间</TableHead>
                   <TableHead className="w-[60px]">任务</TableHead>
-                  <TableHead className="w-[90px]">Worker</TableHead>
+                  <TableHead className="w-[90px]">工作节点</TableHead>
                   <TableHead className="w-[110px]">工具</TableHead>
                   <TableHead>输入</TableHead>
                   <TableHead className="w-[60px]">状态</TableHead>
