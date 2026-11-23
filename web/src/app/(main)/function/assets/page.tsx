@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { AssetDslSearch } from "@/components/asset-dsl-search";
 import { IntelligencePanel } from "@/components/intelligence-panel";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
+import { SelectAllControl } from "@/components/select-all-control";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -204,22 +205,45 @@ function AssetsContent() {
     });
   };
 
-  const toggleSelectAll = (ids: number[]) => {
+  // 设置语义（而非切换）：全选控件的勾选框要先算出「勾上之后是不是全选」，
+  // 明确传 true/false 进来；老写法是「点一下就翻转」，与表头三态勾选框对不上。
+  const setSelectedIds = (ids: number[], checked: boolean) => {
     setSelected((prev) => {
-      const allSelected = ids.every((id) => prev.has(id));
       const next = new Set(prev);
-      if (allSelected) {
-        ids.forEach((id) => {
-          next.delete(id);
-        });
-      } else {
-        ids.forEach((id) => {
-          next.add(id);
-        });
+      for (const id of ids) {
+        if (checked) next.add(id);
+        else next.delete(id);
       }
       return next;
     });
   };
+
+  const toggleSelectAll = (ids: number[]) => {
+    setSelectedIds(ids, !ids.every((id) => selected.has(id)));
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  // 「全选全部筛选结果」：资产列表是服务端分页，表头勾选框只覆盖当前页。
+  // 这里拉一次当前筛选命中的全量 id 回填，才能对整个筛选结果做批量操作。
+  // 「宿主」标签页返回的是聚合行（不是资产 id），跨页全选对它没有意义，故不提供。
+  const [selectingAllMatching, setSelectingAllMatching] = React.useState(false);
+  const selectAllMatching = React.useCallback(async () => {
+    if (tab === "host" || tab === "company") return;
+    setSelectingAllMatching(true);
+    try {
+      const { ids } = await api.assetIds({
+        type: tab,
+        dsl: query.trim() || undefined,
+      });
+      setSelected(new Set(ids));
+      toast.success(`已选中全部 ${ids.length} 条`);
+    } catch (e) {
+      toast.error(`全选失败：${(e as Error).message}`);
+    } finally {
+      setSelectingAllMatching(false);
+    }
+  }, [query, tab]);
 
   const openDelete = (ids: number[]) => {
     setDeleteIds(ids);
@@ -520,6 +544,10 @@ function AssetsContent() {
             rows={currentRows}
             selected={selected}
             onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleOne={toggleSelect}
+            onSelectAllMatching={selectAllMatching}
+            selectingAllMatching={selectingAllMatching}
+            onClearSelection={clearSelection}
           >
             {slice(tabData("root_domain")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -561,6 +589,10 @@ function AssetsContent() {
             rows={currentRows}
             selected={selected}
             onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleOne={toggleSelect}
+            onSelectAllMatching={selectAllMatching}
+            selectingAllMatching={selectingAllMatching}
+            onClearSelection={clearSelection}
           >
             {slice(tabData("ip")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -608,6 +640,10 @@ function AssetsContent() {
             rows={currentRows}
             selected={selected}
             onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleOne={toggleSelect}
+            onSelectAllMatching={selectAllMatching}
+            selectingAllMatching={selectingAllMatching}
+            onClearSelection={clearSelection}
           >
             {slice(tabData("subdomain")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -650,6 +686,10 @@ function AssetsContent() {
             rows={currentRows}
             selected={selected}
             onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleOne={toggleSelect}
+            onSelectAllMatching={selectAllMatching}
+            selectingAllMatching={selectingAllMatching}
+            onClearSelection={clearSelection}
           >
             {slice(tabData("app")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -690,6 +730,10 @@ function AssetsContent() {
             rows={currentRows}
             selected={selected}
             onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleOne={toggleSelect}
+            onSelectAllMatching={selectAllMatching}
+            selectingAllMatching={selectingAllMatching}
+            onClearSelection={clearSelection}
           >
             {slice(tabData("service")).map((a) => {
               const isHttp = a.service_type === "http";
@@ -846,6 +890,10 @@ function AssetsContent() {
             rows={currentRows}
             selected={selected}
             onToggleAll={(ids) => toggleSelectAll(ids)}
+            onToggleOne={toggleSelect}
+            onSelectAllMatching={selectAllMatching}
+            selectingAllMatching={selectingAllMatching}
+            onClearSelection={clearSelection}
           >
             {slice(tabData("endpoint")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -971,6 +1019,10 @@ function AssetCard({
   rows: dataRows,
   selected,
   onToggleAll,
+  onToggleOne,
+  onSelectAllMatching,
+  selectingAllMatching,
+  onClearSelection,
   children,
 }: {
   cols: string[];
@@ -983,6 +1035,10 @@ function AssetCard({
   rows?: Asset[];
   selected?: Set<number>;
   onToggleAll?: (ids: number[]) => void;
+  onToggleOne?: (id: number) => void;
+  onSelectAllMatching?: () => void;
+  selectingAllMatching?: boolean;
+  onClearSelection?: () => void;
   children: React.ReactNode;
 }) {
   const childRows = React.Children.toArray(children);
@@ -991,8 +1047,6 @@ function AssetCard({
   const end = page * size + childRows.length;
 
   const pageIds = dataRows?.map((r) => r.id) ?? [];
-  const allSelected = pageIds.length > 0 && selected != null && pageIds.every((id) => selected.has(id));
-  const someSelected = selected != null && pageIds.some((id) => selected.has(id));
 
   return (
     <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
@@ -1002,10 +1056,15 @@ function AssetCard({
             <TableRow>
               {cols.map((c, i) =>
                 c === "" && i === 0 && onToggleAll ? (
-                  <TableHead key={i} className="w-8 pr-0">
-                    <Checkbox
-                      checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                      onCheckedChange={() => onToggleAll(pageIds)}
+                  <TableHead key={i} className="w-10 pr-0">
+                    <SelectAllControl
+                      pageIds={pageIds.map(String)}
+                      selectedIds={selected ? new Set([...selected].map(String)) : new Set()}
+                      onToggleSelectedPage={(ids) => onToggleAll(ids.map(Number))}
+                      onSelectAllMatching={onSelectAllMatching}
+                      selectingAllMatching={selectingAllMatching}
+                      onClearSelection={onClearSelection}
+                      selectAllLabel="选择本页全部资产"
                     />
                   </TableHead>
                 ) : (

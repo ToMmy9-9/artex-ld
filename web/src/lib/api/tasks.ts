@@ -505,6 +505,17 @@ export const tasksApi = {
     ).then((r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 })),
   assetCounts: (taskId = "") =>
     get<Record<string, number>>(`/assets/counts${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ""}`),
+  // assetIds 返回当前筛选命中的全部资产 id（不分页），供「全选全部筛选结果」使用。
+  // 资产列表是服务端分页，表头勾选框只能覆盖当前页；跨页批量删除需要全量 id。
+  assetIds: (opts: { type?: string; dsl?: string; companyId?: string; taskId?: string } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.type) p.set("type", opts.type);
+    if (opts.dsl) p.set("dsl", opts.dsl);
+    if (opts.companyId) p.set("company_id", opts.companyId);
+    if (opts.taskId) p.set("task_id", opts.taskId);
+    const qs = p.toString();
+    return get<{ ids: number[]; total: number }>(`/assets/ids${qs ? `?${qs}` : ""}`);
+  },
   deleteAssets: (ids: number[]) =>
     http<{ deleted: number }>("/assets", { method: "DELETE", body: JSON.stringify({ ids }) }),
   // task-scoped view of the same endpoint — server-side paginated like `assets`

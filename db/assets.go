@@ -1108,6 +1108,61 @@ func (s *AssetStore) CountByType(typ string) (int, error) {
 	return n, err
 }
 
+// AssetIDSet returns ALL asset ids matching the given filter, with no LIMIT/OFFSET.
+// It mirrors the exact WHERE clause of the corresponding list query (DSL /
+// company / task / type) so the assets page can offer 「全选全部筛选结果」
+// without paging through every page. The DSL branch reuses DSLIDSet so the
+// filter semantics stay identical to the list endpoint.
+func (s *AssetStore) AssetIDSet(dsl, typ string, companyID, taskID int64) ([]int64, error) {
+	if dsl != "" {
+		set, err := s.DSLIDSet(dsl, typ, taskID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]int64, 0, len(set))
+		for id := range set {
+			out = append(out, id)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+		return out, nil
+	}
+	q := `SELECT id FROM assets`
+	args := []any{}
+	switch {
+	case companyID > 0:
+		q += ` WHERE company_id = $1`
+		args = append(args, companyID)
+	case taskID > 0:
+		q += ` WHERE $1 = ANY(task_ids)`
+		args = append(args, taskID)
+	default:
+		if typ == "" {
+			typ = "root_domain"
+		}
+		q += ` WHERE type = $1`
+		args = append(args, typ)
+	}
+	if typ != "" && (companyID > 0 || taskID > 0) {
+		args = append(args, typ)
+		q += fmt.Sprintf(` AND type = $%d`, len(args))
+	}
+	q += ` ORDER BY id`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // QueryByCompany returns assets for a company, optionally filtered by type.
 // limit <= 0 means no limit.
 func (s *AssetStore) QueryByCompany(companyID int64, typ string, limit, offset int) ([]*Asset, error) {

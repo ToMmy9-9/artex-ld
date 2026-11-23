@@ -421,6 +421,12 @@ func tryParseFieldExpr(s string, pos int) (Expr, int, bool) {
 	if !isKnownField(field) {
 		return Expr{}, pos, false
 	}
+	// 字段名与运算符之间允许空格：`ip = 1.2.3.4` 和 `ip=1.2.3.4` 都要能解析。
+	// 少了这段，带空格的写法会让本函数放弃（返回 false），字段名被当成裸文本，
+	// 最终报「意外的内容 'BARE'」—— 用户按直觉加空格就踩雷。
+	for i < len(s) && unicode.IsSpace(rune(s[i])) {
+		i++
+	}
 	if i >= len(s) {
 		return Expr{}, pos, false
 	}
@@ -437,7 +443,19 @@ func tryParseFieldExpr(s string, pos int) (Expr, int, bool) {
 	}
 	value, end := readToken(s, i)
 	if end == i {
-		return Expr{}, pos, false
+		// 运算符后面可能还有空格（`ip = 1.2.3.4`）：readToken 遇到空格会返回空串，
+		// 这里跳过空格再读一次，否则带空格的写法会被当成解析失败。
+		j := i
+		for j < len(s) && unicode.IsSpace(rune(s[j])) {
+			j++
+		}
+		if j >= len(s) {
+			return Expr{}, pos, false
+		}
+		value, end = readToken(s, j)
+		if end == j {
+			return Expr{}, pos, false
+		}
 	}
 	return Expr{Field: field, Op: op, Value: value}, end, true
 }

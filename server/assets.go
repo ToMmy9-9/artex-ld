@@ -322,6 +322,37 @@ const (
 	maxAssetPageSize     = 200
 )
 
+// assetIDs serves「全选全部筛选结果」: every asset id matching the current
+// filters, with no pagination. The assets list is server-side paginated, so the
+// page-level checkbox only covers the rows it renders; this endpoint supplies
+// the rest so the user can select everything the filter matches and act on it
+// in one go (e.g. bulk delete).
+func (s *Server) assetIDs(w http.ResponseWriter, r *http.Request) {
+	as := s.assetStore()
+	if as == nil {
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
+		return
+	}
+	q := r.URL.Query()
+	typ := q.Get("type")
+	dsl := strings.TrimSpace(q.Get("dsl"))
+	if dsl != "" {
+		if err := db.ValidateDSL(dsl); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	companyID, _ := strconv.ParseInt(q.Get("company_id"), 10, 64)
+	taskID, _ := strconv.ParseInt(q.Get("task_id"), 10, 64)
+	ids, err := as.AssetIDSet(dsl, typ, companyID, taskID)
+	if err != nil {
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ids": ids, "total": len(ids)})
+}
+
+// listAssets serves the paginated asset list for the assets page.
 func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 	as := s.assetStore()
 	if as == nil {

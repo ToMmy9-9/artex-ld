@@ -126,6 +126,7 @@ const API_KEYS = [
   "hostAssets",
   "searchAssets",
   "assetCounts",
+  "assetIds",
   "deleteAssets",
   "taskAssets",
   "searchTaskAssets",

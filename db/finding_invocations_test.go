@@ -11,6 +11,13 @@ func invocationDB(t *testing.T) (*DB, int64) {
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
+	// 清掉早于本测试文件的残留派发行（那些用例已被删除，但行留在共享测试库里）。
+	// PendingFindingInvocations 按 created_at 升序 + LIMIT 取数，残留行会把
+	// 本用例的行挤出结果集，表现为「pending selection/order mismatch []」——
+	// 失败原因在测试库而不在被测代码，不清掉会让用例莫名其妙地红。
+	if _, err := d.Exec(`DELETE FROM finding_agent_invocations`); err != nil {
+		t.Fatalf("clear stale invocations: %v", err)
+	}
 	fid, err := d.AddFinding(0, 0, "invocation-test", "调用记录测试漏洞", "high", "original summary", "original evidence", "worker", nil)
 	if err != nil {
 		t.Fatal(err)

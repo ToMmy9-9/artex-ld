@@ -14,7 +14,6 @@ import Link from "next/link";
 import {
   ArrowUpRightIcon,
   BugIcon,
-  ChevronDownIcon,
   ChevronRightIcon,
   ClockIcon,
   DownloadIcon,
@@ -28,6 +27,7 @@ import { toast } from "sonner";
 import { FindingCaseList } from "@/components/finding-case-list";
 import { FindingDateFilter, type FindingDateRange } from "@/components/finding-date-filter";
 import { FindingRetestDialog } from "@/components/finding-retest-dialog";
+import { SelectAllToolbarButton } from "@/components/select-all-control";
 import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
 import { Button } from "@/components/ui/button";
@@ -41,14 +41,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -1074,25 +1066,12 @@ export default function FindingsPage() {
             )}
             {/* 「按漏洞」视图是卡片列表、没有表头勾选框，全选入口只能放在工具栏；
                 平铺/分组/资产视图的表头也有同一个菜单，两处调同一份回调。 */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" disabled={selectingAllMatching}>
-                  {selectingAllMatching ? <Spinner /> : null}
-                  全选
-                  <ChevronDownIcon className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuLabel>选择范围</DropdownMenuLabel>
-                <DropdownMenuItem disabled={selectingAllMatching} onClick={selectAllMatching}>
-                  全选全部筛选结果
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={selectedIds.size === 0} onClick={clearSelection}>
-                  清空选择{selectedIds.size > 0 ? `（${selectedIds.size} 条）` : ""}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <SelectAllToolbarButton
+              onSelectAllMatching={selectAllMatching}
+              onClearSelection={clearSelection}
+              selectedCount={selectedIds.size}
+              selectingAllMatching={selectingAllMatching}
+            />
             <Button
               size="sm"
               variant="outline"

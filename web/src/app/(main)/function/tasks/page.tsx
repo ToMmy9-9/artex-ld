@@ -59,6 +59,7 @@ import { toast } from "sonner";
 import { AssetInterceptRulesEditor } from "@/components/asset-intercept-rules-editor";
 import { DateSelect } from "@/components/date-select";
 import { RemarkEditor } from "@/components/remark-editor";
+import { SelectAllControl, SelectAllToolbarButton } from "@/components/select-all-control";
 import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
 import { TaskLLMProfileChain } from "@/components/task-llm-profile-chain";
@@ -595,16 +596,6 @@ export default function TasksPage() {
   }, []);
 
   const pageIds = React.useMemo(() => paginated.map((t) => t.id), [paginated]);
-  const pageSelectedCount = React.useMemo(
-    () => pageIds.filter((id) => selectedIds.has(id)).length,
-    [pageIds, selectedIds],
-  );
-  let headerChecked: boolean | "indeterminate" = false;
-  if (pageIds.length > 0 && pageSelectedCount === pageIds.length) {
-    headerChecked = true;
-  } else if (pageSelectedCount > 0) {
-    headerChecked = "indeterminate";
-  }
 
   const toggleSelectedPage = React.useCallback(
     (checked: boolean) => {
@@ -619,6 +610,15 @@ export default function TasksPage() {
     },
     [pageIds],
   );
+
+  // 「全选全部筛选结果」：任务列表是前端全量加载（api.tasks() 一次拿全量再分页），
+  // 所以 ordered 就是当前筛选命中的完整集合，不需要像服务端分页的列表那样再要
+  // 一个「取全量 id」的接口。跨页选中后批量操作（如批量归档、批量删除）才完整。
+  const allFilteredIds = React.useMemo(() => ordered.map((t) => t.id), [ordered]);
+  const selectAllMatching = React.useCallback(() => {
+    setSelectedIds(new Set(allFilteredIds));
+  }, [allFilteredIds]);
+  const clearSelection = React.useCallback(() => setSelectedIds(new Set()), []);
 
   // lastRef holds the previous poll's serialized payload: the list is re-fetched every
   // POLL_MS but usually comes back unchanged, and setTasks on an identical payload would
@@ -1105,16 +1105,19 @@ export default function TasksPage() {
               <span className="text-muted-foreground text-xs tabular-nums">
                 {filtered.length}/{tasks.length} 条
               </span>
+              {/* 跨页全选：表头勾选框只管当前页，这里补齐「全部筛选结果」，
+                  否则大列表要逐页点才能批量操作。 */}
+              <SelectAllToolbarButton
+                onSelectAllMatching={selectAllMatching}
+                onClearSelection={clearSelection}
+                selectedCount={selectedIds.size}
+              />
               {selectedIds.size > 0 && (
                 <>
                   <span className="text-xs tabular-nums">
                     已选 {selectedIds.size} 个
                   </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setSelectedIds(new Set())}
-                  >
+                  <Button size="sm" variant="ghost" onClick={clearSelection}>
                     取消选择
                   </Button>
                   {pausableTaskIDs.length > 0 && (
@@ -1207,12 +1210,13 @@ export default function TasksPage() {
                 <TableHeader className="[&_tr]:border-t">
                   <TableRow>
                     <TableHead className="w-10">
-                      <Checkbox
-                        checked={headerChecked}
-                        onCheckedChange={(checked) =>
-                          toggleSelectedPage(checked === true)
-                        }
-                        aria-label="选择本页全部任务"
+                      <SelectAllControl
+                        pageIds={pageIds}
+                        selectedIds={selectedIds}
+                        onToggleSelectedPage={(_ids, checked) => toggleSelectedPage(checked)}
+                        onSelectAllMatching={selectAllMatching}
+                        onClearSelection={clearSelection}
+                        selectAllLabel="选择本页全部任务"
                       />
                     </TableHead>
                     <SortableTaskHead

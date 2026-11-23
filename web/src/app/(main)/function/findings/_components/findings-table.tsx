@@ -14,7 +14,6 @@ import Link from "next/link";
 
 import {
   ArrowUpRightIcon,
-  ChevronDownIcon,
   ChevronRightIcon,
   FileTextIcon,
   FlaskConicalIcon,
@@ -28,6 +27,7 @@ import {
 import { CopyButton } from "@/components/copy-button";
 import { FindingCaseMembers, FindingSeverityCounts } from "@/components/finding-case-list";
 import { Markdown } from "@/components/markdown";
+import { SelectAllControl } from "@/components/select-all-control";
 import { StatusBadge } from "@/components/status-badge";
 import {
   AlertDialog,
@@ -43,14 +43,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -181,13 +173,6 @@ export function FindingsTable({
   onClearSelection,
 }: FindingsTableProps) {
   const selectableIds = items.map((finding) => finding.finding_id).filter((id): id is string => Boolean(id));
-  const selectedCount = selectableIds.filter((id) => selectedIds.has(id)).length;
-  let headerChecked: boolean | "indeterminate" = false;
-  if (selectableIds.length > 0 && selectedCount === selectableIds.length) {
-    headerChecked = true;
-  } else if (selectedCount > 0) {
-    headerChecked = "indeterminate";
-  }
 
   const rows: FindingCaseListRow[] = caseRows ?? items.map((finding) => ({ finding, matched_ids: [] }));
 
@@ -233,47 +218,15 @@ export function FindingsTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-10">
-              <div className="flex items-center gap-0.5">
-                <Checkbox
-                  checked={headerChecked}
-                  onCheckedChange={(checked) => onToggleSelectedPage(selectableIds, checked === true)}
-                  aria-label={selectAllLabel}
-                />
-                {/* 勾选框本身只作用于当前页；下拉补齐「跨页全选」，避免大列表
-                    为了选全量被迫逐页点。默认不渲染，只有页面传入回调时才出现。 */}
-                {onSelectAllMatching ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="size-5 shrink-0 text-muted-foreground"
-                        aria-label="更多全选方式"
-                      >
-                        <ChevronDownIcon className="size-3" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-60">
-                      <DropdownMenuLabel>选择范围</DropdownMenuLabel>
-                      <DropdownMenuItem
-                        disabled={selectableIds.length === 0}
-                        onClick={() => onToggleSelectedPage(selectableIds, true)}
-                      >
-                        本页全部（{selectableIds.length} 条）
-                      </DropdownMenuItem>
-                      {/* 条数留到选中后再由工具栏「已选 N 条」显示：列表 total 是
-                          合并档案后的行数,与原始发现条数不同口径,提前给数字反而对不上。 */}
-                      <DropdownMenuItem disabled={selectingAllMatching} onClick={onSelectAllMatching}>
-                        {selectingAllMatching ? "正在选择…" : "全部筛选结果"}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem disabled={selectedIds.size === 0} onClick={onClearSelection}>
-                        清空选择
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : null}
-              </div>
+              <SelectAllControl
+                pageIds={selectableIds}
+                selectedIds={selectedIds}
+                onToggleSelectedPage={onToggleSelectedPage}
+                onSelectAllMatching={onSelectAllMatching}
+                selectingAllMatching={selectingAllMatching}
+                onClearSelection={onClearSelection}
+                selectAllLabel={selectAllLabel}
+              />
             </TableHead>
             <TableHead className="w-8" />
             <TableHead className="w-20">严重度</TableHead>

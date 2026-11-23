@@ -1049,6 +1049,9 @@ func (s *Server) Handler() http.Handler {
 
 	// asset system
 	mux.HandleFunc("GET /api/assets", s.listAssets)
+	// 全选全部筛选结果：只返回筛选命中的资产 id，供前端跨页批量操作。
+	// 字面量段优先于 {id} 通配，不会与单条资产路由冲突。
+	mux.HandleFunc("GET /api/assets/ids", s.assetIDs)
 	mux.HandleFunc("GET /api/assets/counts", s.assetCounts)
 	mux.HandleFunc("POST /api/assets", s.insertAssets)
 	mux.HandleFunc("DELETE /api/assets", s.deleteAssets)
