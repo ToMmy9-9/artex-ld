@@ -1190,7 +1190,7 @@ func (d *DB) SeedTopologyFromAssets(taskID int64, actor string) (*TopologyGraph,
 	if taskID <= 0 {
 		return nil, fmt.Errorf("task id is required")
 	}
-	assets, err := d.Assets().QueryByTask(taskID, "ip", 0, 0)
+	assets, err := d.Assets().QueryByTask(taskID, "ip", 0, 0, AssetSort{})
 	if err != nil {
 		return nil, err
 	}

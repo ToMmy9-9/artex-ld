@@ -70,7 +70,7 @@ func TestGraphOverviewExpandsAssociatedCompanyScope(t *testing.T) {
 	tools := NewToolSet(d.Exploration(task.ExplorationID), "planner")
 	tools.SetTaskID(task.ID)
 	tools.SetAssetStore(assets, companies)
-	linkedAssets, err := assets.QueryByTask(task.ID, "root_domain", 10, 0)
+	linkedAssets, err := assets.QueryByTask(task.ID, "root_domain", 10, 0, db.AssetSort{})
 	if err != nil || len(linkedAssets) != 1 || linkedAssets[0].ID != assetID {
 		t.Fatalf("company asset was not linked to task: assets=%+v err=%v", linkedAssets, err)
 	}
@@ -162,7 +162,7 @@ func TestGraphOverviewExpandsAssociatedCompanyScope(t *testing.T) {
 	if !ok || len(disabledScope) != 1 {
 		t.Fatalf("coverage-disabled task lost scope context: %#v", disabledCoverage)
 	}
-	if linked, err := assets.QueryByTask(disabledTask.ID, "root_domain", 10, 0); err != nil || len(linked) != 1 || linked[0].ID != assetID {
+	if linked, err := assets.QueryByTask(disabledTask.ID, "root_domain", 10, 0, db.AssetSort{}); err != nil || len(linked) != 1 || linked[0].ID != assetID {
 		t.Fatalf("coverage-disabled task asset link=%+v err=%v", linked, err)
 	}
 	disabledIntentID, err := disabledTools.addOneIntent(intentItem{

@@ -371,6 +371,9 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 	if offset < 0 {
 		offset = 0
 	}
+	// 排序字段走白名单校验（db.ParseAssetSort），未知字段回落到 last_seen，
+	// 不把用户输入直接拼进 SQL。
+	sort := db.ParseAssetSort(q.Get("sort"), q.Get("order"))
 	if typ == "host" {
 		companyID, _ := strconv.ParseInt(q.Get("company_id"), 10, 64)
 		taskID, _ := strconv.ParseInt(q.Get("task_id"), 10, 64)
@@ -406,7 +409,7 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 		taskID, _ := strconv.ParseInt(q.Get("task_id"), 10, 64)
 		total, err = as.CountDSL(dsl, typ, taskID)
 		if err == nil && offset < total {
-			assets, err = as.QueryDSL(dsl, typ, taskID, limit, offset)
+			assets, err = as.QueryDSL(dsl, typ, taskID, limit, offset, sort)
 		}
 	} else {
 		companyID, _ := strconv.ParseInt(q.Get("company_id"), 10, 64)
@@ -415,12 +418,12 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 		case companyID > 0:
 			total, err = as.CountByCompany(companyID, typ)
 			if err == nil && offset < total {
-				assets, err = as.QueryByCompany(companyID, typ, limit, offset)
+				assets, err = as.QueryByCompany(companyID, typ, limit, offset, sort)
 			}
 		case taskID > 0:
 			total, err = as.CountByTask(taskID, typ)
 			if err == nil && offset < total {
-				assets, err = as.QueryByTask(taskID, typ, limit, offset)
+				assets, err = as.QueryByTask(taskID, typ, limit, offset, sort)
 			}
 		default:
 			if typ == "" {
@@ -428,7 +431,7 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 			}
 			total, err = as.CountByType(typ)
 			if err == nil && offset < total {
-				assets, err = as.QueryByType(typ, limit, offset)
+				assets, err = as.QueryByType(typ, limit, offset, sort)
 			}
 		}
 	}

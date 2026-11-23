@@ -1072,15 +1072,15 @@ RETURNING id`,
 // =====================================================================
 
 // QueryByType returns assets rows of a given type, newest first.
-func (s *AssetStore) QueryByType(typ string, limit, offset int) ([]*Asset, error) {
+func (s *AssetStore) QueryByType(typ string, limit, offset int, sort AssetSort) ([]*Asset, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.db.Query(`
-SELECT id, type, company_id, array_to_json(task_ids)::text,
+	args := []any{typ}
+	q := `SELECT id, type, company_id, array_to_json(task_ids)::text,
        COALESCE(domain,''), COALESCE(root_domain,''), COALESCE(ip,''),
        COALESCE(c_segment::text,''), port,
        COALESCE(icp,''), array_to_json(bound_domains)::text, array_to_json(open_ports)::text, COALESCE(record_type,''),
@@ -1091,9 +1091,9 @@ SELECT id, type, company_id, array_to_json(task_ids)::text,
        COALESCE(page_title,''), array_to_json(technologies)::text, array_to_json(auth)::text,
        COALESCE(method,''), array_to_json(params)::text, extra, last_seen::text
 FROM assets
-WHERE type = $1
-ORDER BY last_seen DESC, id DESC
-LIMIT $2 OFFSET $3`, typ, limit, offset)
+WHERE type = $1`
+	q += pageClause(&args, limit, offset, sort)
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1226,7 +1226,7 @@ func (s *AssetStore) labelsFor(ids []int64) (map[int64]string, error) {
 
 // QueryByCompany returns assets for a company, optionally filtered by type.
 // limit <= 0 means no limit.
-func (s *AssetStore) QueryByCompany(companyID int64, typ string, limit, offset int) ([]*Asset, error) {
+func (s *AssetStore) QueryByCompany(companyID int64, typ string, limit, offset int, sort AssetSort) ([]*Asset, error) {
 	q := `SELECT id, type, company_id, array_to_json(task_ids)::text,
        COALESCE(domain,''), COALESCE(root_domain,''), COALESCE(ip,''),
        COALESCE(c_segment::text,''), port,
@@ -1243,7 +1243,7 @@ FROM assets WHERE company_id = $1`
 		args = append(args, typ)
 		q += fmt.Sprintf(` AND type = $%d`, len(args))
 	}
-	q += pageClause(&args, limit, offset)
+	q += pageClause(&args, limit, offset, sort)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -1264,8 +1264,68 @@ func (s *AssetStore) CountByCompany(companyID int64, typ string) (int, error) {
 	return n, err
 }
 
-func pageClause(args *[]any, limit, offset int) string {
-	q := ` ORDER BY last_seen DESC, id DESC`
+// AssetSort is a whitelisted sort for asset listings. The assets page lets
+// the user reorder 700+ rows, which is unusable at the default「last seen」
+// order alone. Only these columns may be referenced — the value goes straight
+// into SQL, so it must never be interpolated unvalidated.
+//
+// Direction is a string rather than a bool on purpose: the zero value must
+// mean「historical default」(last_seen DESC). A bool zero value is false,
+// which would silently mean ASC and flip every existing call site's order.
+type AssetSort struct {
+	Field string // last_seen | created_at | name | status_code | content_length
+	Order string // "asc" | "desc"; empty = desc (default)
+}
+
+// assetSortColumns maps a sort field to its SQL expression. Each expression
+// must be valid for every asset type, so the ones that only exist on some
+// types fall back to a coalesced column that is never empty.
+var assetSortColumns = map[string]string{
+	"last_seen":      "last_seen",
+	"created_at":     "created_at",
+	"name":           "COALESCE(NULLIF(domain,''), NULLIF(ip,''), NULLIF(url,''), NULLIF(app_name,''), NULLIF(page_title,''), '')",
+	"status_code":    "COALESCE(status_code, -1)",
+	"content_length": "COALESCE(content_length, -1)",
+}
+
+// AssetSortFields lists the sortable fields, in the order the UI shows them.
+var AssetSortFields = []string{"last_seen", "created_at", "name", "status_code", "content_length"}
+
+// ParseAssetSort validates a raw sort field/direction pair. Unknown fields fall
+// back to last_seen (desc) rather than erroring: a stale bookmark or a client
+// bug must not take the whole page down.
+func ParseAssetSort(field, direction string) AssetSort {
+	f := strings.ToLower(strings.TrimSpace(field))
+	if _, ok := assetSortColumns[f]; !ok {
+		f = "last_seen"
+	}
+	order := "desc"
+	if strings.EqualFold(strings.TrimSpace(direction), "asc") {
+		order = "asc"
+	}
+	return AssetSort{Field: f, Order: order}
+}
+
+// orderClause returns the ORDER BY fragment for a sort. The trailing id keeps
+// the order total — many rows share a last_seen timestamp, and without a
+// tiebreaker the same row can appear on two pages or on none.
+func (s AssetSort) orderClause() string {
+	col, ok := assetSortColumns[s.Field]
+	if !ok {
+		// 零值 AssetSort（调用方没传排序）保持历史的「last_seen DESC」默认。
+		col = assetSortColumns["last_seen"]
+	}
+	dir := "DESC"
+	if strings.EqualFold(s.Order, "asc") {
+		dir = "ASC"
+	}
+	return fmt.Sprintf(" ORDER BY %s %s, id %s", col, dir, dir)
+}
+
+// pageClause appends ORDER BY / LIMIT / OFFSET. sort is the validated sort;
+// a zero AssetSort keeps the historical「last_seen DESC」default.
+func pageClause(args *[]any, limit, offset int, sort AssetSort) string {
+	q := sort.orderClause()
 	if limit > 0 {
 		*args = append(*args, limit)
 		q += fmt.Sprintf(` LIMIT $%d`, len(*args))
@@ -1278,7 +1338,7 @@ func pageClause(args *[]any, limit, offset int) string {
 }
 
 // QueryByTask returns assets rows that have a given task_id in task_ids.
-func (s *AssetStore) QueryByTask(taskID int64, typ string, limit, offset int) ([]*Asset, error) {
+func (s *AssetStore) QueryByTask(taskID int64, typ string, limit, offset int, sort AssetSort) ([]*Asset, error) {
 	q := `SELECT id, type, company_id, array_to_json(task_ids)::text,
        COALESCE(domain,''), COALESCE(root_domain,''), COALESCE(ip,''),
        COALESCE(c_segment::text,''), port,
@@ -1295,7 +1355,7 @@ FROM assets WHERE $1 = ANY(task_ids)`
 		args = append(args, typ)
 		q += fmt.Sprintf(` AND type = $%d`, len(args))
 	}
-	q += pageClause(&args, limit, offset)
+	q += pageClause(&args, limit, offset, sort)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err

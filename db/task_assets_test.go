@@ -37,7 +37,7 @@ func TestRegisterTaskAssetScopesCreatesAssetsAndPersistsTextScope(t *testing.T) 
 	if first.Requested != 5 || first.AssetsLinked != 2 || first.AssetsExisting != 0 || first.ScopesAdded != 5 || first.ScopesExisting != 0 {
 		t.Fatalf("unexpected first mutation: %+v", first)
 	}
-	assets, err := d.Assets().QueryByTask(task.ID, "", 10, 0)
+	assets, err := d.Assets().QueryByTask(task.ID, "", 10, 0, AssetSort{})
 	if err != nil || len(assets) != 2 {
 		t.Fatalf("task assets=%+v err=%v", assets, err)
 	}
@@ -111,7 +111,7 @@ func TestTaskAssetAttachDetachPreservesGlobalAssetAndAnchors(t *testing.T) {
 	if mutation.Requested != 1 || mutation.Attached != 1 || mutation.Existing != 0 {
 		t.Fatalf("unexpected first mutation: %+v", mutation)
 	}
-	assets, err := d.Assets().QueryByTask(task.ID, "", 10, 0)
+	assets, err := d.Assets().QueryByTask(task.ID, "", 10, 0, AssetSort{})
 	if err != nil || len(assets) != 1 {
 		t.Fatalf("task assets=%+v err=%v", assets, err)
 	}
@@ -127,7 +127,7 @@ func TestTaskAssetAttachDetachPreservesGlobalAssetAndAnchors(t *testing.T) {
 	if err != nil || !detached {
 		t.Fatalf("detach=%v err=%v", detached, err)
 	}
-	if assets, err := d.Assets().QueryByTask(task.ID, "", 10, 0); err != nil || len(assets) != 0 {
+	if assets, err := d.Assets().QueryByTask(task.ID, "", 10, 0, AssetSort{}); err != nil || len(assets) != 0 {
 		t.Fatalf("detached task assets=%+v err=%v", assets, err)
 	}
 	var global, anchors, links int

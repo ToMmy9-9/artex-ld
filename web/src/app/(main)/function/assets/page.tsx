@@ -12,6 +12,8 @@ import * as React from "react";
 import { useSearchParams } from "next/navigation";
 
 import {
+  ArrowDownWideNarrowIcon,
+  ArrowUpNarrowWideIcon,
   BuildingIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -152,6 +154,10 @@ function AssetsContent() {
   const [counts, setCounts] = React.useState<Record<string, number>>({});
   const [tab, setTab] = React.useState("host");
   const [query, setQuery] = React.useState("");
+  // 排序：资产量大（生产库 725+），只有「最近出现」一种顺序时很难定位目标。
+  // 字段名与后端白名单一致（db.ParseAssetSort），未知值后端会回落默认值。
+  const [sortField, setSortField] = React.useState("last_seen");
+  const [sortOrder, setSortOrder] = React.useState<"asc" | "desc">("desc");
   const [loaded, setLoaded] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [page, setPage] = React.useState(0);
@@ -329,7 +335,7 @@ function AssetsContent() {
   }, [tab, assetTarget]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: these controls intentionally reset server pagination.
-  React.useEffect(() => setPage(0), [tab, size, query]);
+  React.useEffect(() => setPage(0), [tab, size, query, sortField, sortOrder]);
 
   const dslMode = query.trim() !== "";
 
@@ -353,7 +359,9 @@ function AssetsContent() {
           setCounts((current) => ({ ...current, host: r.total }));
           setTotal(r.total);
         } else {
-          const r = dsl ? await api.searchAssets(dsl, tab, size, offset) : await api.assets(tab, size, offset);
+          const r = dsl
+            ? await api.searchAssets(dsl, tab, size, offset, sortField, sortOrder)
+            : await api.assets(tab, size, offset, sortField, sortOrder);
           if (assetsRequestRef.current !== request) return;
           setRows(r.assets);
           setHostRows([]);
@@ -380,7 +388,7 @@ function AssetsContent() {
       clearTimeout(tid);
       if (assetsRequestRef.current === request) assetsRequestRef.current++;
     };
-  }, [tab, page, size, query, refreshKey]);
+  }, [tab, page, size, query, refreshKey, sortField, sortOrder]);
 
   React.useEffect(() => {
     if (tab === "company") return;
@@ -466,6 +474,37 @@ function AssetsContent() {
               <Trash2Icon className="size-3.5" /> 删除已选 ({selected.size})
             </Button>
           )}
+          {/* 排序：资产量大，只有「最近出现」一种顺序时很难定位目标。
+              字段白名单由后端 db.ParseAssetSort 兜底校验。 */}
+          <Select
+            value={sortField}
+            onValueChange={(value) => {
+              setSortField(value);
+              // 换字段时保持方向语义：名称按升序更自然，其余按降序。
+              setSortOrder(value === "name" ? "asc" : "desc");
+            }}
+          >
+            <SelectTrigger size="sm" className="w-32 shrink-0" aria-label="排序字段">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="last_seen">最近出现</SelectItem>
+              <SelectItem value="created_at">发现时间</SelectItem>
+              <SelectItem value="name">名称</SelectItem>
+              <SelectItem value="status_code">状态码</SelectItem>
+              <SelectItem value="content_length">响应大小</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+            title={sortOrder === "desc" ? "当前：降序，点击切换为升序" : "当前：升序，点击切换为降序"}
+          >
+            {sortOrder === "desc" ? <ArrowDownWideNarrowIcon className="size-3.5" /> : <ArrowUpNarrowWideIcon className="size-3.5" />}
+            {sortOrder === "desc" ? "降序" : "升序"}
+          </Button>
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
             <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} /> 刷新
           </Button>

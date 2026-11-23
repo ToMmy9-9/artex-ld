@@ -611,7 +611,7 @@ RETURNING id`, domainB, companyB).Scan(&companyAssetB); err != nil {
 	if scopeCount != 2 {
 		t.Fatalf("company task scope rows=%d want 2", scopeCount)
 	}
-	assets, err := d.Assets().QueryByTask(task.ID, "root_domain", 10, 0)
+	assets, err := d.Assets().QueryByTask(task.ID, "root_domain", 10, 0, AssetSort{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -656,7 +656,7 @@ RETURNING id`, domainB, companyB).Scan(&companyAssetB); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assets, err := d.Assets().QueryByTask(emptyTask.ID, "", 10, 0); err != nil || len(assets) != 0 {
+	if assets, err := d.Assets().QueryByTask(emptyTask.ID, "", 10, 0, AssetSort{}); err != nil || len(assets) != 0 {
 		t.Fatalf("empty company task assets=%+v err=%v", assets, err)
 	}
 	if err := d.DeleteTask(emptyTask.ID); err != nil {

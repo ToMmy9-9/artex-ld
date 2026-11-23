@@ -195,7 +195,7 @@ func TestInsertAssetsHTTPServiceTechnologies(t *testing.T) {
 	}
 
 	// QueryByType should return technologies correctly (verifies array_to_json scan)
-	assets, err := d.Assets().QueryByType("service", 50, 0)
+	assets, err := d.Assets().QueryByType("service", 50, 0, db.AssetSort{})
 	if err != nil {
 		t.Fatal(err)
 	}

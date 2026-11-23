@@ -37,7 +37,7 @@ func TestTaskAssetSharingOffAllowsManualAssociations(t *testing.T) {
 		t.Fatalf("only the manually associated asset should be visible: got=%v err=%v", got, err)
 	}
 	query := fmt.Sprintf("id==%d OR id==%d", ids[0], ids[1])
-	got, err = assets.QueryDSLInScope(query, "", task.ID, 10, 0)
+	got, err = assets.QueryDSLInScope(query, "", task.ID, 10, 0, AssetSort{})
 	if err != nil || len(got) != 1 || got[0].ID != ids[0] {
 		t.Fatalf("DSL must allow the association without exposing unrelated assets: got=%v err=%v", got, err)
 	}

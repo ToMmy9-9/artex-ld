@@ -486,10 +486,14 @@ export const tasksApi = {
 
   // ---- assets ----
   // Server-side paginated: pass limit/offset, get back the page + full match total.
-  assets: (type = "", limit = 50, offset = 0) =>
-    get<{ count: number; total: number; assets: Asset[] }>(`/assets?type=${type}&limit=${limit}&offset=${offset}`).then(
+  assets: (type = "", limit = 50, offset = 0, sort = "", order = "") => {
+    const p = new URLSearchParams({ type, limit: String(limit), offset: String(offset) });
+    if (sort) p.set("sort", sort);
+    if (order) p.set("order", order);
+    return get<{ count: number; total: number; assets: Asset[] }>(`/assets?${p.toString()}`).then(
       (r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 }),
-    ),
+    );
+  },
   hostAssets: (dsl = "", companyID = "", limit = 50, offset = 0) => {
     const p = new URLSearchParams({ type: "host", limit: String(limit), offset: String(offset) });
     if (dsl) p.set("dsl", dsl);
@@ -499,10 +503,14 @@ export const tasksApi = {
       total: r?.total ?? r?.count ?? 0,
     }));
   },
-  searchAssets: (dsl: string, type = "", limit = 50, offset = 0) =>
-    get<{ count: number; total: number; assets: Asset[] }>(
-      `/assets?dsl=${encodeURIComponent(dsl)}${type ? `&type=${encodeURIComponent(type)}` : ""}&limit=${limit}&offset=${offset}`,
-    ).then((r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 })),
+  searchAssets: (dsl: string, type = "", limit = 50, offset = 0, sort = "", order = "") => {
+    const p = new URLSearchParams({ dsl, type, limit: String(limit), offset: String(offset) });
+    if (sort) p.set("sort", sort);
+    if (order) p.set("order", order);
+    return get<{ count: number; total: number; assets: Asset[] }>(`/assets?${p.toString()}`).then(
+      (r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 }),
+    );
+  },
   assetCounts: (taskId = "") =>
     get<Record<string, number>>(`/assets/counts${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ""}`),
   // assetIds 返回当前筛选命中的全部资产 id（不分页），供「全选全部筛选结果」使用。

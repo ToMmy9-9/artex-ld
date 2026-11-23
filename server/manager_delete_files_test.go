@@ -30,7 +30,7 @@ func TestSeedAssociatesTargetAssetWithTask(t *testing.T) {
 	s := &Server{m: m}
 	s.seed(task, "https://"+host)
 	taskID := mustTaskID(t, task.ID)
-	assets, err := m.Assets().QueryByTask(taskID, "", 20, 0)
+	assets, err := m.Assets().QueryByTask(taskID, "", 20, 0, pgdb.AssetSort{})
 	if err != nil {
 		t.Fatal(err)
 	}

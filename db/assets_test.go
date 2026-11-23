@@ -524,7 +524,7 @@ func TestQueryByType(t *testing.T) {
 	}
 	defer deleteAsset(d, id)
 
-	assets, err := av2.QueryByType("root_domain", 10, 0)
+	assets, err := av2.QueryByType("root_domain", 10, 0, AssetSort{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +603,7 @@ func TestQueryByTask(t *testing.T) {
 	}
 	defer deleteAsset(d, id)
 
-	assets, err := av2.QueryByTask(taskID, "", 10, 0)
+	assets, err := av2.QueryByTask(taskID, "", 10, 0, AssetSort{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -631,7 +631,7 @@ func TestQueryByTask(t *testing.T) {
 	}
 
 	// offset past the end must return nothing, not fall back to page 1
-	rest, err := av2.QueryByTask(taskID, "", 10, n)
+	rest, err := av2.QueryByTask(taskID, "", 10, n, AssetSort{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,7 +669,7 @@ func TestQueryByTaskPaging(t *testing.T) {
 	const size = 25
 	seen := map[int64]bool{}
 	for offset := 0; offset < total; offset += size {
-		page, err := av2.QueryByTask(taskID, "root_domain", size, offset)
+		page, err := av2.QueryByTask(taskID, "root_domain", size, offset, AssetSort{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -707,7 +707,7 @@ func TestQueryByCompany(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assets, err := av2.QueryByCompany(companyID, "root_domain", 10, 0)
+	assets, err := av2.QueryByCompany(companyID, "root_domain", 10, 0, AssetSort{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -730,7 +730,7 @@ func TestQueryByCompany(t *testing.T) {
 	}
 
 	// offset past the end must return nothing, not fall back to page 1
-	rest, err := av2.QueryByCompany(companyID, "root_domain", 10, n)
+	rest, err := av2.QueryByCompany(companyID, "root_domain", 10, n, AssetSort{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -777,7 +777,7 @@ func TestQueryByCompanyPaging(t *testing.T) {
 	const size = 25
 	seen := map[int64]bool{}
 	for offset := 0; offset < total; offset += size {
-		page, err := av2.QueryByCompany(companyID, "subdomain", size, offset)
+		page, err := av2.QueryByCompany(companyID, "subdomain", size, offset, AssetSort{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -938,12 +938,12 @@ func TestAssetPaginationUsesStableIDTieBreaker(t *testing.T) {
 		return got
 	}
 	if got := collect(func(limit, offset int) ([]*Asset, error) {
-		return assets.QueryByTask(taskID, "root_domain", limit, offset)
+		return assets.QueryByTask(taskID, "root_domain", limit, offset, AssetSort{})
 	}); !slices.Equal(got, want) {
 		t.Fatalf("task pagination order=%v want=%v", got, want)
 	}
 	if got := collect(func(limit, offset int) ([]*Asset, error) {
-		return assets.QueryDSL(marker, "root_domain", 0, limit, offset)
+		return assets.QueryDSL(marker, "root_domain", 0, limit, offset, AssetSort{})
 	}); !slices.Equal(got, want) {
 		t.Fatalf("DSL pagination order=%v want=%v", got, want)
 	}
@@ -1087,11 +1087,11 @@ func TestQueryDSLInScopeMembership(t *testing.T) {
 		}
 	}
 	query := fmt.Sprintf("id==%d OR id==%d OR id==%d OR id==%d", foreign, own, inherited, connector)
-	got, err := assets.QueryDSLInScope(query, "", task.ID, 50, 0)
+	got, err := assets.QueryDSLInScope(query, "", task.ID, 50, 0, AssetSort{})
 	assertIDs(got, err, own, inherited)
 	got, err = assets.GetByIDsInScope(task.ID, ids)
 	assertIDs(got, err, own, inherited)
-	got, err = assets.QueryDSL(query, "subdomain", task.ID, 50, 0)
+	got, err = assets.QueryDSL(query, "subdomain", task.ID, 50, 0, AssetSort{})
 	assertIDs(got, err, own)
 	count, err := assets.CountDSL(query, "subdomain", task.ID)
 	if err != nil || count != 1 {
@@ -1132,19 +1132,19 @@ func TestQueryDSLInScopeMembership(t *testing.T) {
 		if enabled {
 			want = ids
 		}
-		got, err = assets.QueryDSLInScope(query, "", task.ID, 50, 0)
+		got, err = assets.QueryDSLInScope(query, "", task.ID, 50, 0, AssetSort{})
 		assertIDs(got, err, want...)
 		got, err = assets.GetByIDsInScope(task.ID, ids)
 		assertIDs(got, err, want...)
 	}
-	got, err = assets.QueryDSLInScope(query, "", 0, 50, 0)
+	got, err = assets.QueryDSLInScope(query, "", 0, 50, 0, AssetSort{})
 	assertIDs(got, err, ids...)
 	empty, err := d.CreateTask("empty task", "goal", nil, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer d.DeleteTask(empty.ID)
-	got, err = assets.QueryDSLInScope(query, "", empty.ID, 50, 0)
+	got, err = assets.QueryDSLInScope(query, "", empty.ID, 50, 0, AssetSort{})
 	assertIDs(got, err)
 	// Explicit company selection imports a snapshot even with global sharing off.
 	associated, err := d.CreateTaskWithOptions("company task", "goal", TaskCreateOptions{CompanyIDs: []int64{companyID}})

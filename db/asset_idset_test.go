@@ -29,7 +29,7 @@ func TestAssetIDSetMatchesListQuery(t *testing.T) {
 	created[rdID] = true
 
 	t.Run("type 过滤与列表一致", func(t *testing.T) {
-		rows, err := av2.QueryByType("ip", 100, 0)
+		rows, err := av2.QueryByType("ip", 100, 0, AssetSort{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +105,7 @@ func TestAssetIDSetMatchesListQuery(t *testing.T) {
 	t.Run("DSL 路径与列表一致", func(t *testing.T) {
 		// 资产 DSL 只支持 "="（ILIKE 包含匹配）；"==" 会被解析成裸文本并报语法错。
 		dsl := `ip = 198.51.100.11`
-		rows, err := av2.QueryDSL(dsl, "", 0, 100, 0)
+		rows, err := av2.QueryDSL(dsl, "", 0, 100, 0, AssetSort{})
 		if err != nil {
 			t.Fatal(err)
 		}

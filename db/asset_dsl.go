@@ -572,7 +572,7 @@ func (s *AssetStore) DSLIDSet(dsl, typ string, taskID int64) (map[int64]bool, er
 // typ is an optional asset type filter applied independently of the DSL expression.
 // taskID > 0 scopes results to assets attached to that task and hydrates each
 // row's per-task source metadata (as QueryByTask does).
-func (s *AssetStore) QueryDSL(dsl, typ string, taskID int64, limit, offset int) ([]*Asset, error) {
+func (s *AssetStore) QueryDSL(dsl, typ string, taskID int64, limit, offset int, sort AssetSort) ([]*Asset, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -598,7 +598,7 @@ func (s *AssetStore) QueryDSL(dsl, typ string, taskID int64, limit, offset int) 
 	}
 	args = append(args, limit, offset)
 	q := assetSelectCols + " WHERE " + where +
-		fmt.Sprintf(" ORDER BY last_seen DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+		sort.orderClause() + fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -619,9 +619,9 @@ func (s *AssetStore) QueryDSL(dsl, typ string, taskID int64, limit, offset int) 
 // QueryDSLInScope applies the task's live asset-sharing policy. By default only
 // owned and directly related assets are visible; sharing enables global reads.
 // Non-task contexts (taskID<=0) retain global reads.
-func (s *AssetStore) QueryDSLInScope(dsl, typ string, taskID int64, limit, offset int) ([]*Asset, error) {
+func (s *AssetStore) QueryDSLInScope(dsl, typ string, taskID int64, limit, offset int, sort AssetSort) ([]*Asset, error) {
 	if taskID <= 0 {
-		return s.QueryDSL(dsl, typ, 0, limit, offset)
+		return s.QueryDSL(dsl, typ, 0, limit, offset, sort)
 	}
 	if limit <= 0 {
 		limit = 50
@@ -648,7 +648,7 @@ func (s *AssetStore) QueryDSLInScope(dsl, typ string, taskID int64, limit, offse
 	where += " AND id IN (SELECT id FROM target)"
 	args = append(args, limit, offset)
 	q := `WITH ` + scopeTargetCTE + ` ` + assetSelectCols + " WHERE " + where +
-		fmt.Sprintf(" ORDER BY last_seen DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+		sort.orderClause() + fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err

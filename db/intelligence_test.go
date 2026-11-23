@@ -221,7 +221,7 @@ func TestIntelligenceSourceSessionUsesGraphProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Exec(`DELETE FROM assets WHERE id=$1`, assetID)
-	assets, err := d.Assets().QueryDSL(fmt.Sprintf("id==%d", assetID), "", 0, 1, 0)
+	assets, err := d.Assets().QueryDSL(fmt.Sprintf("id==%d", assetID), "", 0, 1, 0, AssetSort{})
 	if err != nil || len(assets) != 1 || assets[0].ID != assetID {
 		t.Fatalf("asset ID lookup failed: %+v %v", assets, err)
 	}
