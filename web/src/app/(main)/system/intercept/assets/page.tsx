@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -202,14 +203,21 @@ export default function AssetInterceptPage() {
           {loading ? (
             <p className="p-6 text-sm text-muted-foreground">加载中…</p>
           ) : rules.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-              <BanIcon className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">暂无资产拦截规则</p>
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <BanIcon />
+                </EmptyMedia>
+                <EmptyTitle>暂无资产拦截规则</EmptyTitle>
+                <EmptyDescription>
+                  还没有资产黑名单规则。新建后命中的域名 / IP / URL / 网段将被全局拦截，不对其执行任何操作。
+                </EmptyDescription>
+              </EmptyHeader>
               <Button size="sm" variant="outline" onClick={openNew}>
                 <PlusIcon className="h-4 w-4" />
                 新建第一条规则
               </Button>
-            </div>
+            </Empty>
           ) : (
             <Table>
               <TableHeader>
@@ -247,13 +255,20 @@ export default function AssetInterceptPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-0.5">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(rule)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          aria-label={`编辑资产拦截规则 ${rule.pattern}`}
+                          onClick={() => openEdit(rule)}
+                        >
                           <PencilIcon className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           size="icon"
                           variant="ghost"
                           className="h-7 w-7 text-destructive hover:text-destructive"
+                          aria-label={`删除资产拦截规则 ${rule.pattern}`}
                           onClick={() => handleDelete(rule)}
                         >
                           <Trash2Icon className="h-3.5 w-3.5" />
@@ -278,7 +293,9 @@ export default function AssetInterceptPage() {
 
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
             <Field className="gap-1.5">
-              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">匹配类型</FieldLabel>
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                匹配类型
+              </FieldLabel>
               <Select value={form.kind} onValueChange={(v) => set({ kind: v as AssetInterceptKind })}>
                 <SelectTrigger>
                   <SelectValue />
@@ -301,7 +318,9 @@ export default function AssetInterceptPage() {
             </Field>
 
             <Field className="gap-1.5">
-              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">匹配内容</FieldLabel>
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                匹配内容
+              </FieldLabel>
               <Input
                 placeholder={placeholder}
                 value={form.pattern}
@@ -317,7 +336,9 @@ export default function AssetInterceptPage() {
             </Field>
 
             <Field className="gap-1.5">
-              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">备注（可选）</FieldLabel>
+              <FieldLabel className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                备注（可选）
+              </FieldLabel>
               <Textarea
                 placeholder="说明这条规则的用途"
                 value={form.note}

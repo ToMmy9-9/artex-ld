@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,7 +37,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
-import type { LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride } from "@/lib/types";
+import type { Agent, LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { ProfileRetryFields, RetryPolicyPanel, ZERO_OVERRIDE } from "./_components/retry";
@@ -810,6 +811,12 @@ export default function LLMPage() {
   // 「编辑 X」闪成「新建」。editing = null 表示新建。
   const [editOpen, setEditOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<LLMProfile | null>(null);
+
+  // 删除确认
+  const [deleteTarget, setDeleteTarget] = React.useState<LLMProfile | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  // 引用该配置的 Agent 名单：删除前要告诉用户「有 N 个 Agent 绑着它」。
+  const [agents, setAgents] = React.useState<Agent[]>([]);
   const openEditor = React.useCallback((p: LLMProfile | null) => {
     setEditing(p);
     setEditOpen(true);
@@ -836,6 +843,13 @@ export default function LLMPage() {
     void load();
   }, [load]);
 
+  // 引用关系只用于删除前的提示文案，失败可以静默——拿不到名单不该挡住删除。
+  React.useEffect(() => {
+    api.agents().then(setAgents).catch(() => {
+      // 忽略：拿不到 Agent 名单只影响提示文案
+    });
+  }, []);
+
   // 卡片上的健康徽章按 profile id 取轮询状态。
   const health = React.useMemo(() => {
     const m = new Map<string, LLMPoolMember>();
@@ -858,13 +872,34 @@ export default function LLMPage() {
       toast.error("无法删除当前激活的配置");
       return;
     }
+    setDeleting(true);
     try {
       await api.deleteLLMProfile(p.id);
       toast.success(`已删除：${p.name}`);
+      setDeleteTarget(null);
       await load();
     } catch (e) {
       toast.error(`删除失败：${(e as Error).message}`);
+    } finally {
+      setDeleting(false);
     }
+  }
+
+  // 引用该配置的 Agent：删除后它们会回退到默认配置。
+  const referencedBy = React.useMemo(() => {
+    if (!deleteTarget) return [] as Agent[];
+    const pid = Number(deleteTarget.id);
+    return agents.filter((a) => a.llm_profile_id != null && a.llm_profile_id === pid);
+  }, [agents, deleteTarget]);
+
+  let deleteDescription: string | undefined;
+  if (deleteTarget) {
+    deleteDescription =
+      referencedBy.length > 0
+        ? `被 ${referencedBy.length} 个 Agent 引用的配置删除后，这些 Agent 将回退到默认配置：${referencedBy
+            .map((a) => a.name)
+            .join("、")}。此操作不可撤销。`
+        : "当前没有 Agent 引用该配置。此操作不可撤销。";
   }
 
   const poolOn = pool?.enabled ?? false;
@@ -973,10 +1008,16 @@ export default function LLMPage() {
                       <Button
                         size="icon"
                         variant="outline"
-                        aria-label="删除配置"
+                        aria-label={`删除模型配置 ${p.name}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          void remove(p);
+                          // 当前激活的配置删不掉：先拦下来，别让用户对着一个
+                          // 必然失败的确认弹窗点确认。
+                          if (p.is_default) {
+                            toast.error("无法删除当前激活的配置");
+                            return;
+                          }
+                          setDeleteTarget(p);
                         }}
                       >
                         <Trash2Icon className="text-destructive" />
@@ -1001,6 +1042,19 @@ export default function LLMPage() {
 
       <ProfileSheet profile={editing} open={editOpen} onOpenChange={setEditOpen} onSaved={() => void load()} />
       <PoolSheet open={poolOpen} onOpenChange={setPoolOpen} pool={pool} onReload={loadPool} />
+
+      {/* ---- 删除确认 ---- */}
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`删除模型配置「${deleteTarget?.name ?? ""}」？`}
+        description={deleteDescription}
+        items={referencedBy.length > 0 ? referencedBy.map((a) => a.name) : undefined}
+        deleting={deleting}
+        onConfirm={() => {
+          if (deleteTarget) void remove(deleteTarget);
+        }}
+      />
     </div>
   );
 }

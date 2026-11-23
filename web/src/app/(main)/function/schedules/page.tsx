@@ -16,7 +16,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { SelectAllControl } from "@/components/select-all-control";
 import { DateSelect } from "@/components/date-select";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { RemarkEditor, ScheduleNameEditor } from "@/components/remark-editor";
 import { TimeSelect } from "@/components/time-select";
 import { Badge } from "@/components/ui/badge";
@@ -447,6 +450,10 @@ export default function SchedulesPage() {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState("10");
   const [selectedIds, setSelectedIds] = React.useState<number[]>([]);
+  // 删除确认：单条与批量各一个状态，批量带清单预览（对齐任务页/资产页）。
+  const [pendingDeleteId, setPendingDeleteId] = React.useState<number | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [expandedId, setExpandedId] = React.useState<number | null>(null);
   const [timelineById, setTimelineById] = React.useState<Record<number, TaskSchedule>>({});
   const [timelineLoadingId, setTimelineLoadingId] = React.useState<number | null>(null);
@@ -481,10 +488,6 @@ export default function SchedulesPage() {
   const visibleIds = visibleItems.map((item) => item.id);
   const selectedVisibleCount = visibleIds.filter((id) => selectedIds.includes(id)).length;
   const allVisibleSelected = visibleItems.length > 0 && selectedVisibleCount === visibleItems.length;
-  const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
-  let headerSelectionState: boolean | "indeterminate" = false;
-  if (allVisibleSelected) headerSelectionState = true;
-  else if (someVisibleSelected) headerSelectionState = "indeterminate";
   React.useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
   }, [totalPages]);
@@ -559,8 +562,13 @@ export default function SchedulesPage() {
       setSaving(false);
     }
   };
-  const remove = async (id: number) => {
-    if (!window.confirm("确定删除这个计划吗？")) return;
+  const remove = (id: number) => {
+    setPendingDeleteId(id);
+  };
+  const confirmRemove = async () => {
+    const id = pendingDeleteId;
+    if (id == null) return;
+    setDeleting(true);
     try {
       await api.deleteSchedule(id);
       setTimelineById((current) => {
@@ -569,9 +577,12 @@ export default function SchedulesPage() {
         return next;
       });
       if (expandedId === id) setExpandedId(null);
+      setPendingDeleteId(null);
       await load();
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setDeleting(false);
     }
   };
   const action = async (id: number, type: "pause" | "resume" | "run") => {
@@ -617,9 +628,21 @@ export default function SchedulesPage() {
     await Promise.all(ids.map((id) => invalidateTimeline(id)));
     await load();
   };
+  // 删除确认弹窗要用的清单：计划在前端全量，能直接取到名字。
+  const pendingScheduleName =
+    items.find((item) => item.id === pendingDeleteId)?.name ??
+    (pendingDeleteId != null ? `#${pendingDeleteId}` : "");
+  const selectedScheduleNames = React.useMemo(
+    () =>
+      selectedIds
+        .map((id) => items.find((item) => item.id === id)?.name ?? `#${id}`)
+        .sort(),
+    [items, selectedIds],
+  );
+
   const bulkRemove = async () => {
     const ids = [...selectedIds];
-    if (!ids.length || !window.confirm(`确定删除选中的 ${ids.length} 个计划吗？`)) return;
+    if (!ids.length) return;
     const results = await Promise.allSettled(ids.map((id) => api.deleteSchedule(id)));
     const failed = results.filter((result) => result.status === "rejected").length;
     if (failed) toast.warning(`已删除 ${ids.length - failed} 个计划，${failed} 个计划删除失败`);
@@ -633,6 +656,7 @@ export default function SchedulesPage() {
     });
     if (expandedId && ids.includes(expandedId)) setExpandedId(null);
     setSelectedIds([]);
+    setBulkDeleteOpen(false);
     await load();
   };
   let scheduleContent: React.ReactNode;
@@ -687,19 +711,26 @@ export default function SchedulesPage() {
                 <Zap data-icon="inline-start" />
                 立即运行
               </Button>
-              <Button size="sm" variant="destructive" onClick={() => void bulkRemove()}>
+              <Button size="sm" variant="destructive" onClick={() => setBulkDeleteOpen(true)}>
                 <Trash2 data-icon="inline-start" />
                 删除
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
-                清空选择
-              </Button>
-            </div>
+                全不选
+              </Button>            </div>
           </div>
         ) : null}
         {filteredItems.length === 0 ? (
           <Card>
-            <CardContent className="py-10 text-center text-muted-foreground">没有匹配的计划任务。</CardContent>
+            <CardContent className="p-0">
+              <FilteredEmptyState
+                title="没有匹配的计划任务"
+                description="当前筛选条件下没有匹配的计划任务，可以清除筛选条件后重新浏览。"
+                total={items.length}
+                hasFilters={query.trim() !== ""}
+                onClearFilters={() => updateQuery("")}
+              />
+            </CardContent>
           </Card>
         ) : (
           <div className="overflow-x-auto rounded-lg border bg-card">
@@ -707,10 +738,18 @@ export default function SchedulesPage() {
               <TableHeader className="bg-muted/40">
                 <TableRow>
                   <TableHead className="w-12">
-                    <Checkbox
-                      aria-label="选择当前页计划"
-                      checked={headerSelectionState}
-                      onCheckedChange={(checked) => toggleAllVisible(checked === true)}
+                    {/* 计划列表是前端全量（api.schedules 一次拿全），所以
+                        「全部筛选结果」直接就是筛选后的全集，无需新接口。 */}
+                    <SelectAllControl
+                      pageIds={visibleIds.map(String)}
+                      selectedIds={new Set(selectedIds.map(String))}
+                      onToggleSelectedPage={(_ids, checked) => toggleAllVisible(checked)}
+                      onSelectAllMatching={() => {
+                        setSelectedIds(items.map((item) => item.id));
+                        toast.success(`已选中全部 ${items.length} 个计划`);
+                      }}
+                      onClearSelection={() => setSelectedIds([])}
+                      selectAllLabel="选择本页计划"
                     />
                   </TableHead>
                   <TableHead className="font-mono">ID</TableHead>
@@ -933,6 +972,31 @@ export default function SchedulesPage() {
         </Card>
       )}
       {scheduleContent}
+      {/* 单条删除确认 */}
+      <ConfirmDeleteDialog
+        open={pendingDeleteId != null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setPendingDeleteId(null);
+        }}
+        title={`删除计划「${pendingScheduleName}」？`}
+        description="删除后该计划的时间窗口与触发记录将一并移除，此操作不可撤销。"
+        deleting={deleting}
+        onConfirm={() => void confirmRemove()}
+        onError={(msg) => toast.error(msg)}
+      />
+      {/* 批量删除确认：列出将被删除的计划名，不只给一个数字 */}
+      <ConfirmDeleteDialog
+        open={bulkDeleteOpen}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setBulkDeleteOpen(false);
+        }}
+        title={`删除选中的 ${selectedIds.length} 个计划？`}
+        description="这些计划的时间窗口与触发记录将一并移除，此操作不可撤销。"
+        items={selectedScheduleNames}
+        deleting={deleting}
+        onConfirm={() => void bulkRemove()}
+        onError={(msg) => toast.error(msg)}
+      />
     </div>
   );
 }

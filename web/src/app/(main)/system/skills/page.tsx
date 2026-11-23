@@ -10,12 +10,16 @@
 import * as React from "react";
 import { toast } from "sonner";
 import {
+  BotIcon,
+  BookOpenIcon,
   ChevronRightIcon,
+  ClockIcon,
   FolderIcon,
   FolderOpenIcon,
   FolderPlusIcon,
   FileTextIcon,
   FilePlusIcon,
+  PlugZapIcon,
   PlusIcon,
   Trash2Icon,
   UploadIcon,
@@ -32,7 +36,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -184,7 +190,15 @@ function SkillsOverview({
   if (skills.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">暂无 Skill，点击左侧「新建」或「上传压缩包」开始</p>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <BookOpenIcon />
+            </EmptyMedia>
+            <EmptyTitle>暂无 Skill</EmptyTitle>
+            <EmptyDescription>点击左侧「新建」或「上传压缩包」开始添加技能。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       </div>
     );
   }
@@ -251,7 +265,15 @@ function SkillsOverview({
         <div className="space-y-2">
           <Label className="text-xs text-muted-foreground">最近调用</Label>
           {agg.recent.length === 0 ? (
-            <p className="text-muted-foreground text-xs">暂无记录。</p>
+            <Empty className="border-dashed">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ClockIcon />
+                </EmptyMedia>
+                <EmptyTitle>暂无记录</EmptyTitle>
+                <EmptyDescription>还没有 Skill 被调用过。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="space-y-1">
               {agg.recent.map((s) => (
@@ -341,49 +363,85 @@ export default function SkillsPage() {
   const [pendingDelete, setPendingDelete] = React.useState<PendingDelete>(null);
   const [deleting, setDeleting] = React.useState(false);
 
+  // 上传覆盖确认：同名 Skill 已存在时，先弹窗问用户，覆盖会替换掉原有文件。
+  const [pendingOverwrite, setPendingOverwrite] = React.useState<{ file: File; message: string } | null>(null);
+  const [overwriting, setOverwriting] = React.useState(false);
+
   // 调用统计：列表页的次数/最近调用随 api.skills() 一起回来；选中某个 skill 时再拉它的
   // 最近调用明细。missing = 被点名但不存在的 skill（想用但没有）。
   const [usageCalls, setUsageCalls] = React.useState<SkillCall[]>([]);
   const [usageLoading, setUsageLoading] = React.useState(false);
   const [missing, setMissing] = React.useState<MissingSkill[]>([]);
 
+  // 从后端错误里抠出 Skill 名字：「skill 已存在：foo（如需覆盖请确认后重试）」→ foo
+  const overwriteName = React.useMemo(() => {
+    const m = pendingOverwrite?.message.match(/已存在[：:]\s*([^（(\s]+)/);
+    return m?.[1] ?? "";
+  }, [pendingOverwrite]);
+
   // ── Data ──────────────────────────────────────────────────────────────────
   const load = React.useCallback(() => {
+    // 列表加载失败若静默，页面会显示「（暂无 MCP，可在「MCP」页添加）」——
+    // 把网络故障伪装成「你没配置」，用户会去重复新建。Skill 列表与 MCP
+    // 列表必须把错误说出来。
     api.agents().then(setAgents).catch(() => {});
-    api.mcpServers().then(setMcpOptions).catch(() => {});
+    api
+      .mcpServers()
+      .then(setMcpOptions)
+      .catch((e) => {
+        toast.error(`加载 MCP 列表失败：${(e as Error)?.message ?? e}`);
+      });
     api.missingSkills().then(setMissing).catch(() => {});
-    api.skills().then((ss) => {
-      setSkills(ss);
-      ss.forEach((s) =>
-        api.skillVisibility(s.name)
-          .then((ids) => setVisibility((v) => ({ ...v, [s.name]: ids })))
-          .catch(() => {}),
-      );
-    }).catch(() => {});
+    api
+      .skills()
+      .then((ss) => {
+        setSkills(ss);
+        ss.forEach((s) =>
+          api
+            .skillVisibility(s.name)
+            .then((ids) => setVisibility((v) => ({ ...v, [s.name]: ids })))
+            .catch(() => {}),
+        );
+      })
+      .catch((e) => {
+        toast.error(`加载 Skill 列表失败：${(e as Error)?.message ?? e}`);
+      });
   }, []);
 
   React.useEffect(() => { load(); }, [load]);
 
   // ── Upload a .zip skill ───────────────────────────────────────────────────
-  async function uploadZip(file: File, overwrite = false) {
+  // 返回是否安装成功：覆盖确认弹窗据此决定是关掉自己还是留在原地。
+  async function uploadZip(file: File, overwrite = false): Promise<boolean> {
     setUploading(true);
     try {
       const r = await api.uploadSkill(file, overwrite);
       toast.success(`已安装 Skill：${r.name}（${r.files} 个文件）`);
       load();
+      return true;
     } catch (e) {
       const msg = (e as Error).message;
       // offer overwrite when the skill already exists
       if (!overwrite && msg.includes("已存在")) {
-        if (window.confirm(`${msg}\n\n是否覆盖同名 Skill？`)) {
-          await uploadZip(file, true);
-          return;
-        }
-      } else {
-        toast.error("上传失败：" + msg);
+        // 覆盖会替换同名 Skill 的原有文件，交给确认弹窗问用户。
+        setPendingOverwrite({ file, message: msg });
+        return false;
       }
+      toast.error("上传失败：" + msg);
+      return false;
     } finally {
       setUploading(false);
+    }
+  }
+  async function confirmOverwrite() {
+    const p = pendingOverwrite;
+    if (!p) return;
+    setOverwriting(true);
+    try {
+      const ok = await uploadZip(p.file, true);
+      if (ok) setPendingOverwrite(null);
+    } finally {
+      setOverwriting(false);
     }
   }
   function onUploadPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -834,7 +892,15 @@ export default function SkillsPage() {
               })}
 
               {skills.length === 0 && (
-                <p className="p-3 text-xs text-muted-foreground">暂无 Skill，点击「新建」开始</p>
+                <Empty className="border-dashed p-4">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <BookOpenIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>暂无 Skill</EmptyTitle>
+                    <EmptyDescription>点击「新建」开始添加技能。</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               )}
             </div>
           </ScrollArea>
@@ -928,7 +994,15 @@ export default function SkillsPage() {
                       <span className="ml-1 font-normal">（加载 Skill 时才披露/解锁其工具）</span>
                     </Label>
                     {mcpOptions.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">暂无 MCP，可在「MCP」页添加。</p>
+                      <Empty className="border-dashed">
+                        <EmptyHeader>
+                          <EmptyMedia variant="icon">
+                            <PlugZapIcon />
+                          </EmptyMedia>
+                          <EmptyTitle>暂无 MCP</EmptyTitle>
+                          <EmptyDescription>还没有 MCP 服务器，可在「MCP」页添加后再关联。</EmptyDescription>
+                        </EmptyHeader>
+                      </Empty>
                     ) : (
                       <div className="flex flex-wrap gap-x-4 gap-y-2">
                         {mcpOptions.map((m) => (
@@ -957,7 +1031,15 @@ export default function SkillsPage() {
                         </label>
                       ))}
                       {agents.length === 0 && (
-                        <span className="text-xs text-muted-foreground">（暂无 Agent）</span>
+                        <Empty className="border-dashed">
+                          <EmptyHeader>
+                            <EmptyMedia variant="icon">
+                              <BotIcon />
+                            </EmptyMedia>
+                            <EmptyTitle>暂无 Agent</EmptyTitle>
+                            <EmptyDescription>还没有 Agent，可在「Agent」页创建后再授权可见性。</EmptyDescription>
+                          </EmptyHeader>
+                        </Empty>
                       )}
                     </div>
                   </div>
@@ -1018,6 +1100,21 @@ export default function SkillsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── 上传覆盖确认（同名 Skill 已存在） ── */}
+      <ConfirmDeleteDialog
+        open={pendingOverwrite !== null}
+        onOpenChange={(o) => !o && setPendingOverwrite(null)}
+        title={`覆盖同名 Skill「${overwriteName}」？`}
+        description={
+          pendingOverwrite
+            ? "上传包中的同名文件将替换该 Skill 的现有文件，已有 Agent 对该 Skill 的引用保持不变。"
+            : undefined
+        }
+        confirmText="覆盖安装"
+        deleting={overwriting}
+        onConfirm={() => void confirmOverwrite()}
+      />
 
       {/* ── 新建 Skill 对话框 ── */}
       <Sheet open={newOpen} onOpenChange={setNewOpen}>
@@ -1082,7 +1179,15 @@ export default function SkillsPage() {
             <TabsContent value="mcp" className="overflow-y-auto px-4 pb-4 pt-4 data-[state=inactive]:hidden">
               <p className="mb-3 text-xs text-muted-foreground">加载 Skill 时才披露并解锁所选 MCP 的工具。</p>
               {mcpOptions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">暂无 MCP，可在「MCP」页添加。</p>
+                <Empty className="border-dashed">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <PlugZapIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>暂无 MCP</EmptyTitle>
+                    <EmptyDescription>还没有 MCP 服务器，可在「MCP」页添加后再关联。</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 <div className="flex flex-col gap-2">
                   {mcpOptions.map((m) => (
@@ -1104,7 +1209,15 @@ export default function SkillsPage() {
             <TabsContent value="visibility" className="overflow-y-auto px-4 pb-4 pt-4 data-[state=inactive]:hidden">
               <p className="mb-3 text-xs text-muted-foreground">选中的 Agent 创建后即可见此 Skill。</p>
               {agents.length === 0 ? (
-                <p className="text-xs text-muted-foreground">（暂无 Agent）</p>
+                <Empty className="border-dashed">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <BotIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>暂无 Agent</EmptyTitle>
+                    <EmptyDescription>还没有 Agent，可在「Agent」页创建后再授权可见性。</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 <div className="flex flex-col gap-2">
                   {agents.map((a) => (

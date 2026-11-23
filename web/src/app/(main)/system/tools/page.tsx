@@ -11,6 +11,8 @@ import * as React from "react";
 import { toast } from "sonner";
 import { PlayIcon, PlusIcon, RotateCcwIcon, SaveIcon, SearchIcon, Trash2Icon } from "lucide-react";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -403,6 +405,32 @@ export default function ToolsPage() {
   const customTools = tools.filter((t) => !t.system && matchTool(t));
   const allSystemCount = tools.filter((t) => t.system).length;
   const allCustomCount = tools.filter((t) => !t.system).length;
+  const clearQuery = React.useCallback(() => setQuery(""), []);
+  const hasQuery = query.trim() !== "";
+  // 系统工具为空时：搜过 → 提示清搜索；没搜过 → 后端还没 seed。
+  const systemToolsEmpty = hasQuery ? (
+    <FilteredEmptyState
+      title="没有匹配的系统工具"
+      description="当前搜索条件下没有匹配的系统工具，可以清除搜索条件后重新浏览。"
+      total={allSystemCount}
+      hasFilters
+      onClearFilters={clearQuery}
+    />
+  ) : (
+    <p className="text-muted-foreground py-6 text-center text-sm">（暂无系统工具，等待后端 seed）</p>
+  );
+  // 自定义工具为空时：搜过 → 提示清搜索；没搜过 → 引导新建。
+  const customToolsEmpty = hasQuery ? (
+    <FilteredEmptyState
+      title="没有匹配的自定义工具"
+      description="当前搜索条件下没有匹配的自定义工具，可以清除搜索条件后重新浏览。"
+      total={allCustomCount}
+      hasFilters
+      onClearFilters={clearQuery}
+    />
+  ) : (
+    <p className="text-muted-foreground py-6 text-center text-sm">（暂无自定义工具，点击右上角「新建自定义工具」）</p>
+  );
   // clicking a built-in tool opens the binding drawer; a custom tool opens its full editor.
   const openTool = (t: Tool) => (t.system ? setSelectedKey(t.key) : setCustomEdit(t));
 
@@ -445,9 +473,7 @@ export default function ToolsPage() {
             </CardHeader>
             <CardContent>
               {systemTools.length === 0 ? (
-                <p className="text-muted-foreground py-6 text-center text-sm">
-                  {query.trim() ? "没有匹配的系统工具" : "（暂无系统工具，等待后端 seed）"}
-                </p>
+                systemToolsEmpty
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {systemTools.map((t) => (
@@ -482,9 +508,7 @@ export default function ToolsPage() {
             </CardHeader>
             <CardContent>
               {customTools.length === 0 ? (
-                <p className="text-muted-foreground py-6 text-center text-sm">
-                  {query.trim() ? "没有匹配的自定义工具" : "（暂无自定义工具，点击右上角「新建自定义工具」）"}
-                </p>
+                customToolsEmpty
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {customTools.map((t) => (
@@ -583,6 +607,9 @@ function CustomToolDialog({
   const [testResult, setTestResult] = React.useState<{ output: string; is_error: boolean } | null>(null);
   const [preview, setPreview] = React.useState("");
   const [previewing, setPreviewing] = React.useState(false);
+  // 删除二次确认
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
 
   // (re)load form state when opening.
   React.useEffect(() => {
@@ -676,13 +703,26 @@ function CustomToolDialog({
   }
   async function del() {
     if (!tool) return;
+    setDeleting(true);
     try {
       await api.deleteCustomTool(tool.key);
       toast.success("已删除");
+      setDeleteOpen(false);
       onSaved();
     } catch (e) {
       toast.error("删除失败：" + (e as Error).message);
+    } finally {
+      setDeleting(false);
     }
+  }
+
+  // 删除提示：说明绑定了它的 Agent 会失去该工具。
+  let deleteDescription: string | undefined;
+  let deleteTitle = "";
+  if (tool) {
+    const boundAgents = tool.agents.length > 0 ? `：${tool.agents.join("、")}` : "";
+    deleteDescription = `绑定该工具的 ${tool.agents.length} 个 Agent 将无法再调用它${boundAgents}。此操作不可撤销。`;
+    deleteTitle = `删除自定义工具「${tool.key}」？`;
   }
   // runTest dry-runs the CURRENT form (unsaved) with the sample params, so a
   // template/script/request can be debugged before saving.
@@ -929,12 +969,22 @@ function CustomToolDialog({
             <SaveIcon /> {isNew ? "创建" : "保存"}
           </Button>
           {!isNew && (
-            <Button size="sm" variant="outline" className="text-destructive" onClick={del}>
+            <Button size="sm" variant="outline" className="text-destructive" onClick={() => setDeleteOpen(true)}>
               <Trash2Icon /> 删除
             </Button>
           )}
         </div>
       </SheetContent>
+
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={deleteTitle}
+        description={deleteDescription}
+        items={tool && tool.agents.length > 0 ? tool.agents : undefined}
+        deleting={deleting}
+        onConfirm={() => void del()}
+      />
     </Sheet>
   );
 }

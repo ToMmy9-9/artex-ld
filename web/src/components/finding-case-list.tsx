@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
 import { toast } from "sonner";
 
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -401,6 +402,8 @@ export function FindingCaseList({
   contextTask,
   readOnly = false,
   onTotal,
+  hasFilters: hasFiltersProp,
+  onClearFilters,
 }: {
   query: Omit<FindingQuery, "page" | "pageSize">;
   selectedIds?: Set<string>;
@@ -408,6 +411,10 @@ export function FindingCaseList({
   contextTask?: string;
   readOnly?: boolean;
   onTotal?: (total: number) => void;
+  /** 是否存在生效中的筛选条件；不传时按 query 里的筛选字段推断。 */
+  hasFilters?: boolean;
+  /** 清除当前列表的所有筛选条件。 */
+  onClearFilters?: () => void;
 }) {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(20);
@@ -415,6 +422,16 @@ export function FindingCaseList({
   const [error, setError] = React.useState("");
   const [refresh, setRefresh] = React.useState(0);
   const key = JSON.stringify(query);
+  // task 只表示「看哪个任务」，不是筛选条件；sort/timeDirection 是排序而非筛选。
+  const derivedHasFilters = Boolean(
+    (query.severity && query.severity !== "all") ||
+      (query.status && query.status !== "all") ||
+      (query.vulnclass && query.vulnclass !== "all") ||
+      query.query?.trim() ||
+      query.from ||
+      query.to,
+  );
+  const hasFilters = hasFiltersProp ?? derivedHasFilters;
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset pagination when the filter fingerprint changes.
   React.useEffect(() => {
     setPage(1);
@@ -501,7 +518,15 @@ export function FindingCaseList({
           );
         return null;
       })}
-      {data?.total === 0 ? <p className="p-6 text-center text-muted-foreground text-sm">暂无匹配漏洞</p> : null}
+      {data?.total === 0 ? (
+        <FilteredEmptyState
+          title="没有匹配的漏洞"
+          description="当前筛选条件下没有匹配的漏洞，可以清除筛选条件后重新浏览。"
+          total={data?.stats?.total}
+          hasFilters={hasFilters}
+          onClearFilters={onClearFilters}
+        />
+      ) : null}
       {data ? (
         <TablePagination
           page={page}

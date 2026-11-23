@@ -21,8 +21,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -47,16 +49,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { cn, fmtBytes } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { WorkspaceEntry, WorkspaceFile } from "@/lib/types";
 
-function fmtSize(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleString("zh-CN", {
     year: "2-digit",
@@ -82,6 +78,10 @@ export default function WorkspacePage() {
   const [mkdirOpen, setMkdirOpen] = React.useState(false);
   const [mkdirName, setMkdirName] = React.useState("");
   const uploadRef = React.useRef<HTMLInputElement>(null);
+
+  // 删除确认
+  const [deleteTarget, setDeleteTarget] = React.useState<WorkspaceEntry | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const load = React.useCallback(
     (p: string) => {
@@ -137,15 +137,25 @@ export default function WorkspacePage() {
   };
 
   const del = (e: WorkspaceEntry) => {
-    if (!window.confirm(`确认删除 ${e.dir ? "目录" : "文件"} “${e.name}”？${e.dir ? "（含其下所有内容）" : ""}`)) return;
+    setDeleting(true);
     api
       .workspaceDelete(e.path)
       .then(() => {
         toast.success("已删除");
+        setDeleteTarget(null);
         load(path);
       })
-      .catch((err) => toast.error(`删除失败：${(err as Error).message}`));
+      .catch((err) => toast.error(`删除失败：${(err as Error).message}`))
+      .finally(() => setDeleting(false));
   };
+
+  // 删除提示：目录会连带删掉其下所有内容，必须说清楚。
+  let deleteDescription: string | undefined;
+  if (deleteTarget) {
+    deleteDescription = deleteTarget.dir
+      ? "将一并删除该目录下的所有内容（文件与子目录）。此操作不可撤销。"
+      : "该文件将从工作空间永久删除。此操作不可撤销。";
+  }
 
   const doUpload = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -205,7 +215,14 @@ export default function WorkspacePage() {
           <Button variant="outline" size="sm" onClick={() => uploadRef.current?.click()}>
             <UploadIcon /> 上传
           </Button>
-          <Button variant="ghost" size="icon" className="size-8" onClick={() => load(path)} title="刷新">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={() => load(path)}
+            title="刷新"
+            aria-label="刷新目录"
+          >
             <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
           </Button>
           <input
@@ -232,8 +249,20 @@ export default function WorkspacePage() {
             <TableBody>
               {entries.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-muted-foreground py-10 text-center text-sm">
-                    {loading ? "加载中…" : "空目录"}
+                  <TableCell colSpan={4} className="p-0">
+                    {loading ? (
+                      <div className="py-10 text-center text-muted-foreground text-sm">加载中…</div>
+                    ) : (
+                      <Empty>
+                        <EmptyHeader>
+                          <EmptyMedia variant="icon">
+                            <FolderIcon />
+                          </EmptyMedia>
+                          <EmptyTitle>空目录</EmptyTitle>
+                          <EmptyDescription>该目录下还没有文件或子目录，可以新建文件夹或上传文件。</EmptyDescription>
+                        </EmptyHeader>
+                      </Empty>
+                    )}
                   </TableCell>
                 </TableRow>
               )}
@@ -254,7 +283,7 @@ export default function WorkspacePage() {
                     </button>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-right font-mono text-xs">
-                    {e.dir ? "—" : fmtSize(e.size)}
+                    {e.dir ? "—" : fmtBytes(e.size)}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">{fmtTime(e.mtime)}</TableCell>
                   <TableCell>
@@ -275,7 +304,8 @@ export default function WorkspacePage() {
                         size="icon"
                         className="text-destructive size-7"
                         title="删除"
-                        onClick={() => del(e)}
+                        aria-label={`删除${e.dir ? "目录" : "文件"} ${e.name}`}
+                        onClick={() => setDeleteTarget(e)}
                       >
                         <Trash2Icon className="size-3.5" />
                       </Button>
@@ -287,6 +317,23 @@ export default function WorkspacePage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* 删除确认 */}
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={
+          deleteTarget
+            ? `删除${deleteTarget.dir ? "目录" : "文件"}「${deleteTarget.name}」？${deleteTarget.dir ? "（含其下所有内容）" : ""}`
+            : "删除？"
+        }
+        description={deleteDescription}
+        items={deleteTarget ? [deleteTarget.path] : undefined}
+        deleting={deleting}
+        onConfirm={() => {
+          if (deleteTarget) del(deleteTarget);
+        }}
+      />
 
       {/* 文件查看 / 编辑 */}
       <Sheet open={edit !== null} onOpenChange={(o) => !o && setEdit(null)}>
@@ -300,7 +347,7 @@ export default function WorkspacePage() {
                     {edit.file.path}
                   </span>
                 </SheetTitle>
-                <span className="text-muted-foreground text-xs">{fmtSize(edit.file.size)}</span>
+                <span className="text-muted-foreground text-xs">{fmtBytes(edit.file.size)}</span>
               </SheetHeader>
 
               {edit.file.binary || edit.file.too_large ? (

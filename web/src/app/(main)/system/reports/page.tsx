@@ -6,6 +6,7 @@ import { DownloadIcon, FileTextIcon, ImageIcon, Loader2Icon, PencilIcon, PlusIco
 import { toast } from "sonner";
 
 import { StatusBadge } from "@/components/status-badge";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -26,6 +27,7 @@ import { api } from "@/lib/api";
 import { t, ti } from "@/lib/i18n-lite";
 import type { Finding, Personnel, ReportRecord, ReportSettings, ReportTemplate, Task } from "@/lib/types";
 import { taskLabel, taskMap } from "@/lib/task-label";
+import { fmtBytes } from "@/lib/utils";
 
 function localeName(locale: string): string {
   if (locale === "zh-TW") return t("reports.langZhTW");
@@ -49,12 +51,6 @@ function emptyTemplate(): ReportTemplate {
 function logoUrl(path: string): string {
   if (!path) return "";
   return `/api/report-assets/${path.split("/").pop()}`;
-}
-function fmtSize(n: number): string {
-  if (n <= 0) return "—";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 function fmtTime(ts: string) {
   return new Date(ts).toLocaleString("zh-CN");
@@ -95,6 +91,11 @@ export default function ReportsPage() {
   const [tplOpen, setTplOpen] = React.useState(false);
   const [tplForm, setTplForm] = React.useState<ReportTemplate>(emptyTemplate());
 
+  // 删除确认
+  const [deleteTarget, setDeleteTarget] = React.useState<ReportRecord | null>(null);
+  const [tplDeleteTarget, setTplDeleteTarget] = React.useState<ReportTemplate | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
   const loadReports = React.useCallback(() => {
     api.reports().then(setReports).catch(() => {});
   }, []);
@@ -109,14 +110,16 @@ export default function ReportsPage() {
     [tmap],
   );
   function deleteReport(r: ReportRecord) {
-    if (!window.confirm(ti("reports.deleteConfirm", { name: r.filename }))) return;
+    setDeleting(true);
     api
       .deleteReport(r.id)
       .then(() => {
         toast.success(t("reports.deleted"));
+        setDeleteTarget(null);
         loadReports();
       })
-      .catch((e) => toast.error((e as Error).message));
+      .catch((e) => toast.error((e as Error).message))
+      .finally(() => setDeleting(false));
   }
   const loadTemplates = React.useCallback(() => {
     api.reportTemplates().then(setTemplates).catch(() => {});
@@ -155,15 +158,17 @@ export default function ReportsPage() {
       loadTemplates();
     }).catch((e) => toast.error((e as Error).message));
   }
-  function delTemplate(id: number) {
-    if (!window.confirm(t("reports.deleteTemplateConfirm"))) return;
+  function delTemplate(tpl: ReportTemplate) {
+    setDeleting(true);
     api
-      .deleteReportTemplate(id)
+      .deleteReportTemplate(tpl.id)
       .then(() => {
         toast.success(t("reports.templateDeleted"));
+        setTplDeleteTarget(null);
         loadTemplates();
       })
-      .catch((e) => toast.error((e as Error).message));
+      .catch((e) => toast.error((e as Error).message))
+      .finally(() => setDeleting(false));
   }
   function setTplPerson(i: number, patch: Partial<Personnel>) {
     setTplForm((prev) => ({ ...prev, personnel: prev.personnel.map((p, j) => (j === i ? { ...p, ...patch } : p)) }));
@@ -411,7 +416,12 @@ export default function ReportsPage() {
                     placeholder={t("reports.personContact")}
                     className="w-48"
                   />
-                  <Button size="icon" variant="ghost" onClick={() => removePerson(i)}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`删除测试人员 ${p.name || `第 ${i + 1} 位`}`}
+                    onClick={() => removePerson(i)}
+                  >
                     <TrashIcon className="text-muted-foreground" />
                   </Button>
                 </div>
@@ -458,10 +468,10 @@ export default function ReportsPage() {
                   <TableCell className="text-muted-foreground">{tpl.company_name || "—"}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">{localeName(tpl.locale)}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEditTemplate(tpl)}>
+                    <Button size="icon" variant="ghost" aria-label={`编辑报告模板 ${tpl.name}`} onClick={() => openEditTemplate(tpl)}>
                       <PencilIcon className="text-muted-foreground size-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => delTemplate(tpl.id)}>
+                    <Button size="icon" variant="ghost" aria-label={`删除报告模板 ${tpl.name}`} onClick={() => setTplDeleteTarget(tpl)}>
                       <TrashIcon className="text-muted-foreground size-4" />
                     </Button>
                   </TableCell>
@@ -509,7 +519,7 @@ export default function ReportsPage() {
                   <TableCell className="max-w-xs truncate" title={reportTaskLabel(r)}>{reportTaskLabel(r)}</TableCell>
                   <TableCell className="font-mono text-xs">{r.filename}</TableCell>
                   <TableCell className="text-muted-foreground">{r.company || "—"}</TableCell>
-                  <TableCell className="tabular-nums text-xs">{fmtSize(r.size)}</TableCell>
+                  <TableCell className="tabular-nums text-xs">{fmtBytes(r.size, "—")}</TableCell>
                   <TableCell className="text-muted-foreground text-xs tabular-nums">{fmtTime(r.created_at)}</TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1.5">
@@ -522,7 +532,8 @@ export default function ReportsPage() {
                         size="sm"
                         variant="ghost"
                         className="text-muted-foreground hover:text-destructive"
-                        onClick={() => deleteReport(r)}
+                        aria-label={`删除报告 ${r.filename}`}
+                        onClick={() => setDeleteTarget(r)}
                         title={t("reports.delete")}
                       >
                         <TrashIcon />
@@ -783,7 +794,12 @@ export default function ReportsPage() {
                       placeholder={t("reports.personContact")}
                       className="w-44"
                     />
-                    <Button size="icon" variant="ghost" onClick={() => removeTplPerson(i)}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`删除模板测试人员 ${p.name || `第 ${i + 1} 位`}`}
+                      onClick={() => removeTplPerson(i)}
+                    >
                       <TrashIcon className="text-muted-foreground" />
                     </Button>
                   </div>
@@ -804,6 +820,38 @@ export default function ReportsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ---- 删除确认：报告 ---- */}
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`删除报告「${deleteTarget?.filename ?? ""}」？`}
+        description={
+          deleteTarget
+            ? "该报告文件将从服务器永久删除，已分享的下载链接随之失效。此操作不可撤销。"
+            : undefined
+        }
+        deleting={deleting}
+        onConfirm={() => {
+          if (deleteTarget) deleteReport(deleteTarget);
+        }}
+      />
+
+      {/* ---- 删除确认：报告模板 ---- */}
+      <ConfirmDeleteDialog
+        open={tplDeleteTarget !== null}
+        onOpenChange={(o) => !o && setTplDeleteTarget(null)}
+        title={`删除报告模板「${tplDeleteTarget?.name ?? ""}」？`}
+        description={
+          tplDeleteTarget
+            ? "该模板的公司信息、Logo 与人员名单将被删除，已有报告不受影响。此操作不可撤销。"
+            : undefined
+        }
+        deleting={deleting}
+        onConfirm={() => {
+          if (tplDeleteTarget) delTemplate(tplDeleteTarget);
+        }}
+      />
     </div>
   );
 }

@@ -219,6 +219,7 @@ function Composer({
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled || uploading}
               title="上传文件"
+              aria-label="上传附件"
             >
               {uploading ? <Loader2Icon className="size-4 animate-spin" /> : <PaperclipIcon className="size-4" />}
             </Button>
@@ -1215,6 +1216,14 @@ export default function ChatPage() {
   }
 
   const selectedConversationCount = selectedConversationIds.size;
+  // 删除确认弹窗要列出将被删的对话标题（对话在前端全量，能直接取到）。
+  const selectedConversationTitles = React.useMemo(
+    () =>
+      convs
+        .filter((c) => selectedConversationIds.has(c.id))
+        .map((c) => ({ id: c.id, title: c.title || `#${c.id}` })),
+    [convs, selectedConversationIds],
+  );
   const allConversationsSelected =
     filteredConversations.length > 0 && selectedConversationCount === filteredConversations.length;
   const someConversationsSelected = selectedConversationCount > 0 && !allConversationsSelected;
@@ -1538,6 +1547,20 @@ export default function ChatPage() {
             <AlertDialogTitle>删除选中的 {selectedConversationCount} 个对话？</AlertDialogTitle>
             <AlertDialogDescription>对话消息和执行记录将一并删除，此操作不可撤销。</AlertDialogDescription>
           </AlertDialogHeader>
+          {/* 列出将被删除的对话：只给一个数字的话，选了几十个对话时用户无从
+              知道删的是哪些。任务页与资产页的批量删除都有这个清单预览。 */}
+          {selectedConversationTitles.length > 0 ? (
+            <div className="text-muted-foreground flex max-h-40 flex-wrap gap-1 overflow-y-auto text-xs">
+              {selectedConversationTitles.slice(0, 30).map((t) => (
+                <code key={t.id} className="bg-muted rounded px-1.5 py-0.5" title={t.title}>
+                  {t.title}
+                </code>
+              ))}
+              {selectedConversationTitles.length > 30 ? (
+                <span className="self-center">…等 {selectedConversationTitles.length} 个</span>
+              ) : null}
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkDeleting}>取消</AlertDialogCancel>
             <AlertDialogAction

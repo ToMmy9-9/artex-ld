@@ -372,18 +372,24 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
           setSelectedHosts([]);
           setPickerOpen(false);
         }
+        // 每种模式都要给反馈：删除不可逆，用户点了却看不到任何提示就无从判断
+        // 删没删掉、删了多少条。只有「清空全部」额外值得提释放空间。
         if (mode === "all") {
           // Reclaimed space is the whole point of compacting an emptied index, so say so.
           const reclaimed = r.reclaimed ?? 0;
           const freed = reclaimed > 0 ? `，释放 ${fmtBytes(reclaimed)} 存储` : "";
           toast.success(`已清空 ${r.deleted} 条流量${freed}`);
+        } else {
+          toast.success(`已删除 ${r.deleted} 条流量`);
         }
         setPage(0);
         setReloadTick((t) => t + 1);
       })
       .catch((e) => {
         // Keep the confirmation open so the user can retry a failed deletion.
-        if (mode === "all") toast.error(`清空失败：${(e as Error).message}`);
+        // 失败必须让用户看见：静默失败会让人以为已经删掉了。
+        const verb = mode === "all" ? "清空" : "删除";
+        toast.error(`${verb}失败：${(e as Error).message}`);
       })
       .finally(() => setDeleting(false));
   };

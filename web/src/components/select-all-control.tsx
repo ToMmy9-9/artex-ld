@@ -51,7 +51,7 @@ export interface SelectAllControlProps {
 
 /**
  * SelectAllControl 是表头全选控件：勾选框 + 下拉菜单。
- * 下拉提供「本页全部 / 全部筛选结果 / 清空选择」三项。
+ * 下拉提供「本页全部 / 全部筛选结果 / 全不选」三项。
  */
 export function SelectAllControl({
   pageIds,

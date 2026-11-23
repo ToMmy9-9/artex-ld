@@ -108,11 +108,18 @@ export const getInitials = (str: string): string => {
   );
 };
 
-// fmtBytes renders a human file size: ≥1 MiB → "x.x MB"，≥1 KiB → "x.x KB"，否则 "N B"。
-// 附件 chips、上传清单等共用；需要 GB 或空值语义的版本（如 traffic 页）保留局部实现。
-export function fmtBytes(n: number): string {
+// fmtBytes renders a human file size: ≥1 GiB → "x.x GB"，≥1 MiB → "x.x MB"，
+// ≥1 KiB → "x.x KB"，否则 "N B"。
+//
+// empty 控制「没有值」的显示：默认 "0 B"；传 "—" 则空值显示破折号。报告页、
+// 知识库这类「没有大小信息」的地方用 "—"，有真实大小的地方用 "0 B" ——
+// 同一件事两种写法是之前各处自己实现 fmtBytes 造成的分裂。
+export function fmtBytes(n: number | null | undefined, empty = "0 B"): string {
+  if (n == null || !Number.isFinite(n) || n < 0) return empty;
+  if (n >= 1 << 30) return `${(n / (1 << 30)).toFixed(1)} GB`;
   if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
   if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KB`;
+  if (n === 0) return empty;
   return `${n} B`;
 }
 
@@ -121,6 +128,21 @@ export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
   return String(n);
+}
+
+// fmtDuration renders a duration in seconds: "1m 30s" / "2h 5m" / "3d 4h"。
+// 任务列表与任务详情的会话 Tab 此前各有一份实现，一个带空格一个不带，
+// 用户在相邻页面看到的写法不一致 —— 统一到这里。
+export function fmtDuration(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return "—";
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 // fmtTime 把后端时间戳格式化为 zh-CN 的 月/日 时:分:秒（列表与详情共用）。

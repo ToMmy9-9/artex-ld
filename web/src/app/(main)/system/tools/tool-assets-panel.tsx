@@ -22,6 +22,8 @@ import { toast } from "sonner";
 
 import { api } from "@/lib/api";
 import type { ToolAsset, ToolAssetContract, ToolAssetRun } from "@/lib/types";
+import { fmtBytes } from "@/lib/utils";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -89,12 +91,6 @@ const CATEGORY_LABEL: Record<string, string> = {
   utility: "通用工具",
 };
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
 function contractSummary(c: ToolAssetContract | undefined): string[] {
   if (!c) return [];
   const out: string[] = [];
@@ -119,6 +115,10 @@ export function ToolAssetsPanel() {
   const [limitsFor, setLimitsFor] = React.useState<ToolAsset | null>(null);
   const [limitsText, setLimitsText] = React.useState("");
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  // 删除二次确认
+  const [deleteTarget, setDeleteTarget] = React.useState<ToolAsset | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -196,12 +196,16 @@ export function ToolAssetsPanel() {
 
   const remove = React.useCallback(
     async (asset: ToolAsset) => {
+      setDeleting(true);
       try {
         await api.deleteToolAsset(asset.id);
         toast.success(`已删除 ${asset.name}`);
+        setDeleteTarget(null);
         await reload();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "删除失败");
+      } finally {
+        setDeleting(false);
       }
     },
     [reload],
@@ -344,7 +348,7 @@ export function ToolAssetsPanel() {
                     </button>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <span className="text-muted-foreground mr-1 text-xs">
-                        {formatBytes(a.size_bytes)}
+                        {fmtBytes(a.size_bytes)}
                       </span>
                       {a.state === "managed" ? (
                         <>
@@ -371,7 +375,8 @@ export function ToolAssetsPanel() {
                         size="sm"
                         variant="ghost"
                         className="text-destructive hover:text-destructive"
-                        onClick={() => void remove(a)}
+                        aria-label={`删除外部工具 ${a.name}`}
+                        onClick={() => setDeleteTarget(a)}
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
@@ -476,6 +481,21 @@ export function ToolAssetsPanel() {
           })}
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`删除外部工具「${deleteTarget?.name ?? ""}」？`}
+        description={
+          deleteTarget
+            ? `该二进制文件将从受管目录中移除，Agent 将无法再调用它，其调用记录与受管契约一并删除。此操作不可撤销。`
+            : undefined
+        }
+        deleting={deleting}
+        onConfirm={() => {
+          if (deleteTarget) void remove(deleteTarget);
+        }}
+      />
 
       <Dialog open={!!limitsFor} onOpenChange={(o) => !o && setLimitsFor(null)}>
         <DialogContent className="sm:max-w-2xl">

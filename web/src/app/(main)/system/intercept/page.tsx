@@ -22,6 +22,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -63,6 +65,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
+import { fmtTokens } from "@/lib/utils";
 import type {
   InterceptAction,
   InterceptRule,
@@ -74,12 +77,6 @@ import type {
 } from "@/lib/types";
 
 // fmtTokens 把 token 数压成紧凑写法(1.2k / 3.4M),用于审批用量统计。
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
-  return String(n);
-}
-
 // JudgeStat 是一块统计数字(标签 + 数值)。
 function JudgeStat({ label, value }: { label: string; value: string }) {
   return (
@@ -560,6 +557,10 @@ export default function InterceptPage() {
   const [regexErr, setRegexErr] = React.useState("");
   const [regexWarn, setRegexWarn] = React.useState(false); // true = JS 无法解析但可能是合法 Go 语法
 
+  // ---- 删除确认 ----
+  const [deleteTarget, setDeleteTarget] = React.useState<InterceptRule | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
   // ---- tool scope dialog ----
   const [scopeOpen, setScopeOpen]       = React.useState(false);
   const [allTools, setAllTools]         = React.useState<Tool[]>([]);
@@ -652,13 +653,17 @@ export default function InterceptPage() {
     }
   }
 
-  async function handleDelete(id: number) {
+  async function handleDelete(rule: InterceptRule) {
+    setDeleting(true);
     try {
-      await api.deleteInterceptRule(id);
-      toast.success("规则已删除");
+      await api.deleteInterceptRule(rule.id);
+      toast.success(`已删除规则：${rule.name}`);
+      setDeleteTarget(null);
       load();
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -785,14 +790,19 @@ export default function InterceptPage() {
           {loading ? (
             <p className="p-6 text-sm text-muted-foreground">加载中…</p>
           ) : rules.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-              <ShieldAlertIcon className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">暂无规则</p>
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ShieldAlertIcon />
+                </EmptyMedia>
+                <EmptyTitle>暂无规则</EmptyTitle>
+                <EmptyDescription>还没有配置工具调用拦截规则，新建后即可对工具调用做允许 / 禁止判定。</EmptyDescription>
+              </EmptyHeader>
               <Button size="sm" variant="outline" onClick={openNew}>
                 <PlusIcon className="h-4 w-4" />
                 新建第一条规则
               </Button>
-            </div>
+            </Empty>
           ) : (
             <Table>
               <TableHeader>
@@ -849,7 +859,8 @@ export default function InterceptPage() {
                         <Button
                           size="icon" variant="ghost"
                           className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(rule.id)}
+                          aria-label={`删除拦截规则 ${rule.name}`}
+                          onClick={() => setDeleteTarget(rule)}
                         >
                           <Trash2Icon className="h-3.5 w-3.5" />
                         </Button>
@@ -869,6 +880,27 @@ export default function InterceptPage() {
           <JudgeCard />
         </TabsContent>
       </Tabs>
+
+      {/* ---- 删除确认 ---- */}
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={
+          deleteTarget
+            ? `删除拦截规则「${deleteTarget.name}」· 匹配「${deleteTarget.pattern}」？`
+            : "删除拦截规则？"
+        }
+        description={
+          deleteTarget
+            ? `匹配模式 ${deleteTarget.match_type === "regex" ? "正则" : "字符串"}「${deleteTarget.pattern}」将被移除，命中该规则的命令将不再被拦截。此操作不可撤销。`
+            : undefined
+        }
+        items={deleteTarget ? [deleteTarget.pattern] : undefined}
+        deleting={deleting}
+        onConfirm={() => {
+          if (deleteTarget) void handleDelete(deleteTarget);
+        }}
+      />
 
       {/* ---- editor sheet ---- */}
       <Sheet open={open} onOpenChange={setOpen}>

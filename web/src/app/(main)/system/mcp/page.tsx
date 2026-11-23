@@ -9,9 +9,11 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { PlusIcon, RefreshCwIcon, ServerIcon, Trash2Icon } from "lucide-react";
+import { PlusIcon, PlugZapIcon, RefreshCwIcon, ServerIcon, Trash2Icon } from "lucide-react";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -64,6 +66,10 @@ export default function MCPPage() {
   const [toolsLoading, setToolsLoading] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
 
+  // 删除确认
+  const [deleteTarget, setDeleteTarget] = React.useState<MCPServer | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
   const load = React.useCallback(() => {
     api.agents().then(setAgents).catch(() => {});
     api
@@ -77,7 +83,11 @@ export default function MCPPage() {
             .catch(() => {}),
         );
       })
-      .catch(() => {});
+      // MCP 列表加载失败时若静默，页面会渲染成空卡片网格 —— 用户会以为
+      // 「还没配 MCP」，然后去重复新建。必须把故障说出来。
+      .catch((e) => {
+        toast.error(`加载 MCP 服务器失败：${(e as Error)?.message ?? e}`);
+      });
   }, []);
   React.useEffect(() => {
     load();
@@ -205,13 +215,17 @@ export default function MCPPage() {
   }
 
   async function removeServer(s: MCPServer) {
+    setDeleting(true);
     try {
       await api.deleteMcpServer(s.id);
       toast.success(`已删除：${s.name}`);
+      setDeleteTarget(null);
       setOpen(false);
       load();
     } catch (e) {
       toast.error("删除失败：" + (e as Error).message);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -347,7 +361,15 @@ export default function MCPPage() {
         {toolsLoading ? (
           <p className="text-muted-foreground text-sm">加载中…</p>
         ) : tools.length === 0 ? (
-          <p className="text-muted-foreground text-sm">尚未发现工具，点击刷新重新获取。</p>
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <PlugZapIcon />
+              </EmptyMedia>
+              <EmptyTitle>尚未发现工具</EmptyTitle>
+              <EmptyDescription>点击「刷新」重新获取该 MCP 服务器提供的工具列表。</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="flex flex-col divide-y">
             {tools.map((t) => (
@@ -405,8 +427,8 @@ export default function MCPPage() {
                   <Button
                     size="icon"
                     variant="outline"
-                    aria-label="删除"
-                    onClick={() => removeServer(s)}
+                    aria-label={`删除 MCP 服务器 ${s.name}`}
+                    onClick={() => setDeleteTarget(s)}
                   >
                     <Trash2Icon className="text-destructive" />
                   </Button>
@@ -435,6 +457,27 @@ export default function MCPPage() {
           </Card>
         ))}
       </div>
+
+      {/* ---- 删除确认 ---- */}
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`删除 MCP 服务器「${deleteTarget?.name ?? ""}」？`}
+        description={
+          deleteTarget
+            ? `该服务器提供的 ${deleteTarget.tools?.length ?? 0} 个工具将不可使用${
+                (visibility[deleteTarget.id] ?? []).length > 0
+                  ? `，${(visibility[deleteTarget.id] ?? []).length} 个已授权的 Agent 将失去这些工具`
+                  : ""
+              }。此操作不可撤销。`
+            : undefined
+        }
+        items={deleteTarget?.tools?.length ? deleteTarget.tools : undefined}
+        deleting={deleting}
+        onConfirm={() => {
+          if (deleteTarget) void removeServer(deleteTarget);
+        }}
+      />
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent

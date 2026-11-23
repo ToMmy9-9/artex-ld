@@ -30,6 +30,7 @@ import {
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Progress } from "@/components/ui/progress";
@@ -569,7 +570,15 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               )}
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm">暂无目标，添加后规划者会据此派发探索意图并判定达成。</p>
+            <Empty className="border-dashed">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <TargetIcon />
+                </EmptyMedia>
+                <EmptyTitle>暂无目标</EmptyTitle>
+                <EmptyDescription>添加后规划者会据此派发探索意图并判定达成。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
         </CardContent>
       </Card>
@@ -695,9 +704,17 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               )}
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm">
-              暂无操作约束。建任务时会自动从描述/目标抽取；也可在此手动增删改，用来框定「允许/禁止做哪些操作」。
-            </p>
+            <Empty className="border-dashed">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ShieldAlertIcon />
+                </EmptyMedia>
+                <EmptyTitle>暂无操作约束</EmptyTitle>
+                <EmptyDescription>
+                  建任务时会自动从描述 / 目标抽取；也可在此手动增删改，用来框定「允许 / 禁止做哪些操作」。
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
         </CardContent>
       </Card>
@@ -802,7 +819,15 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               </div>
             </>
           ) : (
-            <p className="text-muted-foreground text-sm">暂无 LLM 用量（任务尚未产生调用，或记录仍在写入）。</p>
+            <Empty className="border-dashed">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <CoinsIcon />
+                </EmptyMedia>
+                <EmptyTitle>暂无 LLM 用量</EmptyTitle>
+                <EmptyDescription>任务尚未产生调用，或记录仍在写入。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
         </CardContent>
       </Card>
@@ -888,7 +913,15 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm">暂无测试范围，添加后可作为资产覆盖度的分母。</p>
+            <Empty className="border-dashed">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ShieldCheckIcon />
+                </EmptyMedia>
+                <EmptyTitle>暂无测试范围</EmptyTitle>
+                <EmptyDescription>添加后可作为资产覆盖度的分母。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
         </CardContent>
       </Card>
@@ -953,7 +986,17 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                 <span className="min-w-0 flex-1 truncate">{i.payload}</span>
               </div>
             ))}
-            {running.length === 0 && <p className="text-sm text-muted-foreground">暂无进行中意图</p>}
+            {running.length === 0 && (
+              <Empty className="border-dashed">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ActivityIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>暂无进行中意图</EmptyTitle>
+                  <EmptyDescription>当前没有正在执行的探索意图。</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
           </CardContent>
         </Card>
 

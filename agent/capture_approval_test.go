@@ -52,6 +52,17 @@ func TestCaptureApprovalLifecycle(t *testing.T) {
 		{"timeout_allow", "ask", "timeout", "succeeded", false, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// model_fallback 要验「模型输出无法解析 → 按失败策略处理 → 放行」。
+			// FailAction 默认是 "ask"，解析失败会转人工审批；本用例没装审批器，
+			// 只能等到 AskTimeoutSeconds 超时，最终记成 timeout 而不是 allowed。
+			// 所以这里显式把 FailAction 设成 allow。
+			failAction := "ask"
+			if tc.action == "invalid" {
+				failAction = "allow"
+			}
+			if err := ic.SetJudgeConfig(intercept.JudgeConfig{Enabled: true, FailAction: failAction, AskTimeoutSeconds: 1, AskTimeoutAction: "allow"}); err != nil {
+				t.Fatal(err)
+			}
 			ic.SetReviewer(func(context.Context, int64, string, intercept.ReviewInput) (intercept.Decision, error) {
 				return intercept.Decision{Action: tc.action, Message: "probe review", ProfileID: 7}, nil
 			})
@@ -122,7 +133,15 @@ func TestCaptureApprovalLifecycle(t *testing.T) {
 				// intentionally omit the bulky replay context from the audit row.
 				wantUserMessage = ""
 			}
-			if detail.Status != tc.status || detail.DecisionSource != "model" || a == nil || a.ExecutionStatus != tc.execution || a.ToolUseID != "probe-call" || a.UserMessage != wantUserMessage || a.InitialAction != initialAction || a.ModelFallback != (tc.action == "invalid") || a.ProfileID != 7 {
+			// 决策来源：人工审批的记录是 manual，模型判定（含兜底）是 model。
+			// 人工审批用例原本也断言 "model"，与实现（db/intercept.go 的
+			// approvalDecisionSource CASE 表达式）不符 —— 那是断言写错了，
+			// 不是实现有 bug。
+			wantDecisionSource := "model"
+			if tc.manual {
+				wantDecisionSource = "manual"
+			}
+			if detail.Status != tc.status || detail.DecisionSource != wantDecisionSource || a == nil || a.ExecutionStatus != tc.execution || a.ToolUseID != "probe-call" || a.UserMessage != wantUserMessage || a.InitialAction != initialAction || a.ModelFallback != (tc.action == "invalid") || a.ProfileID != 7 {
 				t.Fatalf("unexpected review: row=%+v audit=%+v", detail.InterceptApprovalRow, a)
 			}
 			if initialAction == "allow" && (len(a.Context) != 0 || a.UserTruncated || a.ContextTruncated) {

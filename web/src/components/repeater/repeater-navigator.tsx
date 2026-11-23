@@ -176,7 +176,7 @@ export function RepeaterNavigator({
         <div className="flex items-center gap-2">
           <Checkbox
             id="repeater-select-visible"
-            aria-label="全选筛选结果"
+            aria-label="选择当前筛选结果的所有请求"
             checked={allSelected || (visible.some((tab) => selected.has(tab.id)) ? "indeterminate" : false)}
             disabled={!visible.length}
             onCheckedChange={(checked) =>
@@ -191,13 +191,13 @@ export function RepeaterNavigator({
             }
           />
           <label htmlFor="repeater-select-visible" className="text-xs">
-            全选结果
+            全选当前筛选结果
           </label>
           <span className="ml-auto text-muted-foreground text-xs">
             已选 {selectedIds.length} 条{hiddenSelected ? `（隐藏 ${hiddenSelected}）` : ""}
           </span>
           {selectedIds.length ? (
-            <Button variant="ghost" size="icon-sm" aria-label="清空勾选" onClick={() => setSelected(new Set())}>
+            <Button variant="ghost" size="icon-sm" aria-label="全不选" onClick={() => setSelected(new Set())}>
               <X />
             </Button>
           ) : null}

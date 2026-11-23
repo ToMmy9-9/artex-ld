@@ -78,7 +78,7 @@ import type {
   TaskNode,
   TokenTotal,
 } from "@/lib/types";
-import { cn, fmtBytes, fmtTokens } from "@/lib/utils";
+import { cn, fmtBytes, fmtDuration, fmtTokens } from "@/lib/utils";
 
 // resolutionLabel names the LLM a session runs on. The badge shows this alone and
 // keeps the model id in its tooltip. Env-backed configs can arrive without a name,
@@ -220,15 +220,6 @@ const TokenMetrics = React.forwardRef<
 TokenMetrics.displayName = "TokenMetrics";
 
 // fmtDuration renders an elapsed milliseconds span compactly (90s → 1m30s).
-function fmtDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h${String(m % 60).padStart(2, "0")}m`;
-}
-
 const roleMeta = {
   mainagent: { label: "主 Agent", icon: UserIcon },
   planner: { label: "规划 Planner", icon: BrainIcon },
@@ -1927,7 +1918,7 @@ export function SessionsTab({ taskId, requestedSession = "" }: { taskId: string;
                 {runDuration != null && (
                   <span className="inline-flex items-center gap-1" title="运行时长（首步 → 末步）">
                     <ClockIcon className="size-3" />
-                    {fmtDuration(runDuration)}
+                    {fmtDuration(runDuration / 1000)}
                   </span>
                 )}
                 {isMain && <span>可交互</span>}

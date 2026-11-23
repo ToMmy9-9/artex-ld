@@ -38,6 +38,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -137,6 +138,7 @@ function AgentGridCard({
               variant="ghost"
               size="icon-sm"
               className="text-muted-foreground hover:text-destructive absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100"
+              aria-label={`删除 Agent ${agent.name}`}
             >
               <Trash2Icon className="size-3.5" />
             </Button>
@@ -281,7 +283,15 @@ export default function AgentsPage() {
         </CardHeader>
         <CardContent>
           {agents.length === 0 ? (
-            <p className="text-muted-foreground py-6 text-center text-sm">（暂无 Agent）</p>
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Bot />
+                </EmptyMedia>
+                <EmptyTitle>暂无 Agent</EmptyTitle>
+                <EmptyDescription>还没有 Agent，点击右上角「新建 Agent」创建一个会话型助手。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {agents.map((a) => (

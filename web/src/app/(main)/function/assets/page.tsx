@@ -607,8 +607,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-            onToggleOne={toggleSelect}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -654,8 +653,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-            onToggleOne={toggleSelect}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -707,8 +705,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-            onToggleOne={toggleSelect}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -755,8 +752,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-            onToggleOne={toggleSelect}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -801,8 +797,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-            onToggleOne={toggleSelect}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -929,6 +924,7 @@ function AssetsContent() {
                     className="size-7"
                     disabled={page <= 0}
                     onClick={() => setPage((value) => Math.max(0, value - 1))}
+                    aria-label="上一页"
                   >
                     <ChevronLeftIcon />
                   </Button>
@@ -941,6 +937,7 @@ function AssetsContent() {
                     className="size-7"
                     disabled={page + 1 >= Math.ceil(total / size)}
                     onClick={() => setPage((value) => value + 1)}
+                    aria-label="下一页"
                   >
                     <ChevronRightIcon />
                   </Button>
@@ -963,8 +960,7 @@ function AssetsContent() {
             onPage={setPage}
             rows={currentRows}
             selected={selected}
-            onToggleAll={(ids) => toggleSelectAll(ids)}
-            onToggleOne={toggleSelect}
+            onToggleAll={(ids) => toggleSelectAll(ids)}
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
@@ -1106,8 +1102,7 @@ function AssetCard({
   onPage,
   rows: dataRows,
   selected,
-  onToggleAll,
-  onToggleOne,
+  onToggleAll,
   onSelectAllMatching,
   selectingAllMatching,
   onClearSelection,
@@ -1124,8 +1119,7 @@ function AssetCard({
   onPage: React.Dispatch<React.SetStateAction<number>>;
   rows?: Asset[];
   selected?: Set<number>;
-  onToggleAll?: (ids: number[]) => void;
-  onToggleOne?: (id: number) => void;
+  onToggleAll?: (ids: number[]) => void;
   onSelectAllMatching?: () => void;
   selectingAllMatching?: boolean;
   onClearSelection?: () => void;
@@ -1215,6 +1209,7 @@ function AssetCard({
                 className="size-7"
                 disabled={page <= 0}
                 onClick={() => onPage((p) => Math.max(0, p - 1))}
+                aria-label="上一页"
               >
                 <ChevronLeftIcon />
               </Button>
@@ -1227,6 +1222,7 @@ function AssetCard({
                 className="size-7"
                 disabled={page + 1 >= pageCount}
                 onClick={() => onPage((p) => Math.min(pageCount - 1, p + 1))}
+                aria-label="下一页"
               >
                 <ChevronRightIcon />
               </Button>

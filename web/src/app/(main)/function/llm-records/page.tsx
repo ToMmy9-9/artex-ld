@@ -20,6 +20,8 @@ import {
   CheckIcon,
 } from "lucide-react";
 
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,7 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn, copyText, fmtTime } from "@/lib/utils";
+import { cn, copyText, fmtTime, fmtTokens } from "@/lib/utils";
 import { HttpPacketSyntax } from "@/components/http-code-block";
 import { api } from "@/lib/api";
 import type { LLMRecordItem, LLMRecordDetail, LLMTask } from "@/lib/types";
@@ -59,11 +61,6 @@ import type { LLMRecordItem, LLMRecordDetail, LLMTask } from "@/lib/types";
 function fmtLatency(ms: number) {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function fmtTokens(n: number) {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
 }
 
 function tryFormatJSON(s: string): string {
@@ -191,6 +188,15 @@ export default function LLMRecordsPage() {
     setPage(0);
   }, [sessionQ, model, size, pickedTask]);
 
+  // 生效中的筛选条件：Session 搜索 / Model / 任务下拉。每页条数是分页设置，不算筛选。
+  const hasFilters = sessionQ.trim() !== "" || model.trim() !== "" || pickedTask !== "";
+  const clearFilters = React.useCallback(() => {
+    setSession("");
+    setSessionQ("");
+    setModel("");
+    setPickedTask("");
+  }, []);
+
   // Load list.
   React.useEffect(() => {
     let alive = true;
@@ -208,7 +214,13 @@ export default function LLMRecordsPage() {
         setRecords(r.records ?? []);
         setTotal(r.total ?? 0);
       })
-      .catch(() => {})
+      .catch((e) => {
+        // 加载失败要让用户知道，否则空列表会被误读成「没有调用记录」。
+        if (!alive) return;
+        setRecords([]);
+        setTotal(0);
+        toast.error(`加载 LLM 记录失败：${(e as Error)?.message ?? e}`);
+      })
       .finally(() => alive && setLoading(false));
     api
       .llmTasks()
@@ -234,7 +246,10 @@ export default function LLMRecordsPage() {
         setPage(0);
         setReloadTick((t) => t + 1);
       })
-      .catch(() => {})
+      .catch((e) => {
+        // 删除不可逆，失败必须让用户知道 —— 静默失败会让人以为已经删掉了。
+        toast.error(`删除失败：${(e as Error)?.message ?? e}`);
+      })
       .finally(() => setDeleting(false));
   };
 
@@ -361,6 +376,7 @@ export default function LLMRecordsPage() {
             className="size-8"
             disabled={page <= 0}
             onClick={() => setPage((p) => Math.max(0, p - 1))}
+            aria-label="上一页"
           >
             <ChevronLeftIcon />
           </Button>
@@ -373,6 +389,7 @@ export default function LLMRecordsPage() {
             className="size-8"
             disabled={page + 1 >= totalPages}
             onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            aria-label="下一页"
           >
             <ChevronRightIcon />
           </Button>
@@ -405,8 +422,14 @@ export default function LLMRecordsPage() {
                   </TableRow>
                 ) : records.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-12 text-center text-sm text-muted-foreground">
-                      暂无 LLM 调用记录
+                    <TableCell colSpan={8} className="p-0">
+                      <FilteredEmptyState
+                        title="没有匹配的 LLM 调用记录"
+                        description="当前筛选条件下没有 LLM 调用记录，可以清除筛选条件后重新浏览。"
+                        total={total}
+                        hasFilters={hasFilters}
+                        onClearFilters={clearFilters}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -504,7 +527,13 @@ export default function LLMRecordsPage() {
               >
                 原文
               </Button>
-              <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={() => setSelected(null)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0"
+                onClick={() => setSelected(null)}
+                aria-label="关闭详情"
+              >
                 <XIcon />
               </Button>
             </div>

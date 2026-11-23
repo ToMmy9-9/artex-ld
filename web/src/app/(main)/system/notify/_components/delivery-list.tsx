@@ -11,6 +11,7 @@ import * as React from "react";
 import { RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 import { toast } from "sonner";
 
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -67,6 +68,14 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
     // 删除、重发或筛选导致总数缩小时，自动回到最后一个有效页。
     if (page > maxPage) setPage(maxPage);
   }, [maxPage, page]);
+
+  // 生效中的筛选条件：渠道 / 投递状态。
+  const hasFilters = channelID !== undefined || state !== undefined;
+  const clearFilters = React.useCallback(() => {
+    setChannelID(undefined);
+    setState(undefined);
+    setPage(1);
+  }, []);
 
   return (
     <div className="flex flex-col gap-3">
@@ -131,8 +140,18 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-muted-foreground py-8 text-center">
-                  {loading ? "加载中…" : "暂无投递记录"}
+                <TableCell colSpan={7} className="p-0">
+                  {loading ? (
+                    <div className="py-8 text-center text-muted-foreground text-sm">加载中…</div>
+                  ) : (
+                    <FilteredEmptyState
+                      title="没有匹配的投递记录"
+                      description="当前筛选条件下没有投递记录，可以清除筛选条件后重新浏览。"
+                      total={total}
+                      hasFilters={hasFilters}
+                      onClearFilters={clearFilters}
+                    />
+                  )}
                 </TableCell>
               </TableRow>
             ) : (

@@ -10,6 +10,7 @@ import * as React from "react";
 import { BellIcon, PlusIcon, SendIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +52,10 @@ export default function NotifyPage() {
   const [form, setForm] = React.useState<ChannelForm>(emptyForm("dingtalk"));
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
+
+  // 删除确认
+  const [deleteTarget, setDeleteTarget] = React.useState<NotificationChannel | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const [globalSaving, setGlobalSaving] = React.useState(false);
   const [baseURL, setBaseURL] = React.useState("");
@@ -216,13 +221,17 @@ export default function NotifyPage() {
   }
 
   async function removeChannel(ch: NotificationChannel) {
+    setDeleting(true);
     try {
       await api.notifyDeleteChannel(ch.id);
       toast.success(`已删除：${ch.name}`);
+      setDeleteTarget(null);
       setOpen(false);
       load();
     } catch (e) {
       toast.error("删除失败：" + (e as Error).message);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -387,12 +396,11 @@ export default function NotifyPage() {
                       <Button
                         size="icon"
                         variant="outline"
-                        aria-label="删除"
+                        aria-label={`删除通知渠道 ${ch.name}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          // void 显式丢弃 Promise：removeChannel 自己 catch 并 toast，
-                          // 这里不需要 await（onClick 不是 async）。
-                          void removeChannel(ch);
+                          // 打开确认弹窗，真正删除在弹窗确认后发生。
+                          setDeleteTarget(ch);
                         }}
                       >
                         <Trash2Icon className="text-destructive" />
@@ -417,6 +425,22 @@ export default function NotifyPage() {
           <DeliveryList channels={channels} />
         </TabsContent>
       </Tabs>
+
+      {/* ---- 删除确认 ---- */}
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`删除通知渠道「${deleteTarget?.name ?? ""}」？`}
+        description={
+          deleteTarget
+            ? "该渠道将不再接收漏洞告警推送，其推送过滤规则与限流配置一并删除。此操作不可撤销。"
+            : undefined
+        }
+        deleting={deleting}
+        onConfirm={() => {
+          if (deleteTarget) void removeChannel(deleteTarget);
+        }}
+      />
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-full data-[side=right]:sm:max-w-lg">

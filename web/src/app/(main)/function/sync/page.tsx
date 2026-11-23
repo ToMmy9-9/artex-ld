@@ -9,13 +9,14 @@
 
 import * as React from "react";
 
-import { AlertCircleIcon, CheckCircle2Icon, DownloadIcon, PlugZapIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { AlertCircleIcon, CheckCircle2Icon, DownloadIcon, FolderIcon, ListChecksIcon, PlugZapIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -274,7 +275,13 @@ function SyncWorkbench() {
 
   React.useEffect(() => {
     // 切换数据集合时清除不可见选择；单纯刷新保留用户已选行。
-    setSelected(new Set());
+    // 清空要出声：翻页后选择被悄悄清掉，用户会以为勾选还在。
+    setSelected((prev) => {
+      if (prev.size > 0) {
+        toast.info(`已清空 ${prev.size} 条选择（切换数据集合或翻页时不保留跨页选择）`);
+      }
+      return new Set();
+    });
   }, [dimension, page, query]);
 
   React.useEffect(() => {
@@ -292,9 +299,23 @@ function SyncWorkbench() {
       return next;
     });
   };
-  const toggleAll = () => {
-    setSelected((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map(idOf))));
+  // 表头勾选框走「设置」语义（与其它列表页一致），并支持三态。
+  // 原来的 toggleAll 忽略 checked 直接翻转：点了已是全选就全不选、否则全选 ——
+  // 与表头三态勾选框对不上，用户在别的页面形成的肌肉记忆在这里会踩空。
+  const toggleAll = (checked: boolean | "indeterminate") => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked === true) for (const row of rows) next.add(idOf(row));
+      else for (const row of rows) next.delete(idOf(row));
+      return next;
+    });
   };
+  const allOnPageSelected = rows.length > 0 && rows.every((row) => selected.has(idOf(row)));
+  const someOnPageSelected = rows.some((row) => selected.has(idOf(row)));
+  // 三态勾选框：全选 / 部分 / 未选。用 if 而不是嵌套三元，读起来更直白。
+  let headerChecked: boolean | "indeterminate" = false;
+  if (allOnPageSelected) headerChecked = true;
+  else if (someOnPageSelected) headerChecked = "indeterminate";
 
   const chosenTypes = ASSET_TYPES.filter((t) => assetTypes[t.key]).map((t) => t.key);
 
@@ -331,10 +352,27 @@ function SyncWorkbench() {
       );
     }
     if (rows.length === 0) {
+      const isProject = dimension === "project";
+      let emptyDescription: string;
+      if (query) {
+        emptyDescription = "当前搜索条件下没有匹配的项目，可以更换关键字或清空搜索后重试。";
+      } else if (isProject) {
+        emptyDescription = "数据源中还没有可同步的项目，请确认 ScopeSentry 已接入目标资产。";
+      } else {
+        emptyDescription = "数据源中还没有可同步的任务，请确认 ScopeSentry 已接入目标任务。";
+      }
       return (
         <TableRow>
-          <TableCell colSpan={4} className="py-8 text-center text-muted-foreground text-sm">
-            无数据
+          <TableCell colSpan={4} className="p-0">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  {isProject ? <FolderIcon /> : <ListChecksIcon />}
+                </EmptyMedia>
+                <EmptyTitle>{isProject ? "暂无匹配的项目" : "暂无匹配的任务"}</EmptyTitle>
+                <EmptyDescription>{emptyDescription}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           </TableCell>
         </TableRow>
       );
@@ -425,13 +463,21 @@ function SyncWorkbench() {
               }}
             />
           </div>
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={load}
+            disabled={loading}
+            aria-label="刷新列表"
+            title="刷新列表"
+          >
             <RefreshCwIcon className={loading ? "size-4 animate-spin" : "size-4"} />
           </Button>
           <div className="flex-1" />
-          <span className="text-muted-foreground text-xs">已选 {selected.size}</span>
+          <span className="text-muted-foreground text-xs">已选 {selected.size} 条</span>
           <Button onClick={runSync} disabled={syncing || selected.size === 0}>
-            <DownloadIcon className={syncing ? "size-4 animate-pulse" : "size-4"} /> 同步选中
+            <DownloadIcon className={syncing ? "size-4 animate-pulse" : "size-4"} />{" "}
+            {syncing ? "同步中…" : "同步选中"}
           </Button>
         </div>
 
@@ -441,7 +487,11 @@ function SyncWorkbench() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10">
-                  <Checkbox checked={rows.length > 0 && selected.size === rows.length} onCheckedChange={toggleAll} />
+                  <Checkbox
+                    aria-label="选择本页项目"
+                    checked={headerChecked}
+                    onCheckedChange={toggleAll}
+                  />
                 </TableHead>
                 <TableHead>{dimension === "project" ? "项目名" : "任务名"}</TableHead>
                 {dimension === "project" ? (

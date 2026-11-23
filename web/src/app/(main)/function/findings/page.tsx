@@ -1183,6 +1183,8 @@ export default function FindingsPage() {
             query={{ severity, status, vulnclass, task, query, sort, ...dateRange }}
             selectedIds={selectedIds}
             onSelect={toggleSelected}
+            hasFilters={hasAnyFilter}
+            onClearFilters={clearAllFilters}
           />
         )}
         {view === "grouped" && (

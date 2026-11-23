@@ -190,6 +190,13 @@ export function FindingsTab({ taskId }: { taskId: string }) {
   // Discover inherited sources before filtering; finding-cases owns folder matching.
   const taskFindings = findings.filter((f) => f.task_id === taskId || f.inherited);
   const items = filterAndSortFindings(taskFindings, severity, sortPreference, query);
+  // 排序不是筛选，只有等级与搜索算生效中的筛选条件。
+  const hasFilters = severity !== "all" || query.trim() !== "";
+  const clearFilters = React.useCallback(() => {
+    setSeverity("all");
+    setSearch("");
+    setQuery("");
+  }, []);
 
   return (
     <div className="flex flex-col gap-4">
@@ -277,6 +284,8 @@ export function FindingsTab({ taskId }: { taskId: string }) {
           timeDirection: sortPreference.direction,
         }}
         contextTask={taskId}
+        hasFilters={hasFilters}
+        onClearFilters={clearFilters}
       />
       {[
         ...new Set(
@@ -298,6 +307,8 @@ export function FindingsTab({ taskId }: { taskId: string }) {
             }}
             contextTask={taskId}
             readOnly
+            hasFilters={hasFilters}
+            onClearFilters={clearFilters}
           />
         </div>
       ))}

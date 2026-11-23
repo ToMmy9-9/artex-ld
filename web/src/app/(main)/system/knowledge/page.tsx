@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,13 +40,7 @@ import { api } from "@/lib/api";
 import { t, ti } from "@/lib/i18n-lite";
 import { taskLabel } from "@/lib/task-label";
 import type { KnowledgeConfig, KnowledgeDoc, KnowledgeHit, KnowledgeLog, Task } from "@/lib/types";
-
-function fmtSize(n: number): string {
-  if (n <= 0) return "—";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
+import { fmtBytes } from "@/lib/utils";
 
 export default function KnowledgePage() {
   const [docs, setDocs] = React.useState<KnowledgeDoc[]>([]);
@@ -84,6 +79,10 @@ export default function KnowledgePage() {
   // logs dialog
   const [logsOpen, setLogsOpen] = React.useState(false);
   const [logs, setLogs] = React.useState<KnowledgeLog[]>([]);
+
+  // 删除确认
+  const [deleteTarget, setDeleteTarget] = React.useState<KnowledgeDoc | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const loadDocs = React.useCallback(() => {
     setLoading(true);
@@ -125,10 +124,11 @@ export default function KnowledgePage() {
     p.then(() => { toast.success(t("knowledge.saved")); setDocOpen(false); loadDocs(); loadCfg(); })
       .catch((e) => toast.error((e as Error).message));
   }
-  function delDoc(id: number) {
-    if (!window.confirm(t("knowledge.deleteConfirm"))) return;
-    api.deleteKnowledgeDoc(id).then(() => { toast.success(t("knowledge.deleted")); loadDocs(); loadCfg(); })
-      .catch((e) => toast.error((e as Error).message));
+  function delDoc(d: KnowledgeDoc) {
+    setDeleting(true);
+    api.deleteKnowledgeDoc(d.id).then(() => { toast.success(t("knowledge.deleted")); setDeleteTarget(null); loadDocs(); loadCfg(); })
+      .catch((e) => toast.error((e as Error).message))
+      .finally(() => setDeleting(false));
   }
 
   function doUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -294,12 +294,17 @@ export default function KnowledgePage() {
                   <TableCell className="text-muted-foreground text-xs tabular-nums">
                     {d.indexed ? d.chunks : <span className="text-amber-600">{t("knowledge.indexedNo")}</span>}
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-xs tabular-nums">{fmtSize(d.bytes)}</TableCell>
+                  <TableCell className="text-muted-foreground text-xs tabular-nums">{fmtBytes(d.bytes, "—")}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEditDoc(d)}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`编辑知识库文档 ${d.title}`}
+                      onClick={() => openEditDoc(d)}
+                    >
                       <PencilIcon className="text-muted-foreground size-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => delDoc(d.id)}>
+                    <Button size="icon" variant="ghost" aria-label={`删除知识库文档 ${d.title}`} onClick={() => setDeleteTarget(d)}>
                       <TrashIcon className="text-muted-foreground size-4" />
                     </Button>
                   </TableCell>
@@ -485,6 +490,22 @@ export default function KnowledgePage() {
           </ScrollArea>
         </DialogContent>
       </Dialog>
+
+      {/* 删除确认 */}
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`删除知识库文档「${deleteTarget?.title ?? ""}」？`}
+        description={
+          deleteTarget
+            ? `该文档的 ${deleteTarget.chunks} 个向量分块将一并删除，Agent 的语义检索将不再召回其内容。此操作不可撤销。`
+            : undefined
+        }
+        deleting={deleting}
+        onConfirm={() => {
+          if (deleteTarget) delDoc(deleteTarget);
+        }}
+      />
     </div>
   );
 }

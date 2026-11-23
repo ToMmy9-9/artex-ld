@@ -11,7 +11,9 @@ import * as React from "react";
 
 import { Loader2Icon, RefreshCwIcon, ScrollTextIcon, SearchIcon } from "lucide-react";
 
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { TablePagination } from "@/components/table-pagination";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +53,9 @@ export function AuditRecords() {
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(1);
   const [loading, setLoading] = React.useState(false);
+  // 后端不可用时日志列表会变空 —— 不给错误提示的话，用户会以为「本来就没有
+  // 审计日志」，而不是「读取失败」。这会把故障伪装成空数据。
+  const [error, setError] = React.useState("");
   const [category, setCategory] = React.useState("all");
   const [action, setAction] = React.useState("all");
   const [result, setResult] = React.useState("all");
@@ -72,9 +77,13 @@ export function AuditRecords() {
         if (!alive) return;
         setLogs(r.logs ?? []);
         setTotal(r.total ?? 0);
+        setError("");
       })
-      .catch(() => {
-        if (alive) setLogs([]);
+      .catch((e) => {
+        if (!alive) return;
+        setLogs([]);
+        setTotal(0);
+        setError((e as Error)?.message ?? "未知错误");
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -88,6 +97,38 @@ export function AuditRecords() {
   React.useEffect(() => {
     setPage(1);
   }, [category, action, result, qApplied]);
+
+  // 生效中的筛选条件：分类 / 动作 / 结果任一非「全部」，或搜索框有内容。
+  const hasFilters =
+    category !== "all" || action !== "all" || result !== "all" || qApplied.trim() !== "";
+  const clearFilters = React.useCallback(() => {
+    setCategory("all");
+    setAction("all");
+    setResult("all");
+    setQ("");
+    setQApplied("");
+  }, []);
+
+  // 空单元格：加载中 / 出错 / 无匹配，三种状态互斥。出错时不能显示
+  // 「没有匹配的记录」——那会把故障说成空数据，用户以为本来就没日志。
+  let emptyCell: React.ReactNode;
+  if (loading) {
+    emptyCell = <div className="py-10 text-center text-muted-foreground text-sm">加载中…</div>;
+  } else if (error) {
+    emptyCell = (
+      <div className="py-10 text-center text-muted-foreground text-sm">日志读取失败，请刷新重试。</div>
+    );
+  } else {
+    emptyCell = (
+      <FilteredEmptyState
+        title="没有匹配的审计记录"
+        description="当前筛选条件下没有审计记录，可以清除筛选条件后重新浏览。"
+        total={total}
+        hasFilters={hasFilters}
+        onClearFilters={clearFilters}
+      />
+    );
+  }
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-4">
@@ -147,6 +188,12 @@ export function AuditRecords() {
             </div>
           </div>
 
+          {error ? (
+            <Alert variant="destructive">
+              <AlertDescription>审计日志加载失败：{error}。请点击刷新重试。</AlertDescription>
+            </Alert>
+          ) : null}
+
           <div className="rounded-md border">
             <Table>
               <TableHeader>
@@ -172,8 +219,8 @@ export function AuditRecords() {
                 ))}
                 {logs.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
-                      {loading ? "加载中…" : "暂无审计记录。"}
+                    <TableCell colSpan={6} className="p-0">
+                      {emptyCell}
                     </TableCell>
                   </TableRow>
                 )}

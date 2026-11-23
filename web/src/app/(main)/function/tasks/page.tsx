@@ -203,7 +203,7 @@ import type {
   TaskCategory,
   TaskStatus,
 } from "@/lib/types";
-import { cn, fmtBytes, fmtTokens } from "@/lib/utils";
+import { cn, fmtBytes, fmtDuration, fmtTokens } from "@/lib/utils";
 import {
   MAX_TASK_REMARK_RUNES,
   MAX_TASK_WORKER_COUNT,
@@ -234,18 +234,6 @@ const POLL_MS = 10_000;
 const MAX_SOURCE_TASKS = 8;
 
 // fmtDuration renders a run duration in seconds as a compact human string.
-function fmtDuration(sec: number): string {
-  if (sec <= 0) return "—";
-  const d = Math.floor(sec / 86400);
-  const h = Math.floor((sec % 86400) / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
 // taskDuration counts only active execution segments. A live segment ticks locally;
 // paused, queued, and terminal tasks stay fixed at their persisted active total.
 function taskDuration(task: Task, nowSec: number): number {
@@ -1128,7 +1116,7 @@ export default function TasksPage() {
                     已选 {selectedIds.size} 个
                   </span>
                   <Button size="sm" variant="ghost" onClick={clearSelection}>
-                    取消选择
+                    全不选
                   </Button>
                   {pausableTaskIDs.length > 0 && (
                     <Button

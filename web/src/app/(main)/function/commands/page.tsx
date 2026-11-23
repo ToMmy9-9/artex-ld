@@ -10,6 +10,7 @@ import * as React from "react";
 
 import { BarChart3Icon, ChevronLeftIcon, ChevronRightIcon, Loader2Icon, SearchIcon, TerminalIcon } from "lucide-react";
 
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -75,6 +76,14 @@ export default function CommandsPage() {
   React.useEffect(() => {
     setPage(0);
   }, [queryQ, taskFilter, size]);
+
+  // 生效中的筛选条件：关键字搜索 / 任务 ID。每页条数是分页设置，不算筛选。
+  const hasFilters = queryQ.trim() !== "" || taskFilter.trim() !== "";
+  const clearFilters = React.useCallback(() => {
+    setQuery("");
+    setQueryQ("");
+    setTaskFilter("");
+  }, []);
 
   // Load data.
   React.useEffect(() => {
@@ -176,6 +185,7 @@ export default function CommandsPage() {
             className="size-8"
             disabled={page <= 0}
             onClick={() => setPage((p) => Math.max(0, p - 1))}
+            aria-label="上一页"
           >
             <ChevronLeftIcon />
           </Button>
@@ -188,6 +198,7 @@ export default function CommandsPage() {
             className="size-8"
             disabled={page + 1 >= totalPages}
             onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            aria-label="下一页"
           >
             <ChevronRightIcon />
           </Button>
@@ -218,8 +229,14 @@ export default function CommandsPage() {
                   </TableRow>
                 ) : commands.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
-                      暂无工具执行记录
+                    <TableCell colSpan={6} className="p-0">
+                      <FilteredEmptyState
+                        title="没有匹配的工具执行记录"
+                        description="当前筛选条件下没有工具执行记录，可以清除筛选条件后重新浏览。"
+                        total={total}
+                        hasFilters={hasFilters}
+                        onClearFilters={clearFilters}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -296,7 +313,12 @@ export default function CommandsPage() {
               <Loader2Icon className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : stats.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">暂无统计数据</div>
+            <FilteredEmptyState
+              title="没有匹配的工具统计数据"
+              description="当前筛选条件下没有工具调用统计，可以清除筛选条件后重新浏览。"
+              hasFilters={hasFilters}
+              onClearFilters={clearFilters}
+            />
           ) : (
             <div className="-mr-2 max-h-[55vh] space-y-1 overflow-auto pr-2">
               {stats.map((s) => (
