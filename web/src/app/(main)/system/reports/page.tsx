@@ -2,11 +2,20 @@
 
 import * as React from "react";
 
-import { DownloadIcon, FileTextIcon, ImageIcon, Loader2Icon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon } from "lucide-react";
+import {
+  DownloadIcon,
+  FileTextIcon,
+  ImageIcon,
+  Loader2Icon,
+  PencilIcon,
+  PlusIcon,
+  SparklesIcon,
+  TrashIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
-import { StatusBadge } from "@/components/status-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,8 +34,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { t, ti } from "@/lib/i18n-lite";
-import type { Finding, Personnel, ReportRecord, ReportSettings, ReportTemplate, Task } from "@/lib/types";
 import { taskLabel, taskMap } from "@/lib/task-label";
+import type { Finding, Personnel, ReportRecord, ReportSettings, ReportTemplate, Task } from "@/lib/types";
 import { fmtBytes } from "@/lib/utils";
 
 function localeName(locale: string): string {
@@ -97,7 +106,10 @@ export default function ReportsPage() {
   const [deleting, setDeleting] = React.useState(false);
 
   const loadReports = React.useCallback(() => {
-    api.reports().then(setReports).catch(() => {});
+    api
+      .reports()
+      .then(setReports)
+      .catch(() => {});
   }, []);
   // resolve the unified task label (名称优先→#id·描述) for the list, consistent
   // with findings/dashboard/assets; falls back to the stored task_desc.
@@ -122,20 +134,29 @@ export default function ReportsPage() {
       .finally(() => setDeleting(false));
   }
   const loadTemplates = React.useCallback(() => {
-    api.reportTemplates().then(setTemplates).catch(() => {});
+    api
+      .reportTemplates()
+      .then(setTemplates)
+      .catch(() => {});
   }, []);
 
   React.useEffect(() => {
-    api.reportSettings().then((r) => setS({ ...r, personnel: r.personnel ?? [] })).catch(() => {});
+    api
+      .reportSettings()
+      .then((r) => setS({ ...r, personnel: r.personnel ?? [] }))
+      .catch(() => {});
     loadReports();
     loadTemplates();
   }, [loadReports, loadTemplates]);
 
   // Stop polling if the user leaves the page mid-generation (avoid a stray
   // interval + a "report done" toast popping up on some other page).
-  React.useEffect(() => () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-  }, []);
+  React.useEffect(
+    () => () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    },
+    [],
+  );
 
   // ── report templates ──
   function openNewTemplate() {
@@ -195,7 +216,10 @@ export default function ReportsPage() {
     setTaskFindings([]);
     setSelFindings(new Set());
     setShowAllFindings(false);
-    api.tasks().then((r) => setTasks(r.tasks)).catch(() => {});
+    api
+      .tasks()
+      .then((r) => setTasks(r.tasks))
+      .catch(() => {});
     setDialogOpen(true);
   }
 
@@ -337,7 +361,7 @@ export default function ReportsPage() {
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">{t("reports.title")}</h1>
+        <h1 className="font-semibold tracking-tight text-xl">{t("reports.title")}</h1>
         <p className="text-muted-foreground text-sm">{t("reports.subtitle")}</p>
       </div>
 
@@ -468,10 +492,20 @@ export default function ReportsPage() {
                   <TableCell className="text-muted-foreground">{tpl.company_name || "—"}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">{localeName(tpl.locale)}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" aria-label={`编辑报告模板 ${tpl.name}`} onClick={() => openEditTemplate(tpl)}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`编辑报告模板 ${tpl.name}`}
+                      onClick={() => openEditTemplate(tpl)}
+                    >
                       <PencilIcon className="text-muted-foreground size-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" aria-label={`删除报告模板 ${tpl.name}`} onClick={() => setTplDeleteTarget(tpl)}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`删除报告模板 ${tpl.name}`}
+                      onClick={() => setTplDeleteTarget(tpl)}
+                    >
                       <TrashIcon className="text-muted-foreground size-4" />
                     </Button>
                   </TableCell>
@@ -516,7 +550,9 @@ export default function ReportsPage() {
             <TableBody>
               {reports.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="max-w-xs truncate" title={reportTaskLabel(r)}>{reportTaskLabel(r)}</TableCell>
+                  <TableCell className="max-w-xs truncate" title={reportTaskLabel(r)}>
+                    {reportTaskLabel(r)}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{r.filename}</TableCell>
                   <TableCell className="text-muted-foreground">{r.company || "—"}</TableCell>
                   <TableCell className="tabular-nums text-xs">{fmtBytes(r.size, "—")}</TableCell>
@@ -625,11 +661,19 @@ export default function ReportsPage() {
             </div>
             <div className="min-w-0 space-y-1.5">
               <Label>{t("reports.reportTitle")}</Label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t("reports.reportTitlePlaceholder")} />
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t("reports.reportTitlePlaceholder")}
+              />
             </div>
             <div className="min-w-0 space-y-1.5">
               <Label>{t("reports.clientName")}</Label>
-              <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder={t("reports.clientPlaceholder")} />
+              <Input
+                value={client}
+                onChange={(e) => setClient(e.target.value)}
+                placeholder={t("reports.clientPlaceholder")}
+              />
             </div>
             {/* findings selector — confirmed-only by default (正常交付流程) */}
             {selTask && (
@@ -637,7 +681,9 @@ export default function ReportsPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <Label>{t("reports.selectFindings")}</Label>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{ti("reports.findingsSelected", { n: selFindings.size, total: visibleFindings.length })}</span>
+                    <span>
+                      {ti("reports.findingsSelected", { n: selFindings.size, total: visibleFindings.length })}
+                    </span>
                     {visibleFindings.length > 0 && (
                       <>
                         <button
@@ -692,7 +738,10 @@ export default function ReportsPage() {
                             >
                               <Checkbox checked={selFindings.has(key)} onCheckedChange={() => toggleFinding(key)} />
                               <StatusBadge domain="severity" value={f.severity} dot className="shrink-0" />
-                              <span className="min-w-0 flex-1 truncate font-medium" title={f.enr_name || f.vulnclass || f.summary}>
+                              <span
+                                className="min-w-0 flex-1 truncate font-medium"
+                                title={f.enr_name || f.vulnclass || f.summary}
+                              >
                                 {f.enr_name || f.vulnclass || f.summary}
                               </span>
                               {typeof f.cvss_score === "number" && f.cvss_score > 0 && (
@@ -715,10 +764,7 @@ export default function ReportsPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button
-              onClick={startGenerate}
-              disabled={!selTask || (taskFindings.length > 0 && selFindings.size === 0)}
-            >
+            <Button onClick={startGenerate} disabled={!selTask || (taskFindings.length > 0 && selFindings.size === 0)}>
               <SparklesIcon /> {t("reports.generate")}
             </Button>
           </DialogFooter>
@@ -827,9 +873,7 @@ export default function ReportsPage() {
         onOpenChange={(o) => !o && setDeleteTarget(null)}
         title={`删除报告「${deleteTarget?.filename ?? ""}」？`}
         description={
-          deleteTarget
-            ? "该报告文件将从服务器永久删除，已分享的下载链接随之失效。此操作不可撤销。"
-            : undefined
+          deleteTarget ? "该报告文件将从服务器永久删除，已分享的下载链接随之失效。此操作不可撤销。" : undefined
         }
         deleting={deleting}
         onConfirm={() => {
@@ -843,9 +887,7 @@ export default function ReportsPage() {
         onOpenChange={(o) => !o && setTplDeleteTarget(null)}
         title={`删除报告模板「${tplDeleteTarget?.name ?? ""}」？`}
         description={
-          tplDeleteTarget
-            ? "该模板的公司信息、Logo 与人员名单将被删除，已有报告不受影响。此操作不可撤销。"
-            : undefined
+          tplDeleteTarget ? "该模板的公司信息、Logo 与人员名单将被删除，已有报告不受影响。此操作不可撤销。" : undefined
         }
         deleting={deleting}
         onConfirm={() => {

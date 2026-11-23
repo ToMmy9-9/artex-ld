@@ -31,14 +31,15 @@ import type {
   NotificationDelivery,
   NotificationFilter,
   NotificationMeta,
+  PromptVar,
+  PromptVersion,
   Settings,
   SkillCall,
   SkillItem,
   SSProject,
   SSTask,
   Tool,
-  PromptVersion,
-  PromptVar, } from "@/lib/types";
+} from "@/lib/types";
 
 export const llmAgentsApi = {
   // ---- app settings (runtime toggles) ----

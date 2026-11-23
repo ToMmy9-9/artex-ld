@@ -60,7 +60,10 @@ export function TaskLLMProfileChain({
   portalContainer,
 }: TaskLLMProfileChainProps) {
   const chatProfiles = React.useMemo(() => profiles.filter((profile) => profile.format !== "jev"), [profiles]);
-  const profilesByID = React.useMemo(() => new Map(chatProfiles.map((profile) => [profile.id, profile])), [chatProfiles]);
+  const profilesByID = React.useMemo(
+    () => new Map(chatProfiles.map((profile) => [profile.id, profile])),
+    [chatProfiles],
+  );
   const itemIDs = React.useMemo(() => chatProfiles.map((profile) => profile.id), [chatProfiles]);
   const profilesUnavailable = chatProfiles.length === 0;
   const currentProfileID = activeProfileId && value.includes(activeProfileId) ? activeProfileId : value[0];

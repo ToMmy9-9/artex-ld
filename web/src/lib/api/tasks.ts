@@ -30,15 +30,24 @@ import type {
   ConvTokenSummary,
   CoverageAssetRefs,
   CoverageGraphData,
+  CredentialTrafficDetail,
   DeleteTaskOptions,
   DeleteTaskResult,
   Edge,
+  EnrichJob,
+  Enrichment,
   EvidenceBodyPreview,
   ExplorationNodePage,
   ExplorationNodeQuery,
   Finding,
   FindingAssetTree,
+  FindingCaseDetail,
+  FindingCasePage,
+  FindingCaseReviewRun,
+  FindingCaseSuggestion,
   FindingDeepenResponse,
+  FindingDetailResp,
+  FindingEvidenceItem,
   FindingGroupsPage,
   FindingQuery,
   FindingRetest,
@@ -47,22 +56,29 @@ import type {
   FindingsPage,
   FindingTraffic,
   FindingTrafficDetail,
+  IntelligencePage,
   IntentAsset,
   PlannerTemplate,
+  RepeaterSendRequest,
+  RepeaterSendResponse,
   ReviewMessage,
   ReviewProposedIntent,
+  ScheduleInput,
   SessionTokenUsage,
   Severity,
   Stats,
   Task,
   TaskArchive,
   TaskArchivePage,
+  TaskAssetMutation,
   TaskAssetScopeMutation,
   TaskCategory,
   TaskConstraint,
   TaskGoal,
+  TaskIntelligence,
   TaskLLMResolutions,
   TaskNode,
+  TaskSchedule,
   TaskScopeRow,
   TaskTemplate,
   TokenTotal,
@@ -76,29 +92,14 @@ import type {
   TrafficDetail,
   TrafficEvidenceRef,
   TrafficEvidenceRole,
+  TrafficExchange,
   TrafficHost,
   TrafficResp,
   UsageStats,
   WorkerTemplate,
   WorkspaceFile,
   WorkspaceListing,
-  TaskSchedule,
-  ScheduleInput,
-  FindingCasePage,
-  FindingCaseDetail,
-  FindingCaseSuggestion,
-  FindingCaseReviewRun,
-  TaskAssetMutation,
-  IntelligencePage,
-  TaskIntelligence,
-  RepeaterSendRequest,
-  RepeaterSendResponse,
-  CredentialTrafficDetail,
-  TrafficExchange,
-  FindingDetailResp,
-  EnrichJob,
-  Enrichment,
-  FindingEvidenceItem, } from "@/lib/types";
+} from "@/lib/types";
 
 function schedulePayload(input: ScheduleInput) {
   return {
@@ -122,7 +123,9 @@ export const tasksApi = {
   // removeFindingTraffic，路径同为 /traffic）区分：那套把报文复制成不可变快照存库，这套只引用。
   // 后端用 /traffic-exchanges 独立命名空间承载，避免同模式重复注册。
   findingTrafficList: (nodeId: string) =>
-    get<{ exchanges: TrafficExchange[] }>(`/exploration/findings/${nodeId}/traffic-exchanges`).then((r) => r.exchanges ?? []),
+    get<{ exchanges: TrafficExchange[] }>(`/exploration/findings/${nodeId}/traffic-exchanges`).then(
+      (r) => r.exchanges ?? [],
+    ),
   findingTrafficLink: (nodeId: string, exchangeIds: string[]) =>
     post<{ ok: boolean; linked: number }>(`/exploration/findings/${nodeId}/traffic-exchanges`, {
       exchange_ids: exchangeIds,
@@ -490,9 +493,10 @@ export const tasksApi = {
     const p = new URLSearchParams({ type, limit: String(limit), offset: String(offset) });
     if (sort) p.set("sort", sort);
     if (order) p.set("order", order);
-    return get<{ count: number; total: number; assets: Asset[] }>(`/assets?${p.toString()}`).then(
-      (r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 }),
-    );
+    return get<{ count: number; total: number; assets: Asset[] }>(`/assets?${p.toString()}`).then((r) => ({
+      assets: r?.assets ?? [],
+      total: r?.total ?? r?.count ?? 0,
+    }));
   },
   hostAssets: (dsl = "", companyID = "", limit = 50, offset = 0) => {
     const p = new URLSearchParams({ type: "host", limit: String(limit), offset: String(offset) });
@@ -507,9 +511,10 @@ export const tasksApi = {
     const p = new URLSearchParams({ dsl, type, limit: String(limit), offset: String(offset) });
     if (sort) p.set("sort", sort);
     if (order) p.set("order", order);
-    return get<{ count: number; total: number; assets: Asset[] }>(`/assets?${p.toString()}`).then(
-      (r) => ({ assets: r?.assets ?? [], total: r?.total ?? r?.count ?? 0 }),
-    );
+    return get<{ count: number; total: number; assets: Asset[] }>(`/assets?${p.toString()}`).then((r) => ({
+      assets: r?.assets ?? [],
+      total: r?.total ?? r?.count ?? 0,
+    }));
   },
   assetCounts: (taskId = "") =>
     get<Record<string, number>>(`/assets/counts${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ""}`),
@@ -811,14 +816,9 @@ export const tasksApi = {
 
   // ---- traffic / audit / report / chat ----
   audit: (task?: string) => get<Audit>(`/audit${tq(task)}`),
-  auditLogs: (opts: {
-    category?: string;
-    action?: string;
-    result?: string;
-    q?: string;
-    page?: number;
-    limit?: number;
-  } = {}) =>
+  auditLogs: (
+    opts: { category?: string; action?: string; result?: string; q?: string; page?: number; limit?: number } = {},
+  ) =>
     get<{ logs: AuditLog[]; total: number }>(
       `/audit/logs?category=${encodeURIComponent(opts.category ?? "")}` +
         `&action=${encodeURIComponent(opts.action ?? "")}` +
@@ -857,20 +857,22 @@ export const tasksApi = {
         (opts.respMax ? `&resp_max=${encodeURIComponent(opts.respMax)}` : "") +
         (opts.sort ? `&sort=${encodeURIComponent(opts.sort)}` : "") +
         (opts.order ? `&order=${encodeURIComponent(opts.order)}` : ""),
-  ),
+    ),
   // trafficIds 返回当前筛选命中的全部流量 id（不分页），供「全选全部筛选结果」
   // 使用。流量列表是服务端分页，表头勾选框只能覆盖当前页。
-  trafficIds: (opts: {
-    host?: string;
-    method?: string;
-    q?: string;
-    body?: string;
-    path?: string;
-    status?: string;
-    respMin?: string;
-    respMax?: string;
-    taskId?: string;
-  } = {}) => {
+  trafficIds: (
+    opts: {
+      host?: string;
+      method?: string;
+      q?: string;
+      body?: string;
+      path?: string;
+      status?: string;
+      respMin?: string;
+      respMax?: string;
+      taskId?: string;
+    } = {},
+  ) => {
     const p = new URLSearchParams();
     if (opts.host) p.set("host", opts.host);
     if (opts.method && opts.method !== "all") p.set("method", opts.method);
@@ -884,7 +886,8 @@ export const tasksApi = {
     const qs = p.toString();
     return get<{ ids: TrafficExchange[]; total: number }>(`/traffic/ids${qs ? `?${qs}` : ""}`);
   },
-  trafficExchange: (id: string) => get<TrafficDetail>(`/traffic/exchange?id=${encodeURIComponent(id)}`),  trafficHosts: () => get<{ hosts: TrafficHost[] }>(`/traffic/hosts`),
+  trafficExchange: (id: string) => get<TrafficDetail>(`/traffic/exchange?id=${encodeURIComponent(id)}`),
+  trafficHosts: () => get<{ hosts: TrafficHost[] }>(`/traffic/hosts`),
   trafficDeleteHost: (host: string) => del<{ deleted: number }>(`/traffic?host=${encodeURIComponent(host)}`),
   trafficDeleteHosts: (hosts: string[]) => del<{ deleted: number }>(`/traffic/hosts`, { hosts }),
   // Purges every exchange and compacts the index; `reclaimed` is the bytes of

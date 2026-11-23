@@ -17,10 +17,12 @@
 """
 import argparse
 import base64
+import http.client
 import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 
 API = "https://api.github.com"
@@ -50,27 +52,39 @@ def git(*args, binary=False):
     return out.stdout if binary else out.stdout.decode("utf-8")
 
 
-def api(path, token, method="GET", payload=None):
+def api(path, token, method="GET", payload=None, retries=4):
     url = path if path.startswith("http") else API + path
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "workbuddy-push-script",
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            body = resp.read()
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")
-        raise SystemExit(f"HTTP {e.code} 于 {method} {path}\n{detail[:800]}")
-    return json.loads(body) if body else None
+    last = None
+    for attempt in range(retries):
+        req = urllib.request.Request(
+            url,
+            data=data,
+            method=method,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "workbuddy-push-script",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                body = resp.read()
+            return json.loads(body) if body else None
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")
+            # 5xx 与 429 是服务端/限流问题，重试有意义；4xx 是请求本身有问题，重试没用。
+            if e.code in (429,) or 500 <= e.code < 600:
+                last = f"HTTP {e.code}: {detail[:400]}"
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise SystemExit(f"HTTP {e.code} 于 {method} {path}\n{detail[:800]}")
+        except (urllib.error.URLError, http.client.RemoteDisconnected, ConnectionError, TimeoutError) as e:
+            # 网络抖动 —— 2026-11-24 推送时反复遇到，重试即可。
+            last = f"{type(e).__name__}: {e}"
+            time.sleep(2 * (attempt + 1))
+    raise SystemExit(f"重试 {retries} 次仍失败于 {method} {path}\n{last}")
 
 
 def main():

@@ -4,8 +4,9 @@
  *   - proxy：未登录访问受保护页面时重定向到 /login，mock 模式直接放行
  *   - config：matcher，排除内部路由、API 与静态资源
  */
-import { NextResponse } from "next/server";
+
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 const AUTH_PAGES = ["/login", "/setup"];
 

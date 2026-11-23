@@ -3,8 +3,8 @@
 // 用户上传攻防二进制 → 平台登记 → 内置工具管理员 agent 自动认领（判定能力、
 // 风险并产出受管权限契约）。本文件只做数据搬运，管控逻辑全在后端。
 
-import { get, post, del } from "@/lib/api/http";
-import type { ToolAsset, ToolAssetRun, ToolAssetContract } from "@/lib/types";
+import { del, get, post } from "@/lib/api/http";
+import type { ToolAsset, ToolAssetContract, ToolAssetRun } from "@/lib/types";
 
 export interface ToolAssetsApi {
   toolAssets: () => Promise<{ assets: ToolAsset[]; dir: string }>;
@@ -23,7 +23,10 @@ export interface ToolAssetsApi {
   }>;
   deleteToolAsset: (id: number) => Promise<{ deleted: number }>;
   setToolAssetState: (id: number, state: string, note?: string) => Promise<{ id: number; state: string }>;
-  setToolAssetLimits: (id: number, limits: ToolAssetContract) => Promise<{
+  setToolAssetLimits: (
+    id: number,
+    limits: ToolAssetContract,
+  ) => Promise<{
     ok: boolean;
     note?: string;
     reason?: string;
@@ -39,8 +42,7 @@ export const toolAssetsApi: ToolAssetsApi = {
     for (const f of files) form.append("file", f);
     // http() 的 JSON 封装不适合 multipart：直接走 fetch，带 token 与 cookie。
     return (async () => {
-      const token =
-        typeof window !== "undefined" ? localStorage.getItem("artex_token") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("artex_token") : null;
       const r = await fetch("/api/tool-assets/upload", {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},

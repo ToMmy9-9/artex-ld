@@ -110,7 +110,7 @@ function SidePanel({
             <p>上下文更新于 {new Date(side.snapshot.captured_at).toLocaleString()}</p>
           </>
         ) : (
-          noSnapshotHint ?? "主 Agent 首次运行后即可提问"
+          (noSnapshotHint ?? "主 Agent 首次运行后即可提问")
         )}
       </div>
       <div

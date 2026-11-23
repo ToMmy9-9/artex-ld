@@ -1,9 +1,8 @@
 import Link from "next/link";
 
-import { siX } from "@/lib/brand-icons";
-
 import { SimpleIcon } from "@/components/simple-icon";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { siX } from "@/lib/brand-icons";
 
 export function SidebarSupportCard() {
   return (

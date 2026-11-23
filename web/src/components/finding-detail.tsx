@@ -2,11 +2,25 @@
 
 import * as React from "react";
 
-import { CameraIcon, CheckIcon, ChevronDownIcon, CopyIcon, ExternalLinkIcon, ImagePlusIcon, Link2Icon, Loader2Icon, PencilIcon, ShieldAlertIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
+import {
+  CameraIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  ImagePlusIcon,
+  Link2Icon,
+  Loader2Icon,
+  PencilIcon,
+  ShieldAlertIcon,
+  SparklesIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
-import { CapturedTrafficViewer } from "@/components/traffic-evidence-viewer";
 import { StatusBadge } from "@/components/status-badge";
+import { CapturedTrafficViewer } from "@/components/traffic-evidence-viewer";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -161,12 +175,15 @@ export function FindingDetail({ finding, onChanged }: { finding: Finding; onChan
     const L: string[] = [`# ${name}`];
     const meta = [`${t("findings.colSeverity")}：${t(`status.severity.${severity}`)}`];
     if (target) meta.push(`${t("findings.colTarget")}：${target}`);
-    if (enr && enr.cvss_score > 0) meta.push(`CVSS ${enr.cvss_score.toFixed(1)}${enr.cvss_vector ? ` ${enr.cvss_vector}` : ""}`);
+    if (enr && enr.cvss_score > 0)
+      meta.push(`CVSS ${enr.cvss_score.toFixed(1)}${enr.cvss_vector ? ` ${enr.cvss_vector}` : ""}`);
     L.push(meta.join("　·　"));
     const desc = enr?.description?.length ? enr.description : finding.summary ? [finding.summary] : [];
     if (desc.length) L.push(`\n## ${t("findings.descLabel")}`, ...desc);
-    if (enr?.risk_analysis?.length) L.push(`\n## ${t("findings.riskAnalysis")}`, ...enr.risk_analysis.map((r, i) => `${i + 1}. ${r}`));
-    if (enr?.remediation?.length) L.push(`\n## ${t("findings.remediation")}`, ...enr.remediation.map((r, i) => `${i + 1}. ${r}`));
+    if (enr?.risk_analysis?.length)
+      L.push(`\n## ${t("findings.riskAnalysis")}`, ...enr.risk_analysis.map((r, i) => `${i + 1}. ${r}`));
+    if (enr?.remediation?.length)
+      L.push(`\n## ${t("findings.remediation")}`, ...enr.remediation.map((r, i) => `${i + 1}. ${r}`));
     if (repro?.entry_point || (repro?.steps?.length ?? 0) > 0) {
       L.push(`\n## ${t("findings.testProcess")}`);
       if (repro?.entry_point) L.push(`${t("findings.reproEntry")}：${repro.entry_point}`);
@@ -188,7 +205,11 @@ export function FindingDetail({ finding, onChanged }: { finding: Finding; onChan
       {/* ── header: name + badges + actions ── */}
       {editing ? (
         <div className="flex flex-col gap-2 rounded-md border bg-background p-3">
-          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("findings.colName")} />
+          <Input
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder={t("findings.colName")}
+          />
           <div className="flex flex-wrap gap-2">
             <Input
               value={form.target}
@@ -244,7 +265,12 @@ export function FindingDetail({ finding, onChanged }: { finding: Finding; onChan
                   className="inline-flex shrink-0 items-center gap-0.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   title={t("findings.statusLabel")}
                 >
-                  <StatusBadge domain="findingStatus" value={status} dot className="cursor-pointer transition hover:brightness-95" />
+                  <StatusBadge
+                    domain="findingStatus"
+                    value={status}
+                    dot
+                    className="cursor-pointer transition hover:brightness-95"
+                  />
                   <ChevronDownIcon className="size-3.5 text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
@@ -274,7 +300,9 @@ export function FindingDetail({ finding, onChanged }: { finding: Finding; onChan
           {/* row 2: target + CVSS (wraps freely, never affects the actions) */}
           {(target || (enr && enr.cvss_score > 0)) && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              {target && <code className="max-w-full break-all rounded bg-muted px-1.5 py-0.5 font-mono">{target}</code>}
+              {target && (
+                <code className="max-w-full break-all rounded bg-muted px-1.5 py-0.5 font-mono">{target}</code>
+              )}
               {enr && enr.cvss_score > 0 && (
                 <span className="break-all">
                   {t("findings.cvss")} {enr.cvss_score.toFixed(1)}
@@ -348,7 +376,9 @@ export function FindingDetail({ finding, onChanged }: { finding: Finding; onChan
                 <span className="inline-flex items-center gap-1.5">
                   <ShieldAlertIcon className="size-3.5" />
                   {t("findings.rawEvidence")}
-                  {finding.param_id && <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{finding.param_id}</code>}
+                  {finding.param_id && (
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{finding.param_id}</code>
+                  )}
                 </span>
               </summary>
               <div className="mt-1">{pre}</div>
@@ -361,7 +391,9 @@ export function FindingDetail({ finding, onChanged }: { finding: Finding; onChan
               <span className="inline-flex items-center gap-1.5">
                 <ShieldAlertIcon className="size-3.5" />
                 {t("findings.evidence")}
-                {finding.param_id && <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{finding.param_id}</code>}
+                {finding.param_id && (
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{finding.param_id}</code>
+                )}
               </span>
             }
           >
@@ -382,7 +414,10 @@ function TrafficLinksSection({ nodeId }: { nodeId: string }) {
   const [shot, setShot] = React.useState<TrafficExchange | null>(null);
 
   const load = React.useCallback(() => {
-    api.findingTrafficList(nodeId).then(setItems).catch(() => {});
+    api
+      .findingTrafficList(nodeId)
+      .then(setItems)
+      .catch(() => {});
   }, [nodeId]);
   React.useEffect(() => {
     load();
@@ -391,7 +426,10 @@ function TrafficLinksSection({ nodeId }: { nodeId: string }) {
   if (items.length === 0) return null;
 
   function unlink(ex: TrafficExchange) {
-    api.findingTrafficUnlink(nodeId, ex.id).then(load).catch((e) => toast.error((e as Error).message));
+    api
+      .findingTrafficUnlink(nodeId, ex.id)
+      .then(load)
+      .catch((e) => toast.error((e as Error).message));
   }
 
   return (
@@ -411,7 +449,13 @@ function TrafficLinksSection({ nodeId }: { nodeId: string }) {
             <span
               className={cn(
                 "shrink-0 font-mono text-xs font-semibold tabular-nums",
-                ex.status >= 500 ? "text-red-500" : ex.status >= 400 ? "text-amber-500" : ex.status >= 300 ? "text-blue-500" : "text-emerald-500",
+                ex.status >= 500
+                  ? "text-red-500"
+                  : ex.status >= 400
+                    ? "text-amber-500"
+                    : ex.status >= 300
+                      ? "text-blue-500"
+                      : "text-emerald-500",
               )}
             >
               {ex.status}
@@ -463,7 +507,10 @@ function ReproductionSection({
   const [lightbox, setLightbox] = React.useState<string | null>(null);
 
   const load = React.useCallback(() => {
-    api.findingEvidenceList(nodeId).then(setItems).catch(() => {});
+    api
+      .findingEvidenceList(nodeId)
+      .then(setItems)
+      .catch(() => {});
   }, [nodeId]);
   React.useEffect(() => {
     load();
@@ -538,7 +585,9 @@ function ReproductionSection({
                   )}
                   {st.response?.trim() && (
                     <>
-                      <div className="mt-1.5 text-[11px] font-medium text-muted-foreground">{t("findings.reproResponse")}</div>
+                      <div className="mt-1.5 text-[11px] font-medium text-muted-foreground">
+                        {t("findings.reproResponse")}
+                      </div>
                       <pre className="mt-0.5 max-w-full min-w-0 overflow-x-auto rounded bg-muted px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap">
                         {st.response}
                       </pre>
@@ -567,7 +616,13 @@ function ReproductionSection({
             {/* 概览/未归属证据 */}
             <div className="rounded-md border border-dashed px-3 py-2">
               <div className="mb-1 text-xs font-medium text-muted-foreground">{t("findings.reproOverviewShots")}</div>
-              <EvidenceStrip nodeId={nodeId} stepIndex={0} items={byStep.get(0) ?? []} onZoom={setLightbox} onChanged={load} />
+              <EvidenceStrip
+                nodeId={nodeId}
+                stepIndex={0}
+                items={byStep.get(0) ?? []}
+                onZoom={setLightbox}
+                onChanged={load}
+              />
             </div>
           </>
         ) : (
@@ -577,7 +632,10 @@ function ReproductionSection({
               <div className="min-w-0 space-y-1.5">
                 {blocks.map((b, i) =>
                   b.type === "code" ? (
-                    <pre key={i} className="max-w-full min-w-0 overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap">
+                    <pre
+                      key={i}
+                      className="max-w-full min-w-0 overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap"
+                    >
                       {b.content}
                     </pre>
                   ) : (
@@ -593,7 +651,13 @@ function ReproductionSection({
                 <ImagePlusIcon className="size-3.5" />
                 {t("findings.evidenceShots")}
               </div>
-              <EvidenceStrip nodeId={nodeId} stepIndex={0} items={byStep.get(0) ?? []} onZoom={setLightbox} onChanged={load} />
+              <EvidenceStrip
+                nodeId={nodeId}
+                stepIndex={0}
+                items={byStep.get(0) ?? []}
+                onZoom={setLightbox}
+                onChanged={load}
+              />
             </div>
           </>
         )}
@@ -601,7 +665,10 @@ function ReproductionSection({
 
       {lightbox && (
         // biome-ignore lint/a11y/noStaticElementInteractions: click-anywhere to dismiss
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6" onClick={() => setLightbox(null)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          onClick={() => setLightbox(null)}
+        >
           <img src={lightbox} alt="evidence" className="max-h-full max-w-full rounded-md object-contain shadow-2xl" />
           <button
             type="button"
@@ -678,18 +745,32 @@ function EvidenceStrip({
   function saveCaption(it: FindingEvidenceItem, caption: string) {
     if (caption === it.evidence.caption) return;
     api
-      .findingEvidenceUpdate(nodeId, it.evidence.id, { caption, step_index: it.evidence.step_index, sort_order: it.evidence.sort_order })
+      .findingEvidenceUpdate(nodeId, it.evidence.id, {
+        caption,
+        step_index: it.evidence.step_index,
+        sort_order: it.evidence.sort_order,
+      })
       .then(onChanged)
       .catch((e) => toast.error((e as Error).message));
   }
 
-  function remove(it:FindingEvidenceItem) {
-    api.findingEvidenceDelete(nodeId, it.evidence.id).then(onChanged).catch((e) => toast.error((e as Error).message));
+  function remove(it: FindingEvidenceItem) {
+    api
+      .findingEvidenceDelete(nodeId, it.evidence.id)
+      .then(onChanged)
+      .catch((e) => toast.error((e as Error).message));
   }
 
   return (
     <div className="mt-2 flex flex-wrap gap-2.5">
-      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif" multiple hidden onChange={(e) => onFiles(e.target.files)} />
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif"
+        multiple
+        hidden
+        onChange={(e) => onFiles(e.target.files)}
+      />
       {items.map((it) => (
         <figure key={it.evidence.id} className="group relative w-40 overflow-hidden rounded-md border bg-card">
           {/* biome-ignore lint/a11y/noStaticElementInteractions: click-to-zoom thumbnail */}

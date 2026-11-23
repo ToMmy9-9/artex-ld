@@ -134,9 +134,7 @@ export function LayoutControls() {
                         />
                         {/* 风格名保留英文（设计圈通用叫法），中文副标题说明它是什么风格 */}
                         {preset.label}
-                        {preset.labelZh ? (
-                          <span className="text-muted-foreground ml-1">{preset.labelZh}</span>
-                        ) : null}
+                        {preset.labelZh ? <span className="text-muted-foreground ml-1">{preset.labelZh}</span> : null}
                       </SelectItem>
                     ))}
                   </SelectGroup>

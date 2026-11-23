@@ -11,10 +11,10 @@ import * as React from "react";
 import { CheckIcon, CopyIcon, SearchIcon, WrapTextIcon } from "lucide-react";
 import { toast } from "sonner";
 
+import { PacketCodeEditor } from "@/components/packet-code-editor";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, copyText, statusTone } from "@/lib/utils";
-import { PacketCodeEditor } from "@/components/packet-code-editor";
 
 const PACKET_COLORS = {
   method: "font-semibold text-violet-600 dark:text-violet-400",

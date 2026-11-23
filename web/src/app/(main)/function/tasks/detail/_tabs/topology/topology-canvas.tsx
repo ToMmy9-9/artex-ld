@@ -239,16 +239,7 @@ function GroupCard({ data, selected, id }: NodeProps<GroupCardNode>) {
 type TopoEdgeData = { label: string };
 type TopoRFEdge = RFEdge<TopoEdgeData>;
 
-function TopologyEdge({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  data,
-  style,
-  markerEnd,
-}: EdgeProps<TopoRFEdge>) {
+function TopologyEdge({ id, sourceX, sourceY, targetX, targetY, data, style, markerEnd }: EdgeProps<TopoRFEdge>) {
   const [path, labelX, labelY] = getStraightPath({
     sourceX,
     sourceY,

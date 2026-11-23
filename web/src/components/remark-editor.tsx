@@ -19,7 +19,15 @@ type EditorProps = {
 };
 
 export function RemarkEditor(props: EditorProps) {
-  return <InlineTextEditor {...props} multiline fieldName="备注" maxCharacters={MAX_TASK_REMARK_RUNES} emptyLabel="添加备注" />;
+  return (
+    <InlineTextEditor
+      {...props}
+      multiline
+      fieldName="备注"
+      maxCharacters={MAX_TASK_REMARK_RUNES}
+      emptyLabel="添加备注"
+    />
+  );
 }
 
 export function ScheduleNameEditor(props: EditorProps) {

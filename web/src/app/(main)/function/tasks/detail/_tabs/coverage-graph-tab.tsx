@@ -8,6 +8,7 @@
 "use client";
 
 import * as React from "react";
+
 import type { Graph as G6Graph } from "@antv/g6";
 import {
   AppWindow,
@@ -18,8 +19,8 @@ import {
   Link2,
   type LucideIcon,
   Radio,
-  RotateCcw,
   RefreshCw,
+  RotateCcw,
   Server,
   Waypoints,
 } from "lucide-react";
@@ -27,12 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 import type { CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -133,7 +129,9 @@ const DATABASE_ICON: Record<DatabaseEngine, string> = {
   sqlserver: svgUri('<text x="12" y="15" text-anchor="middle" font-size="7" font-weight="700">MS</text>', true),
   postgres: svgUri('<text x="12" y="15" text-anchor="middle" font-size="7" font-weight="700">PG</text>', true),
   redis: svgUri('<text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700">RD</text>', true),
-  database: svgUri('<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v9c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 10c0 1.7 3.1 3 7 3s7-1.3 7-3"/>'),
+  database: svgUri(
+    '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v9c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 10c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
+  ),
 };
 
 function databaseEngine(node: CoverageGraphNode): DatabaseEngine | null {
@@ -286,7 +284,9 @@ function graphLabel(n: CoverageGraphNode, viewMode: CoverageViewMode = "asset"):
     if (n.kind === "service") {
       const engine = databaseEngine(n);
       const host = n.domain || n.ip || n.label;
-      return engine ? `${engine.toUpperCase()} · ${host}${n.port ? `:${n.port}` : ""}` : `${host}${n.port ? `:${n.port}` : ""}`;
+      return engine
+        ? `${engine.toUpperCase()} · ${host}${n.port ? `:${n.port}` : ""}`
+        : `${host}${n.port ? `:${n.port}` : ""}`;
     }
     return n.label || n.domain || n.ip || n.app_name || kindMeta[n.kind].label;
   }
@@ -307,11 +307,7 @@ function graphLabel(n: CoverageGraphNode, viewMode: CoverageViewMode = "asset"):
   return n.label;
 }
 
-function toG6Nodes(
-  renderNodes: RenderNode[],
-  activeKeys: Set<string>,
-  viewMode: CoverageViewMode,
-): G6NodeDatum[] {
+function toG6Nodes(renderNodes: RenderNode[], activeKeys: Set<string>, viewMode: CoverageViewMode): G6NodeDatum[] {
   const buckets: Record<Zone, RenderNode[]> = { internet: [], boundary: [], internal: [] };
   for (const rn of renderNodes) {
     buckets[rn.fold ? "boundary" : zoneOf(rn.node)].push(rn);
@@ -320,7 +316,10 @@ function toG6Nodes(
     ...(["internet", "boundary", "internal"] as Zone[]).map((zone) => Math.ceil(buckets[zone].length / 2)),
     1,
   );
-  const virtualHeight = viewMode === "network" ? Math.max(760, maxRows * 78 + 120) : Math.max(760, Math.max(buckets.internet.length, buckets.boundary.length, buckets.internal.length, 1) * 42);
+  const virtualHeight =
+    viewMode === "network"
+      ? Math.max(760, maxRows * 78 + 120)
+      : Math.max(760, Math.max(buckets.internet.length, buckets.boundary.length, buckets.internal.length, 1) * 42);
   const positions = new Map<string, { x: number; y: number }>();
   const xByZone: Record<Zone, number> = { internet: 150, boundary: 600, internal: 1050 };
   const xByAssetKind: Partial<Record<Kind, number>> = {
@@ -364,17 +363,21 @@ function toG6Nodes(
       // Two generous columns keep long host names readable. A single column is
       // used for short groups so the parent/child relationship remains obvious.
       if (items.length <= 8) {
-        items.forEach((rn, index) => positions.set(rn.key, {
-          x: (zoneBounds[zone][0] + zoneBounds[zone][1]) / 2,
-          y: 90 + ((index + 1) * (virtualHeight - 150)) / (items.length + 1),
-        }));
+        items.forEach((rn, index) =>
+          positions.set(rn.key, {
+            x: (zoneBounds[zone][0] + zoneBounds[zone][1]) / 2,
+            y: 90 + ((index + 1) * (virtualHeight - 150)) / (items.length + 1),
+          }),
+        );
       } else {
         const columns = [zoneBounds[zone][0] + 105, zoneBounds[zone][1] - 105];
         const rows = Math.ceil(items.length / 2);
-        items.forEach((rn, index) => positions.set(rn.key, {
-          x: columns[index % 2],
-          y: 90 + ((Math.floor(index / 2) + 1) * (virtualHeight - 150)) / (rows + 1),
-        }));
+        items.forEach((rn, index) =>
+          positions.set(rn.key, {
+            x: columns[index % 2],
+            y: 90 + ((Math.floor(index / 2) + 1) * (virtualHeight - 150)) / (rows + 1),
+          }),
+        );
       }
     }
   } else {
@@ -413,12 +416,13 @@ function toG6Nodes(
       fold: false,
       tested: rn.node.tested,
       inScope: rn.node.in_scope,
-        lbl: `${rn.node.tested ? "✓ " : ""}${trunc(graphLabel(rn.node, viewMode) || kindMeta[rn.kind].label, viewMode === "network" ? (rn.kind === "service" ? 22 : 18) : 26)}`,
+      lbl: `${rn.node.tested ? "✓ " : ""}${trunc(graphLabel(rn.node, viewMode) || kindMeta[rn.kind].label, viewMode === "network" ? (rn.kind === "service" ? 22 : 18) : 26)}`,
       size: kindMeta[rn.kind].size,
       active: activeKeys.has(rn.key),
-      iconSrc: viewMode === "network" && databaseEngine(rn.node)
-        ? DATABASE_ICON[databaseEngine(rn.node) as DatabaseEngine]
-        : KIND_ICON[rn.kind],
+      iconSrc:
+        viewMode === "network" && databaseEngine(rn.node)
+          ? DATABASE_ICON[databaseEngine(rn.node) as DatabaseEngine]
+          : KIND_ICON[rn.kind],
       style: { x: position.x, y: position.y },
       ...position,
     };
@@ -428,7 +432,11 @@ function toG6Nodes(
 function networkWorldHeight(renderNodes: RenderNode[]): number {
   const counts: Record<Zone, number> = { internet: 0, boundary: 0, internal: 0 };
   for (const node of renderNodes) counts[node.fold ? "boundary" : zoneOf(node.node)] += 1;
-  return Math.max(760, Math.max(Math.ceil(counts.internet / 2), Math.ceil(counts.boundary / 2), Math.ceil(counts.internal / 2), 1) * 78 + 120);
+  return Math.max(
+    760,
+    Math.max(Math.ceil(counts.internet / 2), Math.ceil(counts.boundary / 2), Math.ceil(counts.internal / 2), 1) * 78 +
+      120,
+  );
 }
 
 // G6 的类型把自定义字段归在 data 下，但官方 force 示例（及运行时）按顶层读 d.<field>。
@@ -482,7 +490,9 @@ function AssetSheet({
           <>
             <SheetHeader className="border-b p-4">
               <div className="flex items-center gap-2.5 pr-8">
-                <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm", meta.iconBg)}>
+                <span
+                  className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm", meta.iconBg)}
+                >
                   <Icon className="size-4 text-white" />
                 </span>
                 <div className="min-w-0">
@@ -667,28 +677,31 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
     }
   }, [isGraphAlive]);
 
-  const resetView = React.useCallback(async (mode: CoverageViewMode = viewModeRef.current) => {
-    setActivePath([]);
-    setSelectedAsset(null);
-    setSelectedFoldId(null);
-    const graph = graphRef.current;
-    if (!isGraphAlive(graph)) return;
-    try {
-      await graph.zoomTo(1);
-      if (mode === "network") {
-        // Network coordinates are already assigned to the three fixed zone
-        // columns. Centering a graph with an empty zone shifts every node into
-        // the next visible column and makes the background regions misleading.
-        await graph.translateTo([0, 0]);
-      } else {
-        await graph.fitCenter();
+  const resetView = React.useCallback(
+    async (mode: CoverageViewMode = viewModeRef.current) => {
+      setActivePath([]);
+      setSelectedAsset(null);
+      setSelectedFoldId(null);
+      const graph = graphRef.current;
+      if (!isGraphAlive(graph)) return;
+      try {
+        await graph.zoomTo(1);
+        if (mode === "network") {
+          // Network coordinates are already assigned to the three fixed zone
+          // columns. Centering a graph with an empty zone shifts every node into
+          // the next visible column and makes the background regions misleading.
+          await graph.translateTo([0, 0]);
+        } else {
+          await graph.fitCenter();
+        }
+      } catch {
+        // 销毁期的竞态，图已不可用，直接放弃这次重置。
+        return;
       }
-    } catch {
-      // 销毁期的竞态，图已不可用，直接放弃这次重置。
-      return;
-    }
-    syncViewport();
-  }, [isGraphAlive, syncViewport]);
+      syncViewport();
+    },
+    [isGraphAlive, syncViewport],
+  );
 
   const fetchGraph = React.useCallback(() => {
     setLoading(true);
@@ -777,10 +790,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
     [data, expanded, viewMode],
   );
 
-  const displayNodes = React.useMemo(
-    () => renderNodes,
-    [renderNodes, viewMode],
-  );
+  const displayNodes = React.useMemo(() => renderNodes, [renderNodes, viewMode]);
   const displayNodeKeys = React.useMemo(() => new Set(displayNodes.map((node) => node.key)), [displayNodes]);
   const displayEdges = React.useMemo(
     () => renderEdges.filter((edge) => displayNodeKeys.has(edge.src) && displayNodeKeys.has(edge.dst)),
@@ -796,7 +806,10 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
   // 结构签名：只在可见节点/边集合变化时重建图 + 重跑布局，避免无谓抖动。
   const sig = React.useMemo(
     () =>
-      `${displayNodes.map((n) => `${n.key}:${n.fold ? "f" : n.node.tested ? "t" : "u"}`).sort().join(",")}|${displayEdges.length}|${activePath.join(",")}|${viewMode}`,
+      `${displayNodes
+        .map((n) => `${n.key}:${n.fold ? "f" : n.node.tested ? "t" : "u"}`)
+        .sort()
+        .join(",")}|${displayEdges.length}|${activePath.join(",")}|${viewMode}`,
     [activePath, displayEdges, displayNodes, viewMode],
   );
 
@@ -830,11 +843,12 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
         // Keep the zone columns at their assigned coordinates. Centering a
         // network graph with an empty zone causes the remaining nodes to slide
         // into the next column, so network mode starts at the fixed origin.
-        const result = active.length > 0
-          ? graph.focusElement(active)
-          : viewModeRef.current === "network"
-            ? graph.translateTo([0, 0])
-            : graph.fitCenter();
+        const result =
+          active.length > 0
+            ? graph.focusElement(active)
+            : viewModeRef.current === "network"
+              ? graph.translateTo([0, 0])
+              : graph.fitCenter();
         return result.then(() => syncViewport());
       })
       .catch((err) => {
@@ -878,8 +892,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             labelBackgroundFill: "rgba(255,255,255,0.75)",
             labelBackgroundRadius: 3,
             labelPadding: [1, 3],
-            opacity: (d: unknown) =>
-              gDataRef.current.nodes.some((node) => node.active) && !nd(d).active ? 0.5 : 1,
+            opacity: (d: unknown) => (gDataRef.current.nodes.some((node) => node.active) && !nd(d).active ? 0.5 : 1),
           },
         },
         edge: {
@@ -981,7 +994,11 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             {(Object.keys(zoneMeta) as Zone[]).map((zone, index) => (
               <div
                 key={zone}
-                className={cn("relative border-r border-slate-200/80 dark:border-slate-800/80", zoneMeta[zone].className, index === 2 && "border-r-0")}
+                className={cn(
+                  "relative border-r border-slate-200/80 dark:border-slate-800/80",
+                  zoneMeta[zone].className,
+                  index === 2 && "border-r-0",
+                )}
               >
                 <div className="absolute top-3 left-4">
                   <div className="text-foreground/80 text-sm font-semibold">{zoneMeta[zone].label}</div>
@@ -1005,12 +1022,14 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
       <div ref={containerRef} className="relative z-10 h-full w-full pt-12" />
 
       {/* 图例 + 统计 + 刷新（叠加层） */}
-      <div className={cn(
-        "bg-card/95 pointer-events-auto absolute bottom-3 left-3 z-20 rounded-lg border shadow-sm backdrop-blur",
-        panelCollapsed
-          ? "flex items-center gap-2 px-2.5 py-2 text-xs"
-          : "flex w-[min(480px,calc(100%-1.5rem))] max-h-[calc(100%-1.5rem)] flex-col gap-2.5 overflow-auto p-3 text-xs",
-      )}>
+      <div
+        className={cn(
+          "bg-card/95 pointer-events-auto absolute bottom-3 left-3 z-20 rounded-lg border shadow-sm backdrop-blur",
+          panelCollapsed
+            ? "flex items-center gap-2 px-2.5 py-2 text-xs"
+            : "flex w-[min(480px,calc(100%-1.5rem))] max-h-[calc(100%-1.5rem)] flex-col gap-2.5 overflow-auto p-3 text-xs",
+        )}
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300">
@@ -1049,97 +1068,138 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
           ) : (
             <span className="text-muted-foreground">{loading ? "加载中…" : "暂无范围内资产（先锚定任务范围）"}</span>
           )}
-          {!panelCollapsed && <div className="flex shrink-0 items-center gap-1">
-            <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={() => setPanelCollapsed(true)} title="收起面板">
-              <ChevronDown className="size-3.5" />
-              <span className="hidden sm:inline">收起</span>
-            </Button>
-            <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" onClick={() => void resetView()} title="重置视图">
-              <RotateCcw className="size-3.5" />
-              <span className="hidden sm:inline">重置视图</span>
-            </Button>
-            {viewMode === "network" && (
-              <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => void remapNetwork()} disabled={mapping} title="重新梳理网络拓扑">
-                <RefreshCw className={cn("size-3.5", (loading || mapping) && "animate-spin")} />
-                <span className="hidden sm:inline">{mapping ? "正在梳理网络…" : "梳理网络拓扑"}</span>
+          {!panelCollapsed && (
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 px-2"
+                onClick={() => setPanelCollapsed(true)}
+                title="收起面板"
+              >
+                <ChevronDown className="size-3.5" />
+                <span className="hidden sm:inline">收起</span>
               </Button>
-            )}
-          </div>}
-          {panelCollapsed && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2" onClick={() => setPanelCollapsed(false)} title="展开面板">
-            <ChevronUp className="size-3.5" />
-            <span className="hidden sm:inline">展开</span>
-          </Button>}
-        </div>
-        {!panelCollapsed && <>
-        <div className="bg-muted/60 flex items-center gap-1 rounded-md p-1">
-          <Button
-            variant={viewMode === "asset" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 flex-1 px-2 text-xs"
-            onClick={() => {
-              setViewMode("asset");
-              void resetView("asset");
-            }}
-          >
-            资产关系图
-          </Button>
-          <Button
-            variant={viewMode === "network" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 flex-1 px-2 text-xs"
-            onClick={() => {
-              setViewMode("network");
-              void resetView("network");
-            }}
-          >
-            网络拓扑
-          </Button>
-        </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-          {(Object.keys(kindMeta) as Kind[]).map((k) => {
-            const m = kindMeta[k];
-            const Icon = m.icon;
-            return (
-              <span key={k} className="text-foreground inline-flex items-center gap-1.5">
-                <span className={cn("flex size-4 items-center justify-center rounded", m.iconBg)}>
-                  <Icon className="size-2.5 text-white" />
-                </span>
-                {m.label}
-              </span>
-            );
-          })}
-        </div>
-        <div className="border-border/60 text-muted-foreground flex flex-wrap gap-x-3 gap-y-1.5 border-t pt-2">
-          {coverageEnabled && (
-            <>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="flex size-3 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-bold text-white">✓</span> 已测（绿色描边）
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-3 rounded-full bg-neutral-400" /> 未测
-              </span>
-            </>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 px-2"
+                onClick={() => void resetView()}
+                title="重置视图"
+              >
+                <RotateCcw className="size-3.5" />
+                <span className="hidden sm:inline">重置视图</span>
+              </Button>
+              {viewMode === "network" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2"
+                  onClick={() => void remapNetwork()}
+                  disabled={mapping}
+                  title="重新梳理网络拓扑"
+                >
+                  <RefreshCw className={cn("size-3.5", (loading || mapping) && "animate-spin")} />
+                  <span className="hidden sm:inline">{mapping ? "正在梳理网络…" : "梳理网络拓扑"}</span>
+                </Button>
+              )}
+            </div>
           )}
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-3 rounded-full border border-dashed border-neutral-400 bg-neutral-200" /> 范围外
-          </span>
+          {panelCollapsed && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2"
+              onClick={() => setPanelCollapsed(false)}
+              title="展开面板"
+            >
+              <ChevronUp className="size-3.5" />
+              <span className="hidden sm:inline">展开</span>
+            </Button>
+          )}
         </div>
-        {viewMode === "network" && (
-          <div className="border-border/60 flex flex-wrap gap-x-3 gap-y-1.5 border-t pt-2">
-            {(Object.keys(zoneMeta) as Zone[]).map((zone) => (
-              <span key={zone} className="text-muted-foreground inline-flex items-center gap-1.5">
-                <span className={cn("size-2.5 rounded-full", zone === "internet" && "bg-sky-400", zone === "boundary" && "bg-amber-400", zone === "internal" && "bg-emerald-400")} />
-                {zoneMeta[zone].label}
+        {!panelCollapsed && (
+          <>
+            <div className="bg-muted/60 flex items-center gap-1 rounded-md p-1">
+              <Button
+                variant={viewMode === "asset" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 flex-1 px-2 text-xs"
+                onClick={() => {
+                  setViewMode("asset");
+                  void resetView("asset");
+                }}
+              >
+                资产关系图
+              </Button>
+              <Button
+                variant={viewMode === "network" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 flex-1 px-2 text-xs"
+                onClick={() => {
+                  setViewMode("network");
+                  void resetView("network");
+                }}
+              >
+                网络拓扑
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+              {(Object.keys(kindMeta) as Kind[]).map((k) => {
+                const m = kindMeta[k];
+                const Icon = m.icon;
+                return (
+                  <span key={k} className="text-foreground inline-flex items-center gap-1.5">
+                    <span className={cn("flex size-4 items-center justify-center rounded", m.iconBg)}>
+                      <Icon className="size-2.5 text-white" />
+                    </span>
+                    {m.label}
+                  </span>
+                );
+              })}
+            </div>
+            <div className="border-border/60 text-muted-foreground flex flex-wrap gap-x-3 gap-y-1.5 border-t pt-2">
+              {coverageEnabled && (
+                <>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="flex size-3 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-bold text-white">
+                      ✓
+                    </span>{" "}
+                    已测（绿色描边）
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="size-3 rounded-full bg-neutral-400" /> 未测
+                  </span>
+                </>
+              )}
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-3 rounded-full border border-dashed border-neutral-400 bg-neutral-200" /> 范围外
               </span>
-            ))}
-          </div>
+            </div>
+            {viewMode === "network" && (
+              <div className="border-border/60 flex flex-wrap gap-x-3 gap-y-1.5 border-t pt-2">
+                {(Object.keys(zoneMeta) as Zone[]).map((zone) => (
+                  <span key={zone} className="text-muted-foreground inline-flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "size-2.5 rounded-full",
+                        zone === "internet" && "bg-sky-400",
+                        zone === "boundary" && "bg-amber-400",
+                        zone === "internal" && "bg-emerald-400",
+                      )}
+                    />
+                    {zoneMeta[zone].label}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="text-muted-foreground/80 border-border/60 border-t pt-2 leading-relaxed">
+              {viewMode === "network"
+                ? "图中只展示有真实资产证据的节点；连线表示资产归属/关联，不代表已验证的网络通信路径。"
+                : "资产关系图直接读取资产库，不需要额外梳理；点击节点查看详情并高亮关系链。灰色「⋯」可展开更多资产。"}
+            </p>
+          </>
         )}
-        <p className="text-muted-foreground/80 border-border/60 border-t pt-2 leading-relaxed">
-          {viewMode === "network"
-            ? "图中只展示有真实资产证据的节点；连线表示资产归属/关联，不代表已验证的网络通信路径。"
-            : "资产关系图直接读取资产库，不需要额外梳理；点击节点查看详情并高亮关系链。灰色「⋯」可展开更多资产。"}
-        </p>
-        </>}
       </div>
 
       {selectedAsset && activePath.length > 0 && data && (
@@ -1168,9 +1228,18 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
               return (
                 <React.Fragment key={key}>
                   <div className="flex min-w-0 items-center gap-2 rounded-md bg-muted/60 px-2 py-1.5 text-xs">
-                    <span className={cn("size-2 shrink-0 rounded-full", zoneOf(node) === "internet" && "bg-sky-500", zoneOf(node) === "boundary" && "bg-amber-500", zoneOf(node) === "internal" && "bg-emerald-500")} />
+                    <span
+                      className={cn(
+                        "size-2 shrink-0 rounded-full",
+                        zoneOf(node) === "internet" && "bg-sky-500",
+                        zoneOf(node) === "boundary" && "bg-amber-500",
+                        zoneOf(node) === "internal" && "bg-emerald-500",
+                      )}
+                    />
                     <span className="text-muted-foreground shrink-0">{zoneMeta[zoneOf(node)].label}</span>
-                    <span className="min-w-0 flex-1 truncate font-mono" title={node.label}>{node.label}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono" title={node.label}>
+                      {node.label}
+                    </span>
                   </div>
                   {index < path.length - 1 && <div className="text-muted-foreground pl-3 text-[10px]">↓</div>}
                 </React.Fragment>

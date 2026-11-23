@@ -3,7 +3,6 @@
 import type * as React from "react";
 
 import type { BrandIcon } from "@/lib/brand-icons";
-
 import { cn } from "@/lib/utils";
 
 type SimpleIconProps = {

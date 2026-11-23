@@ -6,19 +6,16 @@
 "use client";
 
 import * as React from "react";
-import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
+import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { auth } from "@/lib/auth";
 
-function AuthenticatedImage({
-  src,
-  alt,
-  ...props
-}: React.ImgHTMLAttributes<HTMLImageElement>) {
+function AuthenticatedImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
   const [objectURL, setObjectURL] = React.useState<string | null>(null);
   const [captureTimestamp, setCaptureTimestamp] = React.useState<string | null>(null);
   const [zoomed, setZoomed] = React.useState(false);
@@ -83,7 +80,13 @@ function AuthenticatedImage({
         onClick={() => renderedSrc && setZoomed(true)}
         aria-label="放大查看报告截图"
       >
-        <img {...props} src={renderedSrc} alt={alt || "报告截图，点击放大"} draggable={false} onDragStart={(event) => event.preventDefault()} />
+        <img
+          {...props}
+          src={renderedSrc}
+          alt={alt || "报告截图，点击放大"}
+          draggable={false}
+          onDragStart={(event) => event.preventDefault()}
+        />
         {timestamp}
       </button>
       <Dialog
@@ -116,10 +119,15 @@ function AuthenticatedImage({
               dragRef.current = null;
               event.currentTarget.releasePointerCapture?.(event.pointerId);
             }}
-            onPointerCancel={() => { dragRef.current = null; }}
+            onPointerCancel={() => {
+              dragRef.current = null;
+            }}
             style={{ cursor: zoomScale > 1 ? (dragRef.current ? "grabbing" : "grab") : "default" }}
           >
-            <div className="relative inline-block origin-center" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomScale})` }}>
+            <div
+              className="relative inline-block origin-center"
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomScale})` }}
+            >
               <img
                 src={renderedSrc}
                 alt={alt || "报告截图"}
@@ -192,7 +200,7 @@ const components: Components = {
         ? `/api/workspace/preview?path=${encodeURIComponent(src.slice("workspace://".length))}`
         : typeof src === "string" && src.startsWith("findings/screenshots/")
           ? `/api/workspace/preview?path=${encodeURIComponent(src)}`
-        : src;
+          : src;
     return (
       <AuthenticatedImage
         {...p}
@@ -212,7 +220,10 @@ const components: Components = {
     <blockquote className="my-1 border-l-2 border-border pl-2.5 text-muted-foreground" {...p} />
   ),
   pre: ({ node, ...p }) => (
-    <pre className="my-1.5 max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 p-2.5 text-xs leading-relaxed [overflow-wrap:anywhere]" {...p} />
+    <pre
+      className="my-1.5 max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 p-2.5 text-xs leading-relaxed [overflow-wrap:anywhere]"
+      {...p}
+    />
   ),
   code: ({ node, className, children, ...rest }) => {
     const block = /language-/.test(className || "");

@@ -311,9 +311,7 @@ export function FindingsTable({
                     ) : (
                       <span className="truncate font-medium">{rowTitle}</span>
                     )}
-                    {summaryLine ? (
-                      <span className="truncate text-muted-foreground text-xs">{summaryLine}</span>
-                    ) : null}
+                    {summaryLine ? <span className="truncate text-muted-foreground text-xs">{summaryLine}</span> : null}
                     {matchedIds && !matchedIds.includes(Number(f.finding_id)) ? (
                       <Badge variant="outline" className="w-fit">
                         未命中当前筛选

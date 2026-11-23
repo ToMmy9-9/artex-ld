@@ -107,7 +107,10 @@ export function TimeSelect({
   const updateMinute = (minute: string) => onValueChange(`${selected.hour ?? "00"}:${minute}`);
 
   return (
-    <div className="flex w-[9.25rem] min-w-0 items-center gap-1.5" title={optional && !hasValue ? placeholder : undefined}>
+    <div
+      className="flex w-[9.25rem] min-w-0 items-center gap-1.5"
+      title={optional && !hasValue ? placeholder : undefined}
+    >
       <TimePart
         value={selected.hour}
         items={hours}

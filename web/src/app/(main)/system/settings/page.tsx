@@ -19,10 +19,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { CHAT_SEND_MODE_OPTIONS, type ChatSendMode, setChatSendMode, useChatSendMode } from "@/lib/chat-send-mode";
 import type { EgressReport, LLMProfile, ProxyPoolEntry, Settings, WorkerPool } from "@/lib/types";
@@ -466,11 +466,14 @@ export default function SystemSettingsPage() {
 
   const saveDeepSeekKey = () => {
     setSavingDeepSeekKey(true);
-    api.setSettings({ deepseek_search_api_key: deepSeekKeyInput }).then((s) => {
-      apply(s);
-      setDeepSeekKeyInput("");
-      toast.success("已保存 DeepSeek Search API Key");
-    }).catch((e) => toast.error(`保存失败：${(e as Error).message}`))
+    api
+      .setSettings({ deepseek_search_api_key: deepSeekKeyInput })
+      .then((s) => {
+        apply(s);
+        setDeepSeekKeyInput("");
+        toast.success("已保存 DeepSeek Search API Key");
+      })
+      .catch((e) => toast.error(`保存失败：${(e as Error).message}`))
       .finally(() => setSavingDeepSeekKey(false));
   };
 
@@ -689,7 +692,7 @@ export default function SystemSettingsPage() {
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">系统配置</h1>
+        <h1 className="font-semibold tracking-tight text-xl">系统配置</h1>
         <p className="text-muted-foreground text-sm">全局运行时开关</p>
         <div className="relative mt-4 max-w-xl">
           <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
@@ -990,7 +993,8 @@ export default function SystemSettingsPage() {
                   <summary className="text-muted-foreground cursor-pointer select-none">出口 IP 测试说明</summary>
                   <p className="text-muted-foreground mt-2 leading-relaxed">
                     测试会访问 IP 回显服务。未设置自定义地址时，默认访问 api.ipify.org，失败时改用 ifconfig.me。
-                    配置自定义地址后仅使用该服务。结果中的直连 IP 与代理 IP 可用于确认代理是否生效。修改地址后无需保存即可测试。
+                    配置自定义地址后仅使用该服务。结果中的直连 IP 与代理 IP
+                    可用于确认代理是否生效。修改地址后无需保存即可测试。
                   </p>
                 </details>
                 {/* 内网里公网回显不可达，两行都会失败——不是代理坏了。 */}
@@ -1022,7 +1026,8 @@ export default function SystemSettingsPage() {
                       </Button>
                     </div>
                     <span className="text-muted-foreground leading-relaxed">
-                      保存后用于顶栏出口 IP、代理测试、健康检查和自动重连，刷新页面或重启后仍生效。清空地址并保存可恢复默认服务。
+                      保存后用于顶栏出口
+                      IP、代理测试、健康检查和自动重连，刷新页面或重启后仍生效。清空地址并保存可恢复默认服务。
                     </span>
                     <span className="text-muted-foreground leading-relaxed">
                       自定义 IP 探测服务需返回纯文本 IP 或 <code>{'{"ip":"1.2.3.4"}'}</code> 格式的 JSON。
@@ -1509,8 +1514,8 @@ export default function SystemSettingsPage() {
                   记录代理，独立于流量捕获。
                   <br />
                   来源可选 <b>DuckDuckGo（ddgs）</b>（无需 Key）、<b>Brave（免费版）</b>（需填写 Brave API Key）、{" "}
-                  <b>Tavily</b>（需填写 Tavily API Key）或 <b>DeepSeek</b>（需单独配置 Search API Key）。总开关关闭时，各 Agent
-                  的网络搜索开关不可用。
+                  <b>Tavily</b>（需填写 Tavily API Key）或 <b>DeepSeek</b>（需单独配置 Search API
+                  Key）。总开关关闭时，各 Agent 的网络搜索开关不可用。
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
@@ -1557,10 +1562,12 @@ export default function SystemSettingsPage() {
                   <div className="border-border/60 bg-muted/30 flex flex-col gap-2 rounded-md border p-3">
                     <p className="text-sm font-medium">DeepSeek 联网搜索</p>
                     <p className="text-muted-foreground text-xs leading-relaxed">
-                      通过 DeepSeek 独立 Search / Fetch API 提供搜索与网页提取，使用当前 Agent 选择的模型生成查询和整理结果。
+                      通过 DeepSeek 独立 Search / Fetch API 提供搜索与网页提取，使用当前 Agent
+                      选择的模型生成查询和整理结果。
                     </p>
                     <p className="text-muted-foreground text-xs leading-relaxed">
-                      搜索请求由 ARTEX 服务端发往 DeepSeek，可使用上方独立出口代理。API Key 只保存于服务端设置，不会回显。
+                      搜索请求由 ARTEX 服务端发往 DeepSeek，可使用上方独立出口代理。API Key
+                      只保存于服务端设置，不会回显。
                     </p>
                     <div className="flex items-center gap-2">
                       <Input
@@ -1845,31 +1852,31 @@ export default function SystemSettingsPage() {
               </CardContent>
             </Card>
 
-          <Card className="mb-4 break-inside-avoid md:mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ScrollTextIcon className="size-4" />
-                日志级别
-              </CardTitle>
-              <CardDescription>
-                服务端日志详细程度，<b>选择后立即生效、无需重启</b>。正常用 info；排查问题时切到
-                debug 会记录全部调试日志（含 worker 循环、MCP 交互细节），量较大，定位完记得切回。
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Select value={logLevel} disabled={!loaded} onValueChange={changeLogLevel}>
-                <SelectTrigger className="w-48 font-mono text-sm">
-                  <SelectValue placeholder="选择级别" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="debug">debug（全部）</SelectItem>
-                  <SelectItem value="info">info（默认）</SelectItem>
-                  <SelectItem value="warn">warn</SelectItem>
-                  <SelectItem value="error">error</SelectItem>
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
+            <Card className="mb-4 break-inside-avoid md:mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ScrollTextIcon className="size-4" />
+                  日志级别
+                </CardTitle>
+                <CardDescription>
+                  服务端日志详细程度，<b>选择后立即生效、无需重启</b>。正常用 info；排查问题时切到 debug
+                  会记录全部调试日志（含 worker 循环、MCP 交互细节），量较大，定位完记得切回。
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select value={logLevel} disabled={!loaded} onValueChange={changeLogLevel}>
+                  <SelectTrigger className="w-48 font-mono text-sm">
+                    <SelectValue placeholder="选择级别" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="debug">debug（全部）</SelectItem>
+                    <SelectItem value="info">info（默认）</SelectItem>
+                    <SelectItem value="warn">warn</SelectItem>
+                    <SelectItem value="error">error</SelectItem>
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
 
             <Card
               className={`${isSettingVisible("chat", "会话输入框 发送键位 Enter Shift") ? "" : "hidden"} mb-4 break-inside-avoid md:mb-6`}

@@ -283,7 +283,7 @@ export default function NotifyPage() {
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">通知推送</h1>
+          <h1 className="font-semibold tracking-tight text-xl">通知推送</h1>
           <p className="text-muted-foreground text-sm">
             发现漏洞时推送到钉钉 / 飞书 / 企业微信等渠道 · 每个渠道可独立设推送时机与过滤规则
           </p>
@@ -432,9 +432,7 @@ export default function NotifyPage() {
         onOpenChange={(o) => !o && setDeleteTarget(null)}
         title={`删除通知渠道「${deleteTarget?.name ?? ""}」？`}
         description={
-          deleteTarget
-            ? "该渠道将不再接收漏洞告警推送，其推送过滤规则与限流配置一并删除。此操作不可撤销。"
-            : undefined
+          deleteTarget ? "该渠道将不再接收漏洞告警推送，其推送过滤规则与限流配置一并删除。此操作不可撤销。" : undefined
         }
         deleting={deleting}
         onConfirm={() => {

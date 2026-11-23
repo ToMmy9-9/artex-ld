@@ -99,8 +99,7 @@ export function AuditRecords() {
   }, [category, action, result, qApplied]);
 
   // 生效中的筛选条件：分类 / 动作 / 结果任一非「全部」，或搜索框有内容。
-  const hasFilters =
-    category !== "all" || action !== "all" || result !== "all" || qApplied.trim() !== "";
+  const hasFilters = category !== "all" || action !== "all" || result !== "all" || qApplied.trim() !== "";
   const clearFilters = React.useCallback(() => {
     setCategory("all");
     setAction("all");
@@ -115,9 +114,7 @@ export function AuditRecords() {
   if (loading) {
     emptyCell = <div className="py-10 text-center text-muted-foreground text-sm">加载中…</div>;
   } else if (error) {
-    emptyCell = (
-      <div className="py-10 text-center text-muted-foreground text-sm">日志读取失败，请刷新重试。</div>
-    );
+    emptyCell = <div className="py-10 text-center text-muted-foreground text-sm">日志读取失败，请刷新重试。</div>;
   } else {
     emptyCell = (
       <FilteredEmptyState
@@ -179,12 +176,7 @@ export function AuditRecords() {
             </Select>
             <div className="relative min-w-48 flex-1">
               <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="搜索消息或 IP"
-                className="pl-8"
-              />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索消息或 IP" className="pl-8" />
             </div>
           </div>
 
@@ -209,7 +201,9 @@ export function AuditRecords() {
               <TableBody>
                 {logs.map((l) => (
                   <TableRow key={l.id}>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtTime(l.created_at)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground tabular-nums">
+                      {fmtTime(l.created_at)}
+                    </TableCell>
                     <TableCell className="text-xs">{l.category || "—"}</TableCell>
                     <TableCell className="font-mono text-xs">{l.action || "—"}</TableCell>
                     <TableCell>{resultBadge(l.result)}</TableCell>

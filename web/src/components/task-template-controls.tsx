@@ -41,10 +41,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import {
+  type AssetInterceptRuleInput,
   MAX_TASK_REMARK_RUNES,
   MAX_TASK_WORKER_COUNT,
   parseWorkerCountInput,
-  type AssetInterceptRuleInput,
   type TaskCategory,
   type TaskTemplate,
 } from "@/lib/types";
@@ -61,7 +61,10 @@ interface TemplateDraft {
 }
 
 // TemplateSeed 是「另存为模板」时从创建表单带入的初值。
-type TemplateSeed = Pick<TemplateDraft, "description" | "goal" | "remark" | "categoryID" | "interceptRules" | "workerCount">;
+type TemplateSeed = Pick<
+  TemplateDraft,
+  "description" | "goal" | "remark" | "categoryID" | "interceptRules" | "workerCount"
+>;
 
 interface TaskTemplateManagerProps {
   open: boolean;
@@ -236,7 +239,9 @@ function TaskTemplateManager({
         <SheetContent className="grid h-full w-full! max-w-none! grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:w-[48rem]! sm:max-w-[48rem]!">
           <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>任务模板管理</SheetTitle>
-            <SheetDescription>模板保存描述、目标、备注、Worker 数量、分类与任务级拦截/允许规则；修改不会影响已经创建的任务。</SheetDescription>
+            <SheetDescription>
+              模板保存描述、目标、备注、Worker 数量、分类与任务级拦截/允许规则；修改不会影响已经创建的任务。
+            </SheetDescription>
           </SheetHeader>
           <div className="grid min-h-0 overflow-y-auto lg:grid-cols-[15rem_minmax(0,1fr)] lg:overflow-hidden">
             <div className="flex min-h-0 flex-col border-b p-3 lg:border-r lg:border-b-0">
@@ -587,7 +592,9 @@ export function TaskTemplateControls({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>使用模板「{pendingTemplate?.name}」？</AlertDialogTitle>
-            <AlertDialogDescription>当前已填写的描述、目标、备注和 Worker 数量将被模板内容覆盖。</AlertDialogDescription>
+            <AlertDialogDescription>
+              当前已填写的描述、目标、备注和 Worker 数量将被模板内容覆盖。
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>

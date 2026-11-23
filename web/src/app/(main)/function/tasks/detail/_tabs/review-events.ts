@@ -9,6 +9,6 @@ export const REVIEW_ENABLED_CHANGED_EVENT = "artex:review-enabled-changed";
 
 /** broadcastReviewEnabledChange 通知会话面板重新读取审核开关。 */
 export function broadcastReviewEnabledChange(): void {
-	if (typeof window === "undefined") return;
-	window.dispatchEvent(new Event(REVIEW_ENABLED_CHANGED_EVENT));
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(REVIEW_ENABLED_CHANGED_EVENT));
 }

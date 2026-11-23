@@ -7,22 +7,10 @@
 "use client";
 
 import * as React from "react";
-import {
-  AlertTriangle,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  FileUp,
-  Loader2,
-  ShieldAlert,
-  Trash2,
-  X,
-} from "lucide-react";
+
+import { AlertTriangle, Check, ChevronDown, ChevronRight, FileUp, Loader2, ShieldAlert, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { api } from "@/lib/api";
-import type { ToolAsset, ToolAssetContract, ToolAssetRun } from "@/lib/types";
-import { fmtBytes } from "@/lib/utils";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +26,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { api } from "@/lib/api";
+import type { ToolAsset, ToolAssetContract, ToolAssetRun } from "@/lib/types";
+import { fmtBytes } from "@/lib/utils";
 
 const STATE_LABEL: Record<ToolAsset["state"], string> = {
   uploaded: "待认领",
@@ -146,9 +137,7 @@ export function ToolAssetsPanel() {
         const created = r.created ?? [];
         const rejected = r.rejected ?? [];
         if (created.length) {
-          toast.success(
-            `已上传 ${created.length} 个工具，工具管理员正在自动认领（判定能力与风险）`,
-          );
+          toast.success(`已上传 ${created.length} 个工具，工具管理员正在自动认领（判定能力与风险）`);
         }
         for (const rej of rejected) toast.error(`${rej.name}：${rej.reason}`);
         await reload();
@@ -166,20 +155,23 @@ export function ToolAssetsPanel() {
     setExpanded((cur) => (cur === id ? null : id));
   }, []);
 
-  const loadRuns = React.useCallback(async (id: number) => {
-    if (runsOf === id) {
-      setRunsOf(null);
-      return;
-    }
-    setRunsOf(id);
-    setRuns([]);
-    try {
-      const r = await api.toolAssetRuns(id);
-      setRuns(r.runs ?? []);
-    } catch {
+  const loadRuns = React.useCallback(
+    async (id: number) => {
+      if (runsOf === id) {
+        setRunsOf(null);
+        return;
+      }
+      setRunsOf(id);
       setRuns([]);
-    }
-  }, [runsOf]);
+      try {
+        const r = await api.toolAssetRuns(id);
+        setRuns(r.runs ?? []);
+      } catch {
+        setRuns([]);
+      }
+    },
+    [runsOf],
+  );
 
   const setState = React.useCallback(
     async (asset: ToolAsset, state: string) => {
@@ -243,14 +235,9 @@ export function ToolAssetsPanel() {
           <div className="min-w-0">
             <div className="text-sm font-medium">上传外部工具</div>
             <div className="text-muted-foreground mt-1 text-xs">
-              上传后由内置「工具管理员」自动认领：判定能力与风险、登记受管调用契约。
-              你不需要自己填参数规则。
+              上传后由内置「工具管理员」自动认领：判定能力与风险、登记受管调用契约。 你不需要自己填参数规则。
             </div>
-            {dir ? (
-              <div className="text-muted-foreground mt-1 truncate font-mono text-xs">
-                受管目录 {dir}
-              </div>
-            ) : null}
+            {dir ? <div className="text-muted-foreground mt-1 truncate font-mono text-xs">受管目录 {dir}</div> : null}
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -260,12 +247,7 @@ export function ToolAssetsPanel() {
               className="hidden"
               onChange={(e) => void onUpload(e.target.files)}
             />
-            <Button
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              variant="outline"
-              size="sm"
-            >
+            <Button onClick={() => fileRef.current?.click()} disabled={uploading} variant="outline" size="sm">
               {uploading ? (
                 <Loader2 className="mr-1.5 size-3.5 animate-spin" />
               ) : (
@@ -295,10 +277,7 @@ export function ToolAssetsPanel() {
               <Card key={a.id}>
                 <CardContent className="pt-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <button
-                      className="flex min-w-0 flex-1 items-start gap-2 text-left"
-                      onClick={() => toggle(a.id)}
-                    >
+                    <button className="flex min-w-0 flex-1 items-start gap-2 text-left" onClick={() => toggle(a.id)}>
                       {open ? (
                         <ChevronDown className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                       ) : (
@@ -316,9 +295,7 @@ export function ToolAssetsPanel() {
                             </Badge>
                           ) : null}
                           {a.category ? (
-                            <Badge variant="outline">
-                              {CATEGORY_LABEL[a.category] ?? a.category}
-                            </Badge>
+                            <Badge variant="outline">{CATEGORY_LABEL[a.category] ?? a.category}</Badge>
                           ) : null}
                           <Badge variant="outline">{a.platform}</Badge>
                           {a.scope_enforcement ? (
@@ -347,20 +324,14 @@ export function ToolAssetsPanel() {
                       </div>
                     </button>
                     <div className="flex shrink-0 items-center gap-1.5">
-                      <span className="text-muted-foreground mr-1 text-xs">
-                        {fmtBytes(a.size_bytes)}
-                      </span>
+                      <span className="text-muted-foreground mr-1 text-xs">{fmtBytes(a.size_bytes)}</span>
                       {a.state === "managed" ? (
                         <>
                           <Button size="sm" variant="ghost" onClick={() => openLimits(a)}>
                             <ShieldAlert className="mr-1.5 size-3.5" />
                             权限上限
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void setState(a, "quarantined")}
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => void setState(a, "quarantined")}>
                             隔离
                           </Button>
                         </>
@@ -434,8 +405,7 @@ export function ToolAssetsPanel() {
                               <AlertTriangle className="mt-0.5 size-3 shrink-0" />
                               <span>
                                 该工具不经过平台流量代理（原生 socket），
-                                <strong>平台无法拦截它访问越界目标</strong>。
-                                越界只会警告并记入审计，不会阻止执行。
+                                <strong>平台无法拦截它访问越界目标</strong>。 越界只会警告并记入审计，不会阻止执行。
                                 {a.scope_suggestion === "advisory" ? "（平台建议此类别降级为「范围仅提示」）" : ""}
                               </span>
                             </div>
@@ -448,9 +418,7 @@ export function ToolAssetsPanel() {
                           {runsOf === a.id ? "收起执行记录" : "执行记录"}
                         </Button>
                         {a.managed_by ? (
-                          <span className="text-muted-foreground text-xs">
-                            由 {a.managed_by} 认领
-                          </span>
+                          <span className="text-muted-foreground text-xs">由 {a.managed_by} 认领</span>
                         ) : null}
                       </div>
 
@@ -517,9 +485,7 @@ export function ToolAssetsPanel() {
             />
             <div className="text-muted-foreground flex items-start gap-1.5 text-xs">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                收紧上限不会放宽任何已有权限；但若原契约超出新上限，平台会清空该契约并要求重新认领。
-              </span>
+              <span>收紧上限不会放宽任何已有权限；但若原契约超出新上限，平台会清空该契约并要求重新认领。</span>
             </div>
           </div>
           <DialogFooter>

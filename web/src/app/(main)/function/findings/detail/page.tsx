@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import { CopyButton } from "@/components/copy-button";
 import { FindingAutoChat } from "@/components/finding-auto-chat";
+import { FindingDetail } from "@/components/finding-detail";
 import { FindingReproductionPanel } from "@/components/finding-reproduction-panel";
 import { FindingRetestPanel } from "@/components/finding-retest-panel";
 import { FindingTrafficPanel } from "@/components/finding-traffic-panel";
@@ -28,7 +29,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { FindingDetail } from "@/components/finding-detail";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { statusMeta } from "@/lib/status";
@@ -181,270 +181,283 @@ function FindingDetailInner() {
   return (
     <>
       <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col gap-0">
-      {/* Sticky header */}
-      <header className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-background/95 px-4 py-2.5 backdrop-blur lg:px-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <SidebarTrigger className="-ml-1" />
-          <Button asChild variant="ghost" size="icon" className="size-7">
-            <Link href={backHref}>
-              <ArrowLeftIcon />
-            </Link>
-          </Button>
-          <ShieldAlertIcon className="size-4 text-muted-foreground" />
-          {finding.case_id ? (
-            <Button asChild variant="outline" size="sm">
-              <Link
-                href={`/function/findings/case?id=${finding.case_id}${contextTaskId ? `&context_task=${contextTaskId}` : ""}`}
-              >
-                所属漏洞文件夹
+        {/* Sticky header */}
+        <header className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-background/95 px-4 py-2.5 backdrop-blur lg:px-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <SidebarTrigger className="-ml-1" />
+            <Button asChild variant="ghost" size="icon" className="size-7">
+              <Link href={backHref}>
+                <ArrowLeftIcon />
               </Link>
             </Button>
-          ) : null}
-          <h1 className="max-w-md truncate text-sm font-semibold" title={title}>
-            {title}
-          </h1>
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">#{finding.id}</code>
-          <Separator orientation="vertical" className="mx-1 h-4" />
-          <StatusBadge domain="severity" value={finding.severity} dot />
-          <StatusBadge domain="finding" value={finding.status} dot />
-          <Button variant="outline" size="sm" onClick={() => setAutoChatOpen(true)} title="在当前页面打开 Auto Agent 对话">
-            <BotIcon data-icon="inline-start" />
-            询问 Auto Agent
-          </Button>
-          {!finding.inherited ? (
-            <Button variant="outline" size="sm" onClick={() => setReportChatOpen(true)} title="打开当前漏洞报告撰写对话">
-              <FileTextIcon data-icon="inline-start" />
-              调整报告
+            <ShieldAlertIcon className="size-4 text-muted-foreground" />
+            {finding.case_id ? (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  href={`/function/findings/case?id=${finding.case_id}${contextTaskId ? `&context_task=${contextTaskId}` : ""}`}
+                >
+                  所属漏洞文件夹
+                </Link>
+              </Button>
+            ) : null}
+            <h1 className="max-w-md truncate text-sm font-semibold" title={title}>
+              {title}
+            </h1>
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+              #{finding.id}
+            </code>
+            <Separator orientation="vertical" className="mx-1 h-4" />
+            <StatusBadge domain="severity" value={finding.severity} dot />
+            <StatusBadge domain="finding" value={finding.status} dot />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAutoChatOpen(true)}
+              title="在当前页面打开 Auto Agent 对话"
+            >
+              <BotIcon data-icon="inline-start" />
+              询问 Auto Agent
             </Button>
-          ) : null}
-          {finding.inherited && finding.source_task_id && (
-            <Badge variant="outline">来源任务 #{finding.source_task_id} · 只读</Badge>
-          )}
-        </div>
-        <TabsList>
-          <TabsTrigger value="overview">概览</TabsTrigger>
-          <TabsTrigger value="lineage">链路图</TabsTrigger>
-          <TabsTrigger value="evidence">复现与证据</TabsTrigger>
-        </TabsList>
-      </header>
-
-      {/* Tab content */}
-      <div className="flex-1 p-4 lg:p-6">
-        {/* 概览：左（摘要 + 证据）/ 右（状态区） */}
-        <TabsContent value="overview" className="mt-0">
-          <div className="grid gap-4 lg:grid-cols-3">
-            {/* 左栏 */}
-            <div className="flex flex-col gap-4 lg:col-span-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm">摘要</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{finding.summary || "（无摘要）"}</p>
-                </CardContent>
-              </Card>
-              {structuredReproduction ? (
-                <FindingReproductionPanel finding={finding} contextTask={contextTaskId || undefined} />
-              ) : (
-                <>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm">证据 / PoC</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {finding.evidence ? (
-                        <pre className="max-h-[46vh] overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap">
-                          {finding.evidence}
-                        </pre>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">（无证据）</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                  <FindingTrafficPanel
-                    key={`traffic:${id}`}
-                    findingId={id}
-                    contextTask={contextTaskId || undefined}
-                    readOnly={finding.inherited}
-                    onChanged={load}
-                  />
-                  <Card>
-                    <CardHeader className="flex-row items-center justify-between">
-                      <CardTitle className="text-sm">详细报告</CardTitle>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        {finding.report && <CopyButton text={finding.report} successMessage="已复制详细报告" />}
-                        {!finding.inherited ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void generateReport()}
-                            disabled={reportGenerating}
-                            title="由报告撰写 Agent 生成，不使用 Auto Agent"
-                          >
-                            {reportGenerating ? (
-                              <Loader2Icon data-icon="inline-start" className="animate-spin" />
-                            ) : (
-                              <FileTextIcon data-icon="inline-start" />
-                            )}
-                            {finding.report ? "重新生成步骤与报告" : "生成步骤与报告"}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {finding.report_stale ? (
-                        <Alert>
-                          <AlertDescription>流量证据已变更，详细报告待更新。</AlertDescription>
-                        </Alert>
-                      ) : null}
-                      {finding.report ? (
-                        <Markdown text={finding.report} />
-                      ) : (
-                        <p className="text-sm text-muted-foreground">暂无详细报告。</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-            </div>
-
-            {/* 右栏：状态区 */}
-            <div className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
-              <Card className="h-fit">
-                <CardHeader>
-                  <CardTitle className="text-sm">状态</CardTitle>
-                </CardHeader>
-                <CardContent className="divide-y">
-                  {/* 漏洞 ID */}
-                  <FieldRow label="漏洞 ID">
-                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                      #{finding.id}
-                    </code>
-                  </FieldRow>
-
-                  {/* 严重等级 */}
-                  <FieldRow label="严重等级">
-                    {finding.inherited ? (
-                      <StatusBadge domain="severity" value={finding.severity} dot />
-                    ) : (
-                      <Select value={finding.severity} onValueChange={(v) => changeSeverity(v as Severity)}>
-                        <SelectTrigger size="sm" className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0">
-                          <StatusBadge domain="severity" value={finding.severity} dot />
-                        </SelectTrigger>
-                        <SelectContent position="popper" align="end">
-                          <SelectGroup>
-                            {SEVERITIES.map((sv) => (
-                              <SelectItem key={sv} value={sv}>
-                                {statusMeta("severity", sv).label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </FieldRow>
-
-                  {/* 处理状态 */}
-                  <FieldRow label="处理状态">
-                    {finding.inherited ? (
-                      <StatusBadge domain="finding" value={finding.status} dot />
-                    ) : (
-                      <Select value={finding.status} onValueChange={(v) => changeStatus(v as FindingStatus)}>
-                        <SelectTrigger size="sm" className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0">
-                          <StatusBadge domain="finding" value={finding.status} dot />
-                        </SelectTrigger>
-                        <SelectContent position="popper" align="end">
-                          <SelectGroup>
-                            {FINDING_STATUSES.map((st) => (
-                              <SelectItem key={st} value={st}>
-                                {statusMeta("finding", st).label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </FieldRow>
-
-                  {/* 漏洞类型 */}
-                  <FieldRow label="漏洞类型">
-                    {finding.vulnclass ? (
-                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{finding.vulnclass}</code>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </FieldRow>
-
-                  {/* 涉及资产 */}
-                  <FieldRow label="涉及资产">
-                    {finding.assets && finding.assets.length > 0 ? (
-                      <div className="flex flex-wrap justify-end gap-1">
-                        {finding.assets.map((a) => (
-                          <code
-                            key={a.id}
-                            className="max-w-[16rem] truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
-                            title={`${a.type} · ${a.label}`}
-                          >
-                            {a.label}
-                          </code>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </FieldRow>
-
-                  {/* 所属任务 */}
-                  <FieldRow label="所属任务">
-                    {finding.task_id ? (
-                      <Link
-                        href={`/function/tasks/detail?id=${finding.task_id}`}
-                        className="inline-flex max-w-[16rem] items-center gap-1 text-primary hover:underline"
-                        title={finding.task_description}
-                      >
-                        <span className="truncate">{finding.task_description || `#${finding.task_id}`}</span>
-                        <ArrowUpRightIcon className="size-3 shrink-0" />
-                      </Link>
-                    ) : (
-                      <span className="text-muted-foreground">—（任务已删除）</span>
-                    )}
-                  </FieldRow>
-
-                  {/* 发现时间 */}
-                  <FieldRow label="发现时间">
-                    <span className="tabular-nums">{fmtTime(finding.ts)}</span>
-                  </FieldRow>
-                </CardContent>
-              </Card>
-              <FindingRetestPanel
-                key={`retest:${id}`}
-                findingId={id}
-                readOnly={finding.inherited}
-                onCompleted={load}
-              />
-            </div>
+            {!finding.inherited ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setReportChatOpen(true)}
+                title="打开当前漏洞报告撰写对话"
+              >
+                <FileTextIcon data-icon="inline-start" />
+                调整报告
+              </Button>
+            ) : null}
+            {finding.inherited && finding.source_task_id && (
+              <Badge variant="outline">来源任务 #{finding.source_task_id} · 只读</Badge>
+            )}
           </div>
-        </TabsContent>
+          <TabsList>
+            <TabsTrigger value="overview">概览</TabsTrigger>
+            <TabsTrigger value="lineage">链路图</TabsTrigger>
+            <TabsTrigger value="evidence">复现与证据</TabsTrigger>
+          </TabsList>
+        </header>
 
-        {/* 链路图：从任务初始节点回溯到本漏洞节点的攻击链路 */}
-        {/* 复现与证据（AntiFox 证据驱动交付）：结构化复现过程分步 + 每步证据截图 +
+        {/* Tab content */}
+        <div className="flex-1 p-4 lg:p-6">
+          {/* 概览：左（摘要 + 证据）/ 右（状态区） */}
+          <TabsContent value="overview" className="mt-0">
+            <div className="grid gap-4 lg:grid-cols-3">
+              {/* 左栏 */}
+              <div className="flex flex-col gap-4 lg:col-span-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">摘要</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{finding.summary || "（无摘要）"}</p>
+                  </CardContent>
+                </Card>
+                {structuredReproduction ? (
+                  <FindingReproductionPanel finding={finding} contextTask={contextTaskId || undefined} />
+                ) : (
+                  <>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-sm">证据 / PoC</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {finding.evidence ? (
+                          <pre className="max-h-[46vh] overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap">
+                            {finding.evidence}
+                          </pre>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">（无证据）</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                    <FindingTrafficPanel
+                      key={`traffic:${id}`}
+                      findingId={id}
+                      contextTask={contextTaskId || undefined}
+                      readOnly={finding.inherited}
+                      onChanged={load}
+                    />
+                    <Card>
+                      <CardHeader className="flex-row items-center justify-between">
+                        <CardTitle className="text-sm">详细报告</CardTitle>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {finding.report && <CopyButton text={finding.report} successMessage="已复制详细报告" />}
+                          {!finding.inherited ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void generateReport()}
+                              disabled={reportGenerating}
+                              title="由报告撰写 Agent 生成，不使用 Auto Agent"
+                            >
+                              {reportGenerating ? (
+                                <Loader2Icon data-icon="inline-start" className="animate-spin" />
+                              ) : (
+                                <FileTextIcon data-icon="inline-start" />
+                              )}
+                              {finding.report ? "重新生成步骤与报告" : "生成步骤与报告"}
+                            </Button>
+                          ) : null}
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {finding.report_stale ? (
+                          <Alert>
+                            <AlertDescription>流量证据已变更，详细报告待更新。</AlertDescription>
+                          </Alert>
+                        ) : null}
+                        {finding.report ? (
+                          <Markdown text={finding.report} />
+                        ) : (
+                          <p className="text-sm text-muted-foreground">暂无详细报告。</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </>
+                )}
+              </div>
+
+              {/* 右栏：状态区 */}
+              <div className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+                <Card className="h-fit">
+                  <CardHeader>
+                    <CardTitle className="text-sm">状态</CardTitle>
+                  </CardHeader>
+                  <CardContent className="divide-y">
+                    {/* 漏洞 ID */}
+                    <FieldRow label="漏洞 ID">
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                        #{finding.id}
+                      </code>
+                    </FieldRow>
+
+                    {/* 严重等级 */}
+                    <FieldRow label="严重等级">
+                      {finding.inherited ? (
+                        <StatusBadge domain="severity" value={finding.severity} dot />
+                      ) : (
+                        <Select value={finding.severity} onValueChange={(v) => changeSeverity(v as Severity)}>
+                          <SelectTrigger
+                            size="sm"
+                            className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0"
+                          >
+                            <StatusBadge domain="severity" value={finding.severity} dot />
+                          </SelectTrigger>
+                          <SelectContent position="popper" align="end">
+                            <SelectGroup>
+                              {SEVERITIES.map((sv) => (
+                                <SelectItem key={sv} value={sv}>
+                                  {statusMeta("severity", sv).label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </FieldRow>
+
+                    {/* 处理状态 */}
+                    <FieldRow label="处理状态">
+                      {finding.inherited ? (
+                        <StatusBadge domain="finding" value={finding.status} dot />
+                      ) : (
+                        <Select value={finding.status} onValueChange={(v) => changeStatus(v as FindingStatus)}>
+                          <SelectTrigger
+                            size="sm"
+                            className="h-7 w-auto border-none px-1 shadow-none focus-visible:ring-0"
+                          >
+                            <StatusBadge domain="finding" value={finding.status} dot />
+                          </SelectTrigger>
+                          <SelectContent position="popper" align="end">
+                            <SelectGroup>
+                              {FINDING_STATUSES.map((st) => (
+                                <SelectItem key={st} value={st}>
+                                  {statusMeta("finding", st).label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </FieldRow>
+
+                    {/* 漏洞类型 */}
+                    <FieldRow label="漏洞类型">
+                      {finding.vulnclass ? (
+                        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{finding.vulnclass}</code>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </FieldRow>
+
+                    {/* 涉及资产 */}
+                    <FieldRow label="涉及资产">
+                      {finding.assets && finding.assets.length > 0 ? (
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {finding.assets.map((a) => (
+                            <code
+                              key={a.id}
+                              className="max-w-[16rem] truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
+                              title={`${a.type} · ${a.label}`}
+                            >
+                              {a.label}
+                            </code>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </FieldRow>
+
+                    {/* 所属任务 */}
+                    <FieldRow label="所属任务">
+                      {finding.task_id ? (
+                        <Link
+                          href={`/function/tasks/detail?id=${finding.task_id}`}
+                          className="inline-flex max-w-[16rem] items-center gap-1 text-primary hover:underline"
+                          title={finding.task_description}
+                        >
+                          <span className="truncate">{finding.task_description || `#${finding.task_id}`}</span>
+                          <ArrowUpRightIcon className="size-3 shrink-0" />
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">—（任务已删除）</span>
+                      )}
+                    </FieldRow>
+
+                    {/* 发现时间 */}
+                    <FieldRow label="发现时间">
+                      <span className="tabular-nums">{fmtTime(finding.ts)}</span>
+                    </FieldRow>
+                  </CardContent>
+                </Card>
+                <FindingRetestPanel
+                  key={`retest:${id}`}
+                  findingId={id}
+                  readOnly={finding.inherited}
+                  onCompleted={load}
+                />
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* 链路图：从任务初始节点回溯到本漏洞节点的攻击链路 */}
+          {/* 复现与证据（AntiFox 证据驱动交付）：结构化复现过程分步 + 每步证据截图 +
             跳真实流量包 + AI 富化。组件按 node_id 取数，与详情页的 finding_id 口径不同，
             所以传整个 finding 让它自己解析 node_id。 */}
-        <TabsContent value="evidence" className="mt-0">
-          <FindingDetail finding={finding} onChanged={() => void load()} />
-        </TabsContent>
+          <TabsContent value="evidence" className="mt-0">
+            <FindingDetail finding={finding} onChanged={() => void load()} />
+          </TabsContent>
 
-        <TabsContent value="lineage" className="mt-0">
-          <FindingLineageView findingId={finding.id} />
-        </TabsContent>
-      </div>
+          <TabsContent value="lineage" className="mt-0">
+            <FindingLineageView findingId={finding.id} />
+          </TabsContent>
+        </div>
       </Tabs>
-      <FindingAutoChat
-        findingId={finding.id}
-        findingTitle={title}
-        open={autoChatOpen}
-        onOpenChange={setAutoChatOpen}
-      />
+      <FindingAutoChat findingId={finding.id} findingTitle={title} open={autoChatOpen} onOpenChange={setAutoChatOpen} />
       <FindingAutoChat
         findingId={finding.id}
         findingTitle={title}

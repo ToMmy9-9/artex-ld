@@ -54,8 +54,24 @@ const mockLLMRecords = structuredClone(D.llmRecords);
 const mockTaskTemplates = structuredClone(D.taskTemplates);
 // 【二开·P-TPL·U6】起 —— planner 模板 mock 样例（内置默认 + 一条自定义）
 const mockPlannerTemplates = [
-  { id: 1, name: "内置默认", body: "你是 planner……{{.Goal}}", is_default: true, builtin: true, created_at: "2026-10-21T00:00:00Z", updated_at: "2026-10-21T00:00:00Z" },
-  { id: 2, name: "CTF 速攻", body: "CTF 模式：直奔 flag。目标：{{.Goal}}", is_default: false, builtin: false, created_at: "2026-10-21T01:00:00Z", updated_at: "2026-10-21T01:00:00Z" },
+  {
+    id: 1,
+    name: "内置默认",
+    body: "你是 planner……{{.Goal}}",
+    is_default: true,
+    builtin: true,
+    created_at: "2026-10-21T00:00:00Z",
+    updated_at: "2026-10-21T00:00:00Z",
+  },
+  {
+    id: 2,
+    name: "CTF 速攻",
+    body: "CTF 模式：直奔 flag。目标：{{.Goal}}",
+    is_default: false,
+    builtin: false,
+    created_at: "2026-10-21T01:00:00Z",
+    updated_at: "2026-10-21T01:00:00Z",
+  },
 ];
 // 【二开·P-TPL·U6】止
 const mockTaskCategories = structuredClone(D.taskCategories);
@@ -963,7 +979,8 @@ function controlMockTask(id: string, action: "pause" | "resume"): BatchControlIt
     task.status = "paused";
     task.engine_mode = "paused";
     if (task.run_segment_started_unix && task.run_segment_started_unix > 0) {
-      task.active_run_seconds = (task.active_run_seconds ?? 0) + Math.max(0, Math.floor(Date.now() / 1000) - task.run_segment_started_unix);
+      task.active_run_seconds =
+        (task.active_run_seconds ?? 0) + Math.max(0, Math.floor(Date.now() / 1000) - task.run_segment_started_unix);
       task.run_seconds = task.active_run_seconds;
     }
     task.run_segment_started_unix = 0;
@@ -1423,7 +1440,9 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     if (b.name !== undefined) {
       const name = normalizedTemplateName(b.name);
       if (!name) throw new Error("分类名称不能为空");
-      if (mockTaskCategories.some((item) => item.id !== category.id && item.name.toLowerCase() === name.toLowerCase())) {
+      if (
+        mockTaskCategories.some((item) => item.id !== category.id && item.name.toLowerCase() === name.toLowerCase())
+      ) {
         throw new Error("分类名称已存在");
       }
       category.name = name;
@@ -1432,7 +1451,8 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       }
     }
     if (b.default_review_enabled !== undefined) category.default_review_enabled = b.default_review_enabled === true;
-    if (typeof b.default_planner_template_id === "number") category.default_planner_template_id = b.default_planner_template_id;
+    if (typeof b.default_planner_template_id === "number")
+      category.default_planner_template_id = b.default_planner_template_id;
     if (typeof b.asset_mode === "string" && b.asset_mode) category.asset_mode = b.asset_mode;
     if (typeof b.default_description === "string") category.default_description = b.default_description;
     category.updated_at = new Date().toISOString();
@@ -1514,7 +1534,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (seg[0] === "task-templates" && seg.length === 2 && m === "PATCH") {
     const template = mockTaskTemplates.find((item) => item.id === Number(seg[1]));
     if (!template) return {};
-    const has = (key: string) => Object.prototype.hasOwnProperty.call(b, key);
+    const has = (key: string) => Object.hasOwn(b, key);
     const nameValue = has("name") ? mockStringField(b.name, "模板名称") : undefined;
     const descriptionValue = has("description") ? mockStringField(b.description, "模板描述") : undefined;
     const goalValue = has("goal") ? mockStringField(b.goal, "模板目标") : undefined;
@@ -1523,7 +1543,8 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       throw new Error("intercept_rules 必须是数组");
     }
     const name = nameValue === undefined || b.name === null ? template.name : normalizedTemplateName(nameValue);
-    const description = descriptionValue === undefined || b.description === null ? template.description : descriptionValue.trim();
+    const description =
+      descriptionValue === undefined || b.description === null ? template.description : descriptionValue.trim();
     const goal = goalValue === undefined || b.goal === null ? template.goal : goalValue.trim();
     if (!name || !description || !goal) throw new Error("请填写模板名称、描述和目标");
     if (
@@ -1583,7 +1604,9 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     const id = Number(seg[1]);
     const tpl = mockPlannerTemplates.find((t) => t.id === id);
     if (!tpl) throw new Error("planner 模板不存在");
-    mockPlannerTemplates.forEach((t) => { t.is_default = t.id === id; });
+    mockPlannerTemplates.forEach((t) => {
+      t.is_default = t.id === id;
+    });
     return tpl;
   }
   if (seg[0] === "planner-templates" && seg.length === 2 && m === "PATCH") {
@@ -1608,10 +1631,30 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   // 【二开·P-TPL·U6】止
   // 【二开·P-INTENT·U6】起 —— 审核五端点 mock（00 册 U6；样例数据带预审摘要/预选执行器/替代血缘）
   if (seg[0] === "tasks" && seg[2] === "review" && seg[3] === "proposed" && m === "GET") {
-    return { intents: [
-      { id: 501, summary: "对 10.0.0.0/8 做内网渗透：拿域控", priority: 8, origin: "review", pending_executor: "intranet_agent", review_note: "与任务目标相关；横向移动高风险，建议限定边界", replaces: null, created_at: Math.floor(Date.now()/1000)-300 },
-      { id: 502, summary: "对已发现的 3 台 webshell 主机批量验证权限", priority: 6, origin: "review", pending_executor: null, review_note: "与 finding #12 呼应；先验证再决定是否深入", replaces: 499, created_at: Math.floor(Date.now()/1000)-180 },
-    ] };
+    return {
+      intents: [
+        {
+          id: 501,
+          summary: "对 10.0.0.0/8 做内网渗透：拿域控",
+          priority: 8,
+          origin: "review",
+          pending_executor: "intranet_agent",
+          review_note: "与任务目标相关；横向移动高风险，建议限定边界",
+          replaces: null,
+          created_at: Math.floor(Date.now() / 1000) - 300,
+        },
+        {
+          id: 502,
+          summary: "对已发现的 3 台 webshell 主机批量验证权限",
+          priority: 6,
+          origin: "review",
+          pending_executor: null,
+          review_note: "与 finding #12 呼应；先验证再决定是否深入",
+          replaces: 499,
+          created_at: Math.floor(Date.now() / 1000) - 180,
+        },
+      ],
+    };
   }
   if (seg[0] === "tasks" && seg[2] === "review" && seg[4] === "approve" && m === "POST") {
     return { ok: true };
@@ -1624,10 +1667,22 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     return { accepted: true };
   }
   if (seg[0] === "tasks" && seg[2] === "review" && seg[3] === "messages" && m === "GET") {
-    return { messages: [
-      { id: 1, kind: "text", summary: "【预审完成】2 条待审意图已出预审意见", created_at: Math.floor(Date.now()/1000)-240 },
-      { id: 2, kind: "text", summary: "【人工】#501 的内网渗透先别动，等我确认范围", created_at: Math.floor(Date.now()/1000)-120 },
-    ] };
+    return {
+      messages: [
+        {
+          id: 1,
+          kind: "text",
+          summary: "【预审完成】2 条待审意图已出预审意见",
+          created_at: Math.floor(Date.now() / 1000) - 240,
+        },
+        {
+          id: 2,
+          kind: "text",
+          summary: "【人工】#501 的内网渗透先别动，等我确认范围",
+          created_at: Math.floor(Date.now() / 1000) - 120,
+        },
+      ],
+    };
   }
   // 【二开·P-INTENT·U6】止
   // 任务/资产关联情报（AntiFox 证据驱动交付）：形状必须与后端 IntelligencePage 一致。
@@ -1674,16 +1729,18 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (seg[0] === "tasks" && seg.length === 2 && m === "PATCH") {
     const task = mockTasks.find((item) => item.id === seg[1]);
     if (!task) throw new Error("任务不存在");
-    const has = (key: string) => Object.prototype.hasOwnProperty.call(b, key);
+    const has = (key: string) => Object.hasOwn(b, key);
     if (has("name") && b.name !== null && typeof b.name !== "string") throw new Error("任务名称必须是字符串");
     if (has("remark") && b.remark !== null && typeof b.remark !== "string") throw new Error("备注必须是字符串");
     if (has("pinned") && b.pinned !== null && typeof b.pinned !== "boolean") throw new Error("pinned 必须是布尔值");
-    if (has("share_global_assets") && b.share_global_assets !== null && typeof b.share_global_assets !== "boolean") throw new Error("share_global_assets 必须是布尔值");
+    if (has("share_global_assets") && b.share_global_assets !== null && typeof b.share_global_assets !== "boolean")
+      throw new Error("share_global_assets 必须是布尔值");
     const sharingPresent = has("share_global_assets") && b.share_global_assets !== null;
     const namePresent = has("name") && b.name !== null;
     const remarkPresent = has("remark") && b.remark !== null;
     const pinnedPresent = has("pinned") && b.pinned !== null;
-    if (!namePresent && !remarkPresent && !pinnedPresent && !sharingPresent) throw new Error("至少需要提供 name、pinned、remark 或 share_global_assets");
+    if (!namePresent && !remarkPresent && !pinnedPresent && !sharingPresent)
+      throw new Error("至少需要提供 name、pinned、remark 或 share_global_assets");
     let nextName = task.name;
     let nextRemark = task.remark;
     let nextPinned = task.pinned;
@@ -2646,12 +2703,27 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       ],
       warnings: [],
     };
-  if (path === "/settings/proxy-pool" && m === "GET") return { entries: D.settings.proxy_pool ?? [], active_id: D.settings.proxy_pool_active_id ?? "", active_proxy: D.settings.global_proxy ?? "", switch_log: [] };
-  if (path === "/settings/proxy-pool/import" && m === "POST") return { entries: D.settings.proxy_pool ?? [], active_id: D.settings.proxy_pool_active_id ?? "", switch_log: [], errors: [] };
-  if (path === "/settings/proxy-pool/test-all" && m === "POST") return { entries: D.settings.proxy_pool ?? [], active_id: D.settings.proxy_pool_active_id ?? "", switch_log: [] };
-  if (path.startsWith("/settings/proxy-pool/") && m === "PUT") return { entry: { ...(D.settings.proxy_pool ?? []).find((x) => x.id === path.split("/").at(-1)), ...b } };
+  if (path === "/settings/proxy-pool" && m === "GET")
+    return {
+      entries: D.settings.proxy_pool ?? [],
+      active_id: D.settings.proxy_pool_active_id ?? "",
+      active_proxy: D.settings.global_proxy ?? "",
+      switch_log: [],
+    };
+  if (path === "/settings/proxy-pool/import" && m === "POST")
+    return {
+      entries: D.settings.proxy_pool ?? [],
+      active_id: D.settings.proxy_pool_active_id ?? "",
+      switch_log: [],
+      errors: [],
+    };
+  if (path === "/settings/proxy-pool/test-all" && m === "POST")
+    return { entries: D.settings.proxy_pool ?? [], active_id: D.settings.proxy_pool_active_id ?? "", switch_log: [] };
+  if (path.startsWith("/settings/proxy-pool/") && m === "PUT")
+    return { entry: { ...(D.settings.proxy_pool ?? []).find((x) => x.id === path.split("/").at(-1)), ...b } };
   if (path.startsWith("/settings/proxy-pool/") && m === "DELETE") return { ok: true };
-  if (path.startsWith("/settings/proxy-pool/") && m === "POST") return { ok: true, active_id: path.split("/").at(-1), active_proxy: "" };
+  if (path.startsWith("/settings/proxy-pool/") && m === "POST")
+    return { ok: true, active_id: path.split("/").at(-1), active_proxy: "" };
   if (path === "/settings/python/detect") return { python_interpreter: "/usr/bin/python3" };
   if (path === "/chat")
     return { reply: "（demo）我已把该建议注入为一条高优意图，work agent 会尽快执行。", mode: "hint" };

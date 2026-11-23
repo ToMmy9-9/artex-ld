@@ -6,10 +6,10 @@ import { format, parseISO } from "date-fns";
 import { zhCN } from "date-fns/locale/zh-CN";
 import { CalendarDaysIcon, RotateCcwIcon } from "lucide-react";
 
+import { TimeSelect } from "@/components/time-select";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { TimeSelect } from "@/components/time-select";
 
 export interface FindingDateRange {
   from?: string;
@@ -33,7 +33,13 @@ function DateField({ value, onChange, label }: { value: string; onChange: (value
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-10 justify-between px-3 font-normal" aria-label={label}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-10 justify-between px-3 font-normal"
+          aria-label={label}
+        >
           <span className={selected ? "text-foreground" : "text-muted-foreground"}>
             {selected ? format(selected, "yyyy年M月d日") : "年 / 月 / 日"}
           </span>
@@ -114,7 +120,11 @@ export function FindingDateFilter({
             <span>开始时间</span>
             <div className="grid grid-cols-[minmax(0,1fr)_9.25rem] items-center gap-2">
               <DateField value={fromDate} onChange={(value) => apply({ fromDate: value })} label="开始日期" />
-              <TimeSelect value={fromTime} onValueChange={(value) => apply({ fromTime: value })} aria-label="开始时分" />
+              <TimeSelect
+                value={fromTime}
+                onValueChange={(value) => apply({ fromTime: value })}
+                aria-label="开始时分"
+              />
             </div>
           </div>
           <div className="grid gap-1.5 text-xs font-medium">

@@ -4,14 +4,9 @@
  *   - StatusBadge：状态徽章组件（domain + value，可选圆点）
  *   - ToneDot：只渲染语义色圆点的小组件（标签页计数等只需色点的位置）
  */
+
+import { type StatusDomain, statusMeta, type Tone, toneClasses, toneDot } from "@/lib/status";
 import { cn } from "@/lib/utils";
-import {
-  statusMeta,
-  toneClasses,
-  toneDot,
-  type StatusDomain,
-  type Tone,
-} from "@/lib/status";
 
 export function StatusBadge({
   domain,
@@ -33,9 +28,7 @@ export function StatusBadge({
         className,
       )}
     >
-      {dot && (
-        <span className={cn("size-1.5 rounded-full", toneDot[meta.tone])} />
-      )}
+      {dot && <span className={cn("size-1.5 rounded-full", toneDot[meta.tone])} />}
       {meta.label}
     </span>
   );
