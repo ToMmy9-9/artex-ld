@@ -993,101 +993,108 @@ export default function FindingsPage() {
           })}
         </div>
 
-        <div className="scrollbar-none flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
-          <InputGroup className="w-72 shrink-0">
-            <InputGroupInput
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="检索漏洞内容"
-              aria-label="检索漏洞内容"
-            />
-            <InputGroupAddon>
-              <SearchIcon aria-hidden="true" />
-            </InputGroupAddon>
-          </InputGroup>
+        {/* 工具栏分两段：左侧筛选器自己横向滚动，右侧操作区（导出/整理/全选）
+            固定在视口内。
+            之前整条工具栏是一个 flex-nowrap + overflow-x-auto 的容器，筛选器
+            一多就把右侧按钮组推出可视区 —— 而滚动条被 scrollbar-none 藏了，
+            用户根本看不到「导出」按钮在哪，以为这个功能不存在。 */}
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="scrollbar-none flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+            <InputGroup className="w-72 shrink-0">
+              <InputGroupInput
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="检索漏洞内容"
+                aria-label="检索漏洞内容"
+              />
+              <InputGroupAddon>
+                <SearchIcon aria-hidden="true" />
+              </InputGroupAddon>
+            </InputGroup>
 
-          <ToggleGroup
-            type="single"
-            value={severity}
-            onValueChange={(value) => value && setSeverity(value as "all" | Severity)}
-            variant="outline"
-            size="sm"
-            spacing={0}
-          >
-            {SEVERITY_FILTER_OPTIONS.map(([val, label]) => (
-              <ToggleGroupItem key={val} value={val} aria-label={`按${label}等级筛选`}>
-                {label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-
-          <Select value={status} onValueChange={(v) => setStatus(v as "all" | FindingStatus)}>
-            <SelectTrigger size="sm" className="w-32 shrink-0">
-              <SelectValue placeholder="状态" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部状态</SelectItem>
-              {FINDING_STATUSES.map((st) => (
-                <SelectItem key={st} value={st}>
-                  {statusMeta("finding", st).label}
-                </SelectItem>
+            <ToggleGroup
+              type="single"
+              value={severity}
+              onValueChange={(value) => value && setSeverity(value as "all" | Severity)}
+              variant="outline"
+              size="sm"
+              spacing={0}
+            >
+              {SEVERITY_FILTER_OPTIONS.map(([val, label]) => (
+                <ToggleGroupItem key={val} value={val} aria-label={`按${label}等级筛选`}>
+                  {label}
+                </ToggleGroupItem>
               ))}
-            </SelectContent>
-          </Select>
+            </ToggleGroup>
 
-          <Select value={vulnclass} onValueChange={setVulnclass}>
-            <SelectTrigger size="sm" className="w-40 shrink-0">
-              <SelectValue placeholder="漏洞类型" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部类型</SelectItem>
-              {stats.vulnclasses.map((vc) => (
-                <SelectItem key={vc} value={vc}>
-                  {vc}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={task} onValueChange={setTask}>
-            <SelectTrigger size="sm" className="w-48 shrink-0">
-              <SelectValue placeholder="任务" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部任务</SelectItem>
-              <SelectItem value={UNASSIGNED_TASK}>未关联 / 任务已删除</SelectItem>
-              {(stats.tasks ?? []).map((t) => {
-                const id = String(t.id);
-                const label = t.name || t.description || `任务 #${id}（已删除）`;
-                return (
-                  <SelectItem key={id} value={id}>
-                    <span className="flex w-full items-center gap-2">
-                      <span className="max-w-[14rem] truncate" title={label}>
-                        {label}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
-                        <BugIcon className="size-3.5" aria-hidden="true" />
-                        {t.count}
-                      </span>
-                    </span>
+            <Select value={status} onValueChange={(v) => setStatus(v as "all" | FindingStatus)}>
+              <SelectTrigger size="sm" className="w-32 shrink-0">
+                <SelectValue placeholder="状态" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部状态</SelectItem>
+                {FINDING_STATUSES.map((st) => (
+                  <SelectItem key={st} value={st}>
+                    {statusMeta("finding", st).label}
                   </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+                ))}
+              </SelectContent>
+            </Select>
 
-          <FindingDateFilter value={dateRange} onChange={setDateRange} />
+            <Select value={vulnclass} onValueChange={setVulnclass}>
+              <SelectTrigger size="sm" className="w-40 shrink-0">
+                <SelectValue placeholder="漏洞类型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部类型</SelectItem>
+                {stats.vulnclasses.map((vc) => (
+                  <SelectItem key={vc} value={vc}>
+                    {vc}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          <Select value={sort} onValueChange={(v) => setSort(v as "severity" | "time")}>
-            <SelectTrigger size="sm" className="w-36 shrink-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="severity">按严重度</SelectItem>
-              <SelectItem value="time">按时间</SelectItem>
-            </SelectContent>
-          </Select>
+            <Select value={task} onValueChange={setTask}>
+              <SelectTrigger size="sm" className="w-48 shrink-0">
+                <SelectValue placeholder="任务" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部任务</SelectItem>
+                <SelectItem value={UNASSIGNED_TASK}>未关联 / 任务已删除</SelectItem>
+                {(stats.tasks ?? []).map((t) => {
+                  const id = String(t.id);
+                  const label = t.name || t.description || `任务 #${id}（已删除）`;
+                  return (
+                    <SelectItem key={id} value={id}>
+                      <span className="flex w-full items-center gap-2">
+                        <span className="max-w-[14rem] truncate" title={label}>
+                          {label}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
+                          <BugIcon className="size-3.5" aria-hidden="true" />
+                          {t.count}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+
+            <FindingDateFilter value={dateRange} onChange={setDateRange} />
+
+            <Select value={sort} onValueChange={(v) => setSort(v as "severity" | "time")}>
+              <SelectTrigger size="sm" className="w-36 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="severity">按严重度</SelectItem>
+                <SelectItem value="time">按时间</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-3">
             {selectedIds.size > 0 && (
