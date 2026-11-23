@@ -344,12 +344,12 @@ func (s *Server) assetIDs(w http.ResponseWriter, r *http.Request) {
 	}
 	companyID, _ := strconv.ParseInt(q.Get("company_id"), 10, 64)
 	taskID, _ := strconv.ParseInt(q.Get("task_id"), 10, 64)
-	ids, err := as.AssetIDSet(dsl, typ, companyID, taskID)
+	ids, labels, err := as.AssetIDSet(dsl, typ, companyID, taskID)
 	if err != nil {
 		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ids": ids, "total": len(ids)})
+	writeJSON(w, 200, map[string]any{"ids": ids, "labels": labels, "total": len(ids)})
 }
 
 // listAssets serves the paginated asset list for the assets page.

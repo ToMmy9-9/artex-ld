@@ -99,8 +99,10 @@ export function SelectAllControl({
               {selectingAllMatching ? "正在选择…" : "全部筛选结果"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {/* 「全不选」与报告页的「全选 / 全不选」成对按钮保持一致：
+                全选之后总要给一条清空的路，否则只能一个个取消勾选。 */}
             <DropdownMenuItem disabled={selectedIds.size === 0} onClick={onClearSelection}>
-              清空选择
+              全不选（{selectedIds.size} 条）
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -140,7 +142,7 @@ export function SelectAllToolbarButton({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={selectedCount === 0} onClick={onClearSelection}>
-          清空选择{selectedCount > 0 ? `（${selectedCount} 条）` : ""}
+          全不选{selectedCount > 0 ? `（${selectedCount} 条）` : ""}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -951,13 +951,11 @@ func statusFilter(s string) (cond string, args []any, ok bool) {
 // Body narrows to exchanges whose captured text matches, via that same index.
 // Also returns the total number of rows matching the filter (for the UI's
 // pagination). Bodies are never included in the rows.
-func (t *Traffic) Page(f PageQuery, page, size int) (rows []ExchangeMeta, total int, err error) {
-	if size <= 0 || size > 500 {
-		size = 100
-	}
-	if page < 0 {
-		page = 0
-	}
+// whereClause builds the SQL WHERE fragment (and its args) for a PageQuery.
+// Page and PageIDs share it so「全选全部筛选结果」returns exactly the rows the
+// list shows — drift between the two would make a bulk action hit rows the user
+// never saw.
+func (t *Traffic) whereClause(f PageQuery) (string, []any) {
 	where := ""
 	var args []any
 	add := func(cond string, vs ...any) {
@@ -1010,6 +1008,41 @@ func (t *Traffic) Page(f PageQuery, page, size int) (rows []ExchangeMeta, total 
 			add(cond, arg)
 		}
 	}
+	return where, args
+}
+
+// PageIDs returns every exchange matching the filter, with no LIMIT/OFFSET.
+// The traffic page uses it for「全选全部筛选结果」so a bulk action (link to a
+// finding, re-send, delete) can cover the whole filtered set without paging
+// through it. Only the metadata columns come back — bodies stay on disk until
+// the rows are opened — but the meta is enough for the bulk actions that need
+// a host/method label per row.
+func (t *Traffic) PageIDs(f PageQuery) ([]ExchangeMeta, error) {
+	where, args := t.whereClause(f)
+	rows, err := t.db.Query(`SELECT `+exchangeMetaCols+` FROM exchanges`+where+` ORDER BY id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ExchangeMeta{}
+	for rows.Next() {
+		m, err := scanExchangeMeta(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func (t *Traffic) Page(f PageQuery, page, size int) (rows []ExchangeMeta, total int, err error) {
+	if size <= 0 || size > 500 {
+		size = 100
+	}
+	if page < 0 {
+		page = 0
+	}
+	where, args := t.whereClause(f)
 	if err = t.db.QueryRow(`SELECT COUNT(*) FROM exchanges`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}

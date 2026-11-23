@@ -56,6 +56,9 @@ var muxRouteContract = []struct {
 	// ── 资产列表：全选全部筛选结果所需的筛选命中 id ──
 	{"GET", "/api/assets/ids", "资产全选全部筛选结果的筛选命中 id"},
 
+	// ── 流量列表：全选全部筛选结果所需的筛选命中 id ──
+	{"GET", "/api/traffic/ids", "流量全选全部筛选结果的筛选命中 id"},
+
 	// ── AntiFox 交付级报告 ──
 	{"POST", "/api/report/generate", "生成交付级报告"},
 	{"GET", "/api/report/status", "报告生成状态"},

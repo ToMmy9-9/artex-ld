@@ -178,6 +178,7 @@ const API_KEYS = [
   "auditLogs",
   "traffic",
   "trafficExchange",
+  "trafficIds",
   "trafficHosts",
   "trafficDeleteHost",
   "trafficDeleteHosts",

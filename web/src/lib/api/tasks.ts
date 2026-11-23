@@ -514,7 +514,7 @@ export const tasksApi = {
     if (opts.companyId) p.set("company_id", opts.companyId);
     if (opts.taskId) p.set("task_id", opts.taskId);
     const qs = p.toString();
-    return get<{ ids: number[]; total: number }>(`/assets/ids${qs ? `?${qs}` : ""}`);
+    return get<{ ids: number[]; labels: Record<string, string>; total: number }>(`/assets/ids${qs ? `?${qs}` : ""}`);
   },
   deleteAssets: (ids: number[]) =>
     http<{ deleted: number }>("/assets", { method: "DELETE", body: JSON.stringify({ ids }) }),
@@ -849,9 +849,34 @@ export const tasksApi = {
         (opts.respMax ? `&resp_max=${encodeURIComponent(opts.respMax)}` : "") +
         (opts.sort ? `&sort=${encodeURIComponent(opts.sort)}` : "") +
         (opts.order ? `&order=${encodeURIComponent(opts.order)}` : ""),
-    ),
-  trafficExchange: (id: string) => get<TrafficDetail>(`/traffic/exchange?id=${encodeURIComponent(id)}`),
-  trafficHosts: () => get<{ hosts: TrafficHost[] }>(`/traffic/hosts`),
+  ),
+  // trafficIds 返回当前筛选命中的全部流量 id（不分页），供「全选全部筛选结果」
+  // 使用。流量列表是服务端分页，表头勾选框只能覆盖当前页。
+  trafficIds: (opts: {
+    host?: string;
+    method?: string;
+    q?: string;
+    body?: string;
+    path?: string;
+    status?: string;
+    respMin?: string;
+    respMax?: string;
+    taskId?: string;
+  } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.host) p.set("host", opts.host);
+    if (opts.method && opts.method !== "all") p.set("method", opts.method);
+    if (opts.q) p.set("q", opts.q);
+    if (opts.body) p.set("body", opts.body);
+    if (opts.path) p.set("path", opts.path);
+    if (opts.status && opts.status !== "all") p.set("status", opts.status);
+    if (opts.respMin) p.set("resp_min", opts.respMin);
+    if (opts.respMax) p.set("resp_max", opts.respMax);
+    if (opts.taskId) p.set("task_id", opts.taskId);
+    const qs = p.toString();
+    return get<{ ids: TrafficExchange[]; total: number }>(`/traffic/ids${qs ? `?${qs}` : ""}`);
+  },
+  trafficExchange: (id: string) => get<TrafficDetail>(`/traffic/exchange?id=${encodeURIComponent(id)}`),  trafficHosts: () => get<{ hosts: TrafficHost[] }>(`/traffic/hosts`),
   trafficDeleteHost: (host: string) => del<{ deleted: number }>(`/traffic?host=${encodeURIComponent(host)}`),
   trafficDeleteHosts: (hosts: string[]) => del<{ deleted: number }>(`/traffic/hosts`, { hosts }),
   // Purges every exchange and compacts the index; `reclaimed` is the bytes of

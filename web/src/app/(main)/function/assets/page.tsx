@@ -29,6 +29,7 @@ import { toast } from "sonner";
 
 import { AssetDslSearch } from "@/components/asset-dsl-search";
 import { IntelligencePanel } from "@/components/intelligence-panel";
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
 import { SelectAllControl } from "@/components/select-all-control";
 import {
@@ -165,6 +166,9 @@ function AssetsContent() {
   // asset selection & delete
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
   const [deleteIds, setDeleteIds] = React.useState<number[]>([]);
+  // 跨页全选时选中的资产不在当前页数据里，这里记住后端返回的展示名，
+  // 删除确认弹窗才能列出「要删的是哪些资产」而不只是一个数字。
+  const [selectedLabels, setSelectedLabels] = React.useState<Record<string, string>>({});
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
 
@@ -216,13 +220,31 @@ function AssetsContent() {
       }
       return next;
     });
+    // 当前页的行里有展示名，顺手记进 labels，删除确认才能列出清单。
+    setSelectedLabels((prev) => {
+      const next = { ...prev };
+      for (const a of rows) {
+        if (!ids.includes(a.id)) continue;
+        const label = a.domain || a.ip || a.url || "";
+        if (label) next[String(a.id)] = label;
+      }
+      return next;
+    });
   };
 
   const toggleSelectAll = (ids: number[]) => {
     setSelectedIds(ids, !ids.every((id) => selected.has(id)));
   };
 
-  const clearSelection = () => setSelected(new Set());
+  const clearSelection = () => {
+    setSelected(new Set());
+    setSelectedLabels({});
+  };
+
+  // 空状态用的「是否有筛选」与「一键清除」：资产页的筛选就是 DSL 搜索框，
+  // 筛空后原来只有一句「暂无数据。」，用户不知道是被 DSL 筛掉的。
+  const hasAnyFilter = query.trim() !== "";
+  const onClearFilters = () => setQuery("");
 
   // 「全选全部筛选结果」：资产列表是服务端分页，表头勾选框只覆盖当前页。
   // 这里拉一次当前筛选命中的全量 id 回填，才能对整个筛选结果做批量操作。
@@ -232,11 +254,14 @@ function AssetsContent() {
     if (tab === "host" || tab === "company") return;
     setSelectingAllMatching(true);
     try {
-      const { ids } = await api.assetIds({
+      const { ids, labels } = await api.assetIds({
         type: tab,
         dsl: query.trim() || undefined,
       });
       setSelected(new Set(ids));
+      // 记下展示名：跨页选中的资产不在当前页数据里，删除确认时没有名字可显示，
+      // 用户只看到一个数字，不知道到底要删什么。
+      setSelectedLabels(labels ?? {});
       toast.success(`已选中全部 ${ids.length} 条`);
     } catch (e) {
       toast.error(`全选失败：${(e as Error).message}`);
@@ -548,6 +573,8 @@ function AssetsContent() {
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
+            hasAnyFilter={hasAnyFilter}
+            onClearFilters={onClearFilters}
           >
             {slice(tabData("root_domain")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -593,6 +620,8 @@ function AssetsContent() {
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
+            hasAnyFilter={hasAnyFilter}
+            onClearFilters={onClearFilters}
           >
             {slice(tabData("ip")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -644,6 +673,8 @@ function AssetsContent() {
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
+            hasAnyFilter={hasAnyFilter}
+            onClearFilters={onClearFilters}
           >
             {slice(tabData("subdomain")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -690,6 +721,8 @@ function AssetsContent() {
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
+            hasAnyFilter={hasAnyFilter}
+            onClearFilters={onClearFilters}
           >
             {slice(tabData("app")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -734,6 +767,8 @@ function AssetsContent() {
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
+            hasAnyFilter={hasAnyFilter}
+            onClearFilters={onClearFilters}
           >
             {slice(tabData("service")).map((a) => {
               const isHttp = a.service_type === "http";
@@ -894,6 +929,8 @@ function AssetsContent() {
             onSelectAllMatching={selectAllMatching}
             selectingAllMatching={selectingAllMatching}
             onClearSelection={clearSelection}
+            hasAnyFilter={hasAnyFilter}
+            onClearFilters={onClearFilters}
           >
             {slice(tabData("endpoint")).map((a) => (
               <TableRow key={a.id} className={selected.has(a.id) ? "bg-muted/40" : undefined}>
@@ -935,12 +972,24 @@ function AssetsContent() {
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确认删除</AlertDialogTitle>
-            <AlertDialogDescription>
-              将永久删除 <span className="font-semibold tabular-nums">{deleteIds.length}</span>{" "}
-              条资产记录，此操作不可撤销。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+          <AlertDialogTitle>确认删除</AlertDialogTitle>
+          <AlertDialogDescription>
+            将永久删除 <span className="font-semibold tabular-nums">{deleteIds.length}</span>{" "}
+            条资产记录，此操作不可撤销。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {/* 列出将被删除的资产：任务页的批量删除已有这个清单预览，资产页原来只有
+            一个数字。跨页全选后用户更看不到删的是哪些，必须给出来。 */}
+        {deleteIds.length > 0 ? (
+          <div className="text-muted-foreground flex max-h-40 flex-wrap gap-1 overflow-y-auto text-xs">
+            {deleteIds.slice(0, 30).map((id) => (
+              <code key={id} className="bg-muted rounded px-1.5 py-0.5 font-mono" title={`资产 #${id}`}>
+                {selectedLabels[String(id)] || `#${id}`}
+              </code>
+            ))}
+            {deleteIds.length > 30 && <span className="self-center">…等 {deleteIds.length} 个</span>}
+          </div>
+        ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
             <AlertDialogAction
@@ -1023,6 +1072,8 @@ function AssetCard({
   onSelectAllMatching,
   selectingAllMatching,
   onClearSelection,
+  hasAnyFilter,
+  onClearFilters,
   children,
 }: {
   cols: string[];
@@ -1039,6 +1090,8 @@ function AssetCard({
   onSelectAllMatching?: () => void;
   selectingAllMatching?: boolean;
   onClearSelection?: () => void;
+  hasAnyFilter?: boolean;
+  onClearFilters?: () => void;
   children: React.ReactNode;
 }) {
   const childRows = React.Children.toArray(children);
@@ -1078,8 +1131,18 @@ function AssetCard({
               childRows
             ) : (
               <TableRow>
-                <TableCell colSpan={cols.length} className="py-12 text-center text-sm text-muted-foreground">
-                  {loaded ? "暂无数据。" : "加载中…"}
+                <TableCell colSpan={cols.length} className="p-0">
+                  {loaded ? (
+                    <FilteredEmptyState
+                      title="没有匹配的资产"
+                      description="当前筛选条件下没有匹配的资产，可以清除筛选条件后重新浏览。"
+                      total={total}
+                      hasFilters={hasAnyFilter}
+                      onClearFilters={onClearFilters}
+                    />
+                  ) : (
+                    <div className="py-12 text-center text-sm text-muted-foreground">加载中…</div>
+                  )}
                 </TableCell>
               </TableRow>
             )}

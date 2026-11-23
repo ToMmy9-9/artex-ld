@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { FindingCaseList } from "@/components/finding-case-list";
 import { FindingDateFilter, type FindingDateRange } from "@/components/finding-date-filter";
 import { FindingRetestDialog } from "@/components/finding-retest-dialog";
@@ -870,6 +871,27 @@ export default function FindingsPage() {
   // 平铺与资产视图共用 flat 列表状态,分组视图的口径来自组接口的 finding_total。
   const [caseTotal, setCaseTotal] = React.useState(0);
   const filteredTotal = view === "cases" ? caseTotal : view === "grouped" ? total : flat.total;
+  // 空状态用的「是否有筛选条件」与「一键清除」：原来筛选后为空只留一句
+  // 「没有匹配的发现。」，用户想恢复只能自己把每个筛选条件改回去。
+  const hasAnyFilter =
+    severity !== "all" ||
+    status !== "all" ||
+    vulnclass !== "all" ||
+    task !== "all" ||
+    query.trim() !== "" ||
+    Boolean(dateRange.from) ||
+    Boolean(dateRange.to) ||
+    Boolean(assetScope);
+  const clearAllFilters = React.useCallback(() => {
+    setSeverity("all");
+    setStatus("all");
+    setVulnclass("all");
+    setTask("all");
+    setSearch("");
+    setQuery("");
+    setDateRange({});
+    setAssetScope(null);
+  }, []);
   const assetPath = React.useMemo(
     () => (view === "asset" ? assetPathOf(assetTree.nodes, assetScope) : []),
     [assetScope, assetTree.nodes, view],
@@ -894,6 +916,9 @@ export default function FindingsPage() {
     onSelectAllMatching: selectAllMatching,
     selectingAllMatching,
     onClearSelection: clearSelection,
+    totalHint: filteredTotal,
+    hasFilters: hasAnyFilter,
+    onClearFilters: clearAllFilters,
   };
 
   // 平铺视图与资产视图右侧是同一张表 + 同一份分页,只是筛选条件不同。
@@ -1262,7 +1287,15 @@ export default function FindingsPage() {
             })}
             {groups.length === 0 && (
               <Card>
-                <CardContent className="py-12 text-center text-sm text-muted-foreground">没有匹配的发现。</CardContent>
+                <CardContent className="p-0">
+                  <FilteredEmptyState
+                    title="没有匹配的任务分组"
+                    description="当前筛选条件下没有任务分组，可以清除筛选条件后重新浏览。"
+                    total={groupTotal}
+                    hasFilters={hasAnyFilter}
+                    onClearFilters={clearAllFilters}
+                  />
+                </CardContent>
               </Card>
             )}
             <TablePagination

@@ -1136,6 +1136,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/traffic/all", s.deleteAllTraffic)
 	mux.HandleFunc("GET /api/traffic/exchange", s.getTrafficExchange)
 	mux.HandleFunc("GET /api/traffic/blob", s.getTrafficBlob)
+	// 全选全部筛选结果：只返回筛选命中的流量 id，供前端跨页批量操作。
+	mux.HandleFunc("GET /api/traffic/ids", s.getTrafficIDs)
 	mux.HandleFunc("GET /api/commands", s.pgListCommands)
 	mux.HandleFunc("GET /api/commands/stats", s.pgToolStats) // 按工具聚合调用次数
 	mux.HandleFunc("GET /api/llm/records", s.pgListLLMRecords)
@@ -3861,19 +3863,7 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	pageQuery := traffic.PageQuery{
-		Hosts:   taskHosts,
-		Host:    q.Get("host"),
-		Method:  q.Get("method"),
-		Query:   q.Get("q"),
-		Body:    q.Get("body"),
-		Path:    q.Get("path"),
-		Status:  q.Get("status"),
-		RespMin: int64(atoiDefault(q.Get("resp_min"), -1)),
-		RespMax: int64(atoiDefault(q.Get("resp_max"), -1)),
-		Sort:    q.Get("sort"),
-		Order:   q.Get("order"),
-	}
+	pageQuery := trafficPageQuery(q, taskHosts)
 	ex, matched, _ := tr.Page(pageQuery, page, size)
 	count, _ := tr.Count() // global total, for the stat card
 	if taskScoped {
@@ -3907,6 +3897,58 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		"exchanges":      dtos,
 		"status_buckets": buckets, // {2:N,3:N,4:N,5:N} — true distribution for the dashboard
 	})
+}
+
+// trafficPageQuery builds a traffic.PageQuery from the request's query string.
+// getTraffic and getTrafficIDs share it so the list and「全选全部筛选结果」
+// always cover the same rows.
+func trafficPageQuery(q url.Values, taskHosts []string) traffic.PageQuery {
+	return traffic.PageQuery{
+		Hosts:   taskHosts,
+		Host:    q.Get("host"),
+		Method:  q.Get("method"),
+		Query:   q.Get("q"),
+		Body:    q.Get("body"),
+		Path:    q.Get("path"),
+		Status:  q.Get("status"),
+		RespMin: int64(atoiDefault(q.Get("resp_min"), -1)),
+		RespMax: int64(atoiDefault(q.Get("resp_max"), -1)),
+		Sort:    q.Get("sort"),
+		Order:   q.Get("order"),
+	}
+}
+
+// getTrafficIDs serves「全选全部筛选结果」: every recorded exchange id matching
+// the current filters, with no pagination. The traffic list is server-side
+// paginated, so the page-level checkbox only covers the rows it renders; this
+// endpoint supplies the rest so a bulk action (link to a finding, re-send,
+// delete) can target the whole filtered set in one go.
+func (s *Server) getTrafficIDs(w http.ResponseWriter, r *http.Request) {
+	tr := s.m.Traffic()
+	if tr == nil {
+		writeJSON(w, 200, map[string]any{"ids": []string{}, "total": 0})
+		return
+	}
+	q := r.URL.Query()
+	var taskHosts []string
+	if rawTaskID := strings.TrimSpace(q.Get("task_id")); rawTaskID != "" {
+		taskID, err := strconv.ParseInt(rawTaskID, 10, 64)
+		if err != nil || taskID <= 0 || s.m.ResolveTask(rawTaskID) == nil {
+			writeErr(w, http.StatusNotFound, "任务不存在")
+			return
+		}
+		taskHosts, err = s.m.Assets().HostsByTaskWithSources(taskID)
+		if err != nil {
+			writeErrRedacted(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	ids, err := tr.PageIDs(trafficPageQuery(q, taskHosts))
+	if err != nil {
+		writeErrRedacted(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ids": trafficDTOs(ids), "total": len(ids)})
 }
 
 // getTrafficHosts returns distinct recorded hosts with counts, for the page's

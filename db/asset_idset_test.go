@@ -48,7 +48,7 @@ func TestAssetIDSetMatchesListQuery(t *testing.T) {
 			t.Fatalf("列表未返回全部 %d 条 IP（实际 %d）", len(ips), want)
 		}
 
-		ids, err := av2.AssetIDSet("", "ip", 0, 0)
+		ids, _, err := av2.AssetIDSet("", "ip", 0, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +69,7 @@ func TestAssetIDSetMatchesListQuery(t *testing.T) {
 	})
 
 	t.Run("id 集合是列表的超集且无越界", func(t *testing.T) {
-		ids, err := av2.AssetIDSet("", "ip", 0, 0)
+		ids, labels, err := av2.AssetIDSet("", "ip", 0, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,6 +87,19 @@ func TestAssetIDSetMatchesListQuery(t *testing.T) {
 				t.Fatalf("id %d 的 type 是 %q，与筛选条件 ip 不符", id, typ)
 			}
 		}
+		// 展示名必须与 assets 表里的实际值一致，删除确认弹窗要靠它列清单。
+		for id, label := range labels {
+			var want string
+			if err := d.QueryRow(
+				`SELECT COALESCE(NULLIF(domain,''), NULLIF(ip,''), NULLIF(url,''), '') FROM assets WHERE id=$1`,
+				id,
+			).Scan(&want); err != nil {
+				t.Fatalf("读资产 %d 失败: %v", id, err)
+			}
+			if label != want {
+				t.Fatalf("资产 %d 的展示名是 %q，期望 %q", id, label, want)
+			}
+		}
 	})
 
 	t.Run("DSL 路径与列表一致", func(t *testing.T) {
@@ -96,7 +109,7 @@ func TestAssetIDSetMatchesListQuery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ids, err := av2.AssetIDSet(dsl, "", 0, 0)
+		ids, _, err := av2.AssetIDSet(dsl, "", 0, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

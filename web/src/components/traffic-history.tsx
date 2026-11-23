@@ -19,10 +19,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { HttpCodeBlock } from "@/components/http-code-block";
 import { LinkTrafficDialog } from "@/components/link-traffic-dialog";
 import { requestFromTraffic } from "@/components/repeater/repeater-http";
 import { seedFromEvidence } from "@/components/repeater/repeater-store";
+import { SelectAllControl } from "@/components/select-all-control";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -218,6 +220,19 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
     setRespMaxQ("");
   };
 
+  // 空状态里的「清除筛选」要把主机/关键字/方法一并复位 —— 只清高级筛选
+  // （resetAdvancedFilters）不够，用户往往是被主机或关键字筛空的。
+  const hasAnyFilter =
+    Boolean(hostQ || queryQ || bodyQ || pathQ || respMinQ || respMaxQ) || method !== "all" || statusFilter !== "all";
+  const resetAllFilters = () => {
+    resetAdvancedFilters();
+    setHost("");
+    setHostQ("");
+    setQuery("");
+    setQueryQ("");
+    setMethod("all");
+  };
+
   // Any filter/size/sort change resets to the first page.
   // biome-ignore lint/correctness/useExhaustiveDependencies: these values intentionally trigger a page reset.
   React.useEffect(() => {
@@ -269,7 +284,49 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
       alive = false;
       clearInterval(t);
     };
-  }, [page, size, hostQ, method, queryQ, bodyQ, pathQ, statusFilter, respMinQ, respMaxQ, sort, reloadTick, taskId, taskScoped]);
+  }, [
+    page,
+    size,
+    hostQ,
+    method,
+    queryQ,
+    bodyQ,
+    pathQ,
+    statusFilter,
+    respMinQ,
+    respMaxQ,
+    sort,
+    reloadTick,
+    taskId,
+    taskScoped,
+  ]);
+
+  // 「全选全部筛选结果」：流量列表是服务端分页，表头勾选框只覆盖当前页。
+  // 这里拉一次当前筛选命中的全量元数据回填，才能对整个筛选结果做批量操作
+  // （关联漏洞 / 送入重发 / 删除）。
+  const [selectingAllMatching, setSelectingAllMatching] = React.useState(false);
+  const selectAllMatching = React.useCallback(async () => {
+    setSelectingAllMatching(true);
+    try {
+      const { ids } = await api.trafficIds({
+        host: hostQ,
+        method,
+        q: queryQ,
+        body: bodyQ,
+        path: pathQ,
+        status: statusFilter,
+        respMin: respMinQ,
+        respMax: respMaxQ,
+        taskId,
+      });
+      setSelectedFlows(new Map(ids.map((e) => [e.id, e])));
+      toast.success(`已选中全部 ${ids.length} 条流量`);
+    } catch (error) {
+      toast.error(`全选失败：${(error as Error).message}`);
+    } finally {
+      setSelectingAllMatching(false);
+    }
+  }, [bodyQ, hostQ, method, pathQ, queryQ, respMaxQ, respMinQ, statusFilter, taskId]);
 
   // Delete traffic for the current host filter (substring) or the checked
   // hosts (exact batch), then refetch.
@@ -694,7 +751,7 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
         </Button>
         {selectedFlows.size > 0 ? (
           <Button variant="ghost" size="sm" onClick={() => setSelectedFlows(new Map())}>
-            清空选择
+            全不选（{selectedFlows.size}）
           </Button>
         ) : null}
       </div>
@@ -706,19 +763,24 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="w-10">
-                    <Checkbox
-                      aria-label="选择本页流量"
-                      checked={exchanges.length > 0 && exchanges.every((e) => selectedFlows.has(e.id))}
-                      onCheckedChange={(checked) =>
+                    <SelectAllControl
+                      pageIds={exchanges.map((e) => e.id)}
+                      selectedIds={new Set(selectedFlows.keys())}
+                      onToggleSelectedPage={(ids, checked) =>
                         setSelectedFlows((previous) => {
                           const next = new Map(previous);
                           for (const e of exchanges) {
-                            if (checked === true) next.set(e.id, e);
+                            if (!ids.includes(e.id)) continue;
+                            if (checked) next.set(e.id, e);
                             else next.delete(e.id);
                           }
                           return next;
                         })
                       }
+                      onSelectAllMatching={selectAllMatching}
+                      selectingAllMatching={selectingAllMatching}
+                      onClearSelection={() => setSelectedFlows(new Map())}
+                      selectAllLabel="选择本页流量"
                     />
                   </TableHead>
                   <SortableHead
@@ -755,58 +817,68 @@ export function TrafficHistory({ taskId }: { taskId?: string }) {
               <TableBody>
                 {exchanges.map((e) => (
                   <React.Fragment key={e.id}>
-                  <TableRow
-                    className={cn("cursor-pointer", selected?.id === e.id && "bg-accent hover:bg-accent")}
-                    onClick={() => setSelected(e)}
-                  >
-                    <TableCell>
-                      <Checkbox
-                        aria-label={`选择流量 ${e.id}`}
-                        checked={selectedFlows.has(e.id)}
-                        onClick={(event) => event.stopPropagation()}
-                        onCheckedChange={(checked) =>
-                          setSelectedFlows((previous) => {
-                            const next = new Map(previous);
-                            if (checked === true) next.set(e.id, e);
-                            else next.delete(e.id);
-                            return next;
-                          })
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtTime(e.ts)}</TableCell>
-                    <TableCell className="font-mono text-xs">{e.host}</TableCell>
-                    <TableCell>
-                      <MethodBadge method={e.method} />
-                    </TableCell>
-                    <TableCell className="max-w-0">
-                      <span className="block truncate font-mono text-xs">{e.url}</span>
-                    </TableCell>
-                    <TableCell>
-                      <span className={cn("font-mono text-xs font-semibold tabular-nums", statusTone(e.status))}>
-                        {e.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{e.content_type}</TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">{fmtBytes(e.resp_len)}</TableCell>
-                  </TableRow>
-                  {e.match_snippet && (
                     <TableRow
                       className={cn("cursor-pointer", selected?.id === e.id && "bg-accent hover:bg-accent")}
                       onClick={() => setSelected(e)}
                     >
-                      <TableCell />
-                      <TableCell colSpan={7} className="pt-0 pb-2">
-                        <SnippetText text={e.match_snippet} />
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`选择流量 ${e.id}`}
+                          checked={selectedFlows.has(e.id)}
+                          onClick={(event) => event.stopPropagation()}
+                          onCheckedChange={(checked) =>
+                            setSelectedFlows((previous) => {
+                              const next = new Map(previous);
+                              if (checked === true) next.set(e.id, e);
+                              else next.delete(e.id);
+                              return next;
+                            })
+                          }
+                        />
                       </TableCell>
+                      <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtTime(e.ts)}</TableCell>
+                      <TableCell className="font-mono text-xs">{e.host}</TableCell>
+                      <TableCell>
+                        <MethodBadge method={e.method} />
+                      </TableCell>
+                      <TableCell className="max-w-0">
+                        <span className="block truncate font-mono text-xs">{e.url}</span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={cn("font-mono text-xs font-semibold tabular-nums", statusTone(e.status))}>
+                          {e.status}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{e.content_type}</TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">{fmtBytes(e.resp_len)}</TableCell>
                     </TableRow>
-                  )}
+                    {e.match_snippet && (
+                      <TableRow
+                        className={cn("cursor-pointer", selected?.id === e.id && "bg-accent hover:bg-accent")}
+                        onClick={() => setSelected(e)}
+                      >
+                        <TableCell />
+                        <TableCell colSpan={7} className="pt-0 pb-2">
+                          <SnippetText text={e.match_snippet} />
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </React.Fragment>
                 ))}
                 {exchanges.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-12 text-center text-sm text-muted-foreground">
-                      {traffic === null ? "加载中…" : "没有匹配的流量。"}
+                    <TableCell colSpan={8} className="p-0">
+                      {traffic === null ? (
+                        <div className="py-12 text-center text-sm text-muted-foreground">加载中…</div>
+                      ) : (
+                        <FilteredEmptyState
+                          title="没有匹配的流量"
+                          description="当前筛选条件下没有捕获到流量记录，可以清除筛选条件后重新浏览。"
+                          total={traffic?.total}
+                          hasFilters={hasAnyFilter}
+                          onClearFilters={resetAllFilters}
+                        />
+                      )}
                     </TableCell>
                   </TableRow>
                 )}

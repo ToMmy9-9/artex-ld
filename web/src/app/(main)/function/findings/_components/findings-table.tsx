@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { CopyButton } from "@/components/copy-button";
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { FindingCaseMembers, FindingSeverityCounts } from "@/components/finding-case-list";
 import { Markdown } from "@/components/markdown";
 import { SelectAllControl } from "@/components/select-all-control";
@@ -142,6 +143,12 @@ interface FindingsTableProps {
   selectingAllMatching?: boolean;
   /** 清空整个勾选集(含跨页选中的项)。 */
   onClearSelection?: () => void;
+  /** 当前筛选命中的总条数,仅用于空状态文案。 */
+  totalHint?: number;
+  /** 是否有生效中的筛选条件(空状态据此决定是否给「清除筛选」出口)。 */
+  hasFilters?: boolean;
+  /** 一键清除全部筛选条件。 */
+  onClearFilters?: () => void;
 }
 
 // FindingsTable 是发现列表的表格主体,平铺视图与按任务分组视图共用同一份行渲染
@@ -171,6 +178,9 @@ export function FindingsTable({
   onSelectAllMatching,
   selectingAllMatching = false,
   onClearSelection,
+  totalHint,
+  hasFilters = false,
+  onClearFilters,
 }: FindingsTableProps) {
   const selectableIds = items.map((finding) => finding.finding_id).filter((id): id is string => Boolean(id));
 
@@ -522,8 +532,14 @@ export function FindingsTable({
         })}
         {(caseRows ? caseRows.length : items.length) === 0 && (
           <TableRow>
-            <TableCell colSpan={COLUMN_COUNT} className="py-12 text-center text-sm text-muted-foreground">
-              没有匹配的发现。
+            <TableCell colSpan={COLUMN_COUNT} className="p-0">
+              <FilteredEmptyState
+                title="没有匹配的发现"
+                description="当前筛选条件下没有匹配的发现，可以清除筛选条件后重新浏览。"
+                total={totalHint}
+                hasFilters={hasFilters}
+                onClearFilters={onClearFilters}
+              />
             </TableCell>
           </TableRow>
         )}

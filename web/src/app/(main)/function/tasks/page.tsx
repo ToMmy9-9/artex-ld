@@ -58,6 +58,7 @@ import { toast } from "sonner";
 
 import { AssetInterceptRulesEditor } from "@/components/asset-intercept-rules-editor";
 import { DateSelect } from "@/components/date-select";
+import { FilteredEmptyState } from "@/components/filtered-empty-state";
 import { RemarkEditor } from "@/components/remark-editor";
 import { SelectAllControl, SelectAllToolbarButton } from "@/components/select-all-control";
 import { StatusBadge } from "@/components/status-badge";
@@ -517,6 +518,15 @@ export default function TasksPage() {
       JSON.stringify({ status: statusFilter, category: categoryFilter }),
     );
   }, [categoryFilter, filtersHydrated, statusFilter]);
+
+  // 空状态用的「是否有筛选」与「一键清除」：筛空后原来只有一句「没有匹配的任务。」。
+  const hasAnyFilter =
+    statusFilter !== "all" || categoryFilter !== "all" || query.trim() !== "";
+  const resetAllFilters = React.useCallback(() => {
+    setStatusFilter("all");
+    setCategoryFilter("all");
+    setQuery("");
+  }, []);
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -1202,8 +1212,16 @@ export default function TasksPage() {
                 暂无任务，点击右上角「新建任务」开始。
               </div>
             ) : filtered.length === 0 ? (
-              <div className="text-muted-foreground mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-sm lg:mx-6">
-                没有匹配的任务。
+              /* 筛空后原来只有一句「没有匹配的任务。」，用户想恢复只能自己把
+                 每个筛选条件改回去。这里给出统一空状态 + 一键清除。 */
+              <div className="mx-4 lg:mx-6">
+                <FilteredEmptyState
+                  title="没有匹配的任务"
+                  description="当前筛选条件下没有任务，可以清除筛选条件后重新浏览。"
+                  total={tasks.length}
+                  hasFilters={hasAnyFilter}
+                  onClearFilters={resetAllFilters}
+                />
               </div>
             ) : (
               <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
