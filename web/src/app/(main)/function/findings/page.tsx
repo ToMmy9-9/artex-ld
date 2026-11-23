@@ -14,6 +14,7 @@ import Link from "next/link";
 import {
   ArrowUpRightIcon,
   BugIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
   ClockIcon,
   DownloadIcon,
@@ -40,6 +41,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -288,6 +297,8 @@ export default function FindingsPage() {
   const [includeOriginals, setIncludeOriginals] = React.useState(false);
   const [reviewing, setReviewing] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
+  // 「全选全部筛选结果」进行中：跨页选择要打一次接口拉全量 id，期间禁用入口防重复点击。
+  const [selectingAllMatching, setSelectingAllMatching] = React.useState(false);
 
   const toggleSelected = React.useCallback((id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -308,6 +319,8 @@ export default function FindingsPage() {
       return next;
     });
   }, []);
+
+  const clearSelection = React.useCallback(() => setSelectedIds(new Set()), []);
 
   // 打开导出弹窗时,若有勾选项则默认范围切到「选中」,否则「当前筛选」。
   function openExport() {
@@ -358,6 +371,32 @@ export default function FindingsPage() {
 
   // 资产视图右侧列表 = 平铺列表 + 选中子树的筛选,所以两个视图共用一份列表状态。
   const activeAssetScope = view === "asset" ? assetScope : null;
+
+  // selectAllMatching 拉取「当前筛选命中的全部 finding id」，一次性回填勾选集。
+  // 表格勾选框只覆盖当前页；跨页全选若靠逐页点，大列表根本点不完，还会因为
+  // 翻页丢弃未加载页的行。这里直接拿 id 清单，导出时走 scope=selected。
+  const selectAllMatching = React.useCallback(async () => {
+    setSelectingAllMatching(true);
+    try {
+      const { ids } = await api.findingIds({
+        severity,
+        status,
+        vulnclass,
+        task,
+        query,
+        sort,
+        ...dateRange,
+        assetScope: activeAssetScope ?? undefined,
+      });
+      setSelectedIds(new Set(ids.map(String)));
+      if (ids.length === 0) toast.info("当前筛选没有可选择的发现");
+      else toast.success(`已选中全部 ${ids.length} 条`);
+    } catch (e) {
+      toast.error(`全选失败：${(e as Error).message}`);
+    } finally {
+      setSelectingAllMatching(false);
+    }
+  }, [activeAssetScope, dateRange, query, severity, sort, status, task, vulnclass]);
 
   // loadFlat 拉取平铺视图的当前页;task 筛选交给后端,与分组视图共用同一批筛选条件。
   const loadFlat = React.useCallback(async () => {
@@ -860,6 +899,9 @@ export default function FindingsPage() {
     activeRetests,
     onDeepen: openDeepen,
     onDelete: deleteFinding,
+    onSelectAllMatching: selectAllMatching,
+    selectingAllMatching,
+    onClearSelection: clearSelection,
   };
 
   // 平铺视图与资产视图右侧是同一张表 + 同一份分页,只是筛选条件不同。
@@ -1030,6 +1072,27 @@ export default function FindingsPage() {
             {selectedIds.size > 0 && (
               <span className="text-xs text-muted-foreground tabular-nums">已选 {selectedIds.size} 条</span>
             )}
+            {/* 「按漏洞」视图是卡片列表、没有表头勾选框，全选入口只能放在工具栏；
+                平铺/分组/资产视图的表头也有同一个菜单，两处调同一份回调。 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" disabled={selectingAllMatching}>
+                  {selectingAllMatching ? <Spinner /> : null}
+                  全选
+                  <ChevronDownIcon className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>选择范围</DropdownMenuLabel>
+                <DropdownMenuItem disabled={selectingAllMatching} onClick={selectAllMatching}>
+                  全选全部筛选结果
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={selectedIds.size === 0} onClick={clearSelection}>
+                  清空选择{selectedIds.size > 0 ? `（${selectedIds.size} 条）` : ""}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               size="sm"
               variant="outline"

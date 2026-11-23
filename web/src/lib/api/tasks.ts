@@ -859,6 +859,10 @@ export const tasksApi = {
   resumeSchedule: (id: number) => post<{ ok: boolean }>(`/schedules/${id}/resume`, {}),
   runScheduleNow: (id: number) =>
     post<{ ok: boolean; started: number; errors?: string[] }>(`/schedules/${id}/run-now`, {}),
+  // findingIds 返回当前筛选命中的全部 finding id（不分页），供「全选全部页」使用：
+  // 前端只拿到 id 列表塞进勾选集，导出时走 scope=selected，避免为选全量再翻页。
+  findingIds: (q: Omit<FindingQuery, "page" | "pageSize">) =>
+    get<{ ids: number[]; total: number }>(`/exploration/findings/ids?${findingFilterParams(q)}`),
   findingCases: (q: FindingQuery, originalRows = false) => {
     const p = findingFilterParams(q);
     p.set("page", String(q.page));

@@ -319,6 +319,7 @@ const API_KEYS = [
   "findingCaseMembers",
   "findingCaseReviewRuns",
   "findingCaseSuggestions",
+  "findingIds",
   "findingCases",
   "gc",
   "generateFindingReport",

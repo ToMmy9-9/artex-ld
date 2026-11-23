@@ -1077,6 +1077,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
 	mux.HandleFunc("GET /api/exploration/findings/stats", s.findingStats)
 	mux.HandleFunc("GET /api/exploration/findings/export", s.findingsExport)
+	// 全选全部页：只返回筛选命中的 id，供前端「选择全部」后走 selected 导出。
+	// 字面量段优先于下面的 {id} 通配，不会与单条详情路由冲突。
+	mux.HandleFunc("GET /api/exploration/findings/ids", s.findingIDs)
 	s.registerFindingTraffic(mux)
 	s.registerRepeater(mux)
 	mux.HandleFunc("GET /api/exploration/findings/{id}", s.getFinding)

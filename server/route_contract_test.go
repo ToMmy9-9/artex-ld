@@ -50,6 +50,9 @@ var muxRouteContract = []struct {
 	{"PUT", "/api/exploration/findings/{id}/evidence/{eid}", "更新证据图注"},
 	{"DELETE", "/api/exploration/findings/{id}/evidence/{eid}", "删除证据截图"},
 
+	// ── 发现列表：全选全部页所需的筛选命中 id（字面量段，必须压过 {id} 通配）──
+	{"GET", "/api/exploration/findings/ids", "全选全部页的筛选命中 id"},
+
 	// ── AntiFox 交付级报告 ──
 	{"POST", "/api/report/generate", "生成交付级报告"},
 	{"GET", "/api/report/status", "报告生成状态"},

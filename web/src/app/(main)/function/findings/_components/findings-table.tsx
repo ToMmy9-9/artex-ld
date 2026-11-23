@@ -14,6 +14,7 @@ import Link from "next/link";
 
 import {
   ArrowUpRightIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
   FileTextIcon,
   FlaskConicalIcon,
@@ -42,6 +43,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -136,6 +145,11 @@ interface FindingsTableProps {
   onDelete: (finding: Finding) => void;
   /** 全选框的无障碍标签,平铺视图与分组视图措辞不同。 */
   selectAllLabel?: string;
+  /** 「全选全部筛选结果」：由页面拉取当前筛选命中的全部 id 后回填勾选集。 */
+  onSelectAllMatching?: () => void;
+  selectingAllMatching?: boolean;
+  /** 清空整个勾选集(含跨页选中的项)。 */
+  onClearSelection?: () => void;
 }
 
 // FindingsTable 是发现列表的表格主体,平铺视图与按任务分组视图共用同一份行渲染
@@ -162,6 +176,9 @@ export function FindingsTable({
   onDeepen,
   onDelete,
   selectAllLabel = "选择当前页全部",
+  onSelectAllMatching,
+  selectingAllMatching = false,
+  onClearSelection,
 }: FindingsTableProps) {
   const selectableIds = items.map((finding) => finding.finding_id).filter((id): id is string => Boolean(id));
   const selectedCount = selectableIds.filter((id) => selectedIds.has(id)).length;
@@ -191,6 +208,9 @@ export function FindingsTable({
     activeRetests,
     onDeepen,
     onDelete,
+    onSelectAllMatching,
+    selectingAllMatching,
+    onClearSelection,
   };
 
   return (
@@ -198,7 +218,7 @@ export function FindingsTable({
     <Table className="min-w-[60rem] table-fixed">
       {hideHeader ? (
         <colgroup>
-          <col className="w-8" />
+          <col className="w-10" />
           <col className="w-8" />
           <col className="w-20" />
           <col />
@@ -212,12 +232,48 @@ export function FindingsTable({
       {!hideHeader ? (
         <TableHeader>
           <TableRow>
-            <TableHead className="w-8">
-              <Checkbox
-                checked={headerChecked}
-                onCheckedChange={(checked) => onToggleSelectedPage(selectableIds, checked === true)}
-                aria-label={selectAllLabel}
-              />
+            <TableHead className="w-10">
+              <div className="flex items-center gap-0.5">
+                <Checkbox
+                  checked={headerChecked}
+                  onCheckedChange={(checked) => onToggleSelectedPage(selectableIds, checked === true)}
+                  aria-label={selectAllLabel}
+                />
+                {/* 勾选框本身只作用于当前页；下拉补齐「跨页全选」，避免大列表
+                    为了选全量被迫逐页点。默认不渲染，只有页面传入回调时才出现。 */}
+                {onSelectAllMatching ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-5 shrink-0 text-muted-foreground"
+                        aria-label="更多全选方式"
+                      >
+                        <ChevronDownIcon className="size-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-60">
+                      <DropdownMenuLabel>选择范围</DropdownMenuLabel>
+                      <DropdownMenuItem
+                        disabled={selectableIds.length === 0}
+                        onClick={() => onToggleSelectedPage(selectableIds, true)}
+                      >
+                        本页全部（{selectableIds.length} 条）
+                      </DropdownMenuItem>
+                      {/* 条数留到选中后再由工具栏「已选 N 条」显示：列表 total 是
+                          合并档案后的行数,与原始发现条数不同口径,提前给数字反而对不上。 */}
+                      <DropdownMenuItem disabled={selectingAllMatching} onClick={onSelectAllMatching}>
+                        {selectingAllMatching ? "正在选择…" : "全部筛选结果"}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem disabled={selectedIds.size === 0} onClick={onClearSelection}>
+                        清空选择
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </div>
             </TableHead>
             <TableHead className="w-8" />
             <TableHead className="w-20">严重度</TableHead>

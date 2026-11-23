@@ -67,6 +67,20 @@ func (s *Server) findingAssetTree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, tree)
 }
 
+// findingIDs serves「全选全部页」: every finding id matching the current filters,
+// with no pagination. The findings table already knows the ids of the page it
+// renders; this endpoint supplies the rest so the user can select everything
+// the filter matches and export it in one go. The body carries ids only, so the
+// response stays small even for a whole installation.
+func (s *Server) findingIDs(w http.ResponseWriter, r *http.Request) {
+	ids, err := s.m.pg.ListFindingIDs(findingFilterFromQuery(r.URL.Query()))
+	if err != nil {
+		writeErrRedacted(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ids": ids, "total": len(ids)})
+}
+
 // findingGroups serves the task-group page used by the global findings view.
 // Findings inside a group continue to use the existing flat findings endpoint,
 // preserving dashboard/export clients and giving every expanded group its own

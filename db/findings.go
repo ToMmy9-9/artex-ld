@@ -316,6 +316,33 @@ func (d *DB) ListFindingsPage(f FindingFilter, page, pageSize int) ([]*DBFinding
 	return out, total, err
 }
 
+// ListFindingIDs returns every finding id matching the same filters as
+// ListFindingsPage, without loading row bodies. The findings page uses it for
+// 「全选全部页」: a few thousand ids cost far less than a few thousand rows, and
+// the export endpoint already accepts an explicit id list. Ordering by id keeps
+// the response stable across repeated calls with the same filter.
+func (d *DB) ListFindingIDs(f FindingFilter) ([]int64, error) {
+	f, err := d.applyAssetScope(f)
+	if err != nil {
+		return nil, err
+	}
+	where, args := f.where()
+	rows, err := d.Query(`SELECT f.id FROM findings f LEFT JOIN tasks t ON f.task_id=t.id`+where+` ORDER BY f.id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // FindingGroup is one task-level bucket in the global findings view. TaskID is
 // nil for both findings that never had a task and findings retained after task
 // deletion; those records intentionally share one "unassigned/deleted" bucket.
