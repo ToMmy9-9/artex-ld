@@ -4199,6 +4199,8 @@ func (s *Server) settingsPayload() map[string]any {
 		"notify_digest_interval_min": notifyDigestIntervalMin(s.m.pg),
 		// 【P-LOG·M0】日志级别（debug/info/warn/error）：热切换，立即生效。
 		"log_level": xlog.LevelString(),
+		// 可信代理网段：只有请求来自这些网段时才采信 X-Forwarded-For。
+		"auth_trusted_proxies": trustedProxiesSetting(s.m.pg),
 	}
 }
 
@@ -4296,6 +4298,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		NotifyDigestMins *int    `json:"notify_digest_interval_min"`
 		// 【P-LOG·M0】日志级别热切换：debug/info/warn/error；立即生效，无需重启。
 		LogLevel *string `json:"log_level"`
+		// 可信代理网段（CIDR 列表，逗号分隔）。只有请求来自这些网段时才采信
+		// X-Forwarded-For / X-Real-IP；否则用连接的真实来源地址。
+		// 不配就一律不采信转发头 —— 直连客户端能伪造 XFF 绕过「按 IP 限流」。
+		// null = 不改，"" = 清空（回到「不采信转发头」）。
+		TrustedProxies *string `json:"auth_trusted_proxies"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		if maxBytesExceeded(err) {
@@ -4307,6 +4314,31 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.LogLevel != nil {
 		if err := s.m.pg.SetSetting(settingLogLevel, *req.LogLevel); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+	}
+	if req.TrustedProxies != nil {
+		// 校验每一项都能解析成 CIDR 或单个 IP —— 写错了会让「可信代理」静默
+		// 失效（该信的头不被信），用户以为配好了其实没生效。
+		value := strings.TrimSpace(*req.TrustedProxies)
+		if value != "" {
+			for _, part := range strings.Split(value, ",") {
+				part = strings.TrimSpace(part)
+				if part == "" {
+					continue
+				}
+				if _, _, err := net.ParseCIDR(part); err == nil {
+					continue
+				}
+				if ip := net.ParseIP(part); ip != nil {
+					continue
+				}
+				writeErr(w, 400, "可信代理网段格式无效："+part+"（应为 CIDR 如 10.0.0.0/8 或单个 IP）")
+				return
+			}
+		}
+		if err := s.m.pg.SetSetting(settingTrustedProxies, value); err != nil {
 			writeErr(w, 400, err.Error())
 			return
 		}

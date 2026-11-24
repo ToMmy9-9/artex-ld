@@ -420,13 +420,24 @@ export default function LLMRecordsPage() {
               {retention.count} 条 · {fmtBytes(retention.size_bytes)}
             </span>
           ) : null}
-          {/* 永久保留时提醒表会一直涨 —— 用户选了「永久」多半没意识到代价。 */}
+          {/* 永久保留时提醒表会一直涨 —— 用户选了「永久」多半没意识到代价。
+              体积越大提示越醒目：llm_records 单行平均 190KB（存的是 LLM 调用的
+              请求响应原文），跑一天能涨 1GB+，不清就会一路涨到撑爆磁盘。 */}
           {retention && retention.retention_days === 0 ? (
             <span
-              className="text-muted-foreground text-xs"
-              title="录制记录会一直累积，不会自动清理。任务跑一天可能增加数百 MB。"
+              className={cn(
+                "text-xs",
+                retention.size_bytes > 1024 * 1024 * 1024
+                  ? "font-medium text-amber-600 dark:text-amber-400"
+                  : "text-muted-foreground",
+              )}
+              title={
+                retention.size_bytes > 1024 * 1024 * 1024
+                  ? "录制记录已超过 1GB 且不会自动清理，建议设置保留天数并清理一次。"
+                  : "录制记录会一直累积，不会自动清理。任务跑一天可能增加数百 MB。"
+              }
             >
-              不会自动清理
+              {retention.size_bytes > 1024 * 1024 * 1024 ? "不会自动清理 · 建议设置保留天数" : "不会自动清理"}
             </span>
           ) : null}
           {retention && retention.retention_days > 0 ? (

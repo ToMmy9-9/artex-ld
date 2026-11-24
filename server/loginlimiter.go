@@ -1,10 +1,13 @@
 package server
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"artex/db"
 )
 
 // 登录失败限流器：按 IP 与账号两个维度各记一个滑动窗口计数，窗口内失败数超阈值即锁定一段
@@ -160,10 +163,102 @@ func (l *loginLimiter) sweepLocked(now time.Time, pol loginPolicy) {
 	}
 }
 
-// clientIP returns the caller's IP, honoring the usual reverse-proxy headers
-// (X-Forwarded-For / X-Real-IP) and falling back to the connection's remote
-// address. Used to attribute login attempts and audit rows.
-func clientIP(r *http.Request) string {
+// 注意：这里**没有** clientIP(r) 这个「无条件信任转发头」的版本了。
+// 它曾被登录限流与审计使用，但直连的客户端能伪造 X-Forwarded-For 让「按 IP
+// 限流」永远不触发。改用 (*Server).clientIPFrom —— 只在请求来自可信代理时
+// 才采信转发头。留着一个可被误用的旧函数本身就是隐患，故直接删除。
+
+// --- 可信代理（XFF 防伪造） ------------------------------------------------
+//
+// clientIP 原先无条件采信 X-Forwarded-For / X-Real-IP。服务默认监听 :8787
+// （所有网卡），任何能直连的客户端都能伪造这两个头 —— 把每次请求的来源 IP
+// 报成不同的值，就能让「按 IP 限流」永远不触发（每个桶只失败 1 次）。
+// 登录限流是防暴力破解的主要手段，这条路绕过去等于没有限流。
+//
+// 正确做法：只有当请求**确实来自可信代理**时才采信转发头。直连时用
+// RemoteAddr（连接的真实来源，伪造不了）。部署在 nginx/caddy 后面时，
+// 把代理的地址填进 settings.trusted_proxies（CIDR 列表，支持逗号分隔）。
+//
+// 未配置 trusted_proxies 时：不采信任何转发头，一律用 RemoteAddr。
+// 这会让「前置了反代但没配这个」的部署把限流变成「按反代 IP 计数」——
+// 但反代通常只有一个 IP，IP 维度会先于账号维度触发，仍有防护，只是更严。
+
+// trustedProxyNetworks 解析 settings.trusted_proxies 里的 CIDR 列表。
+// 解析失败的项跳过（宁可少信一个代理，也不要因为一个写错的网段把
+// 整个 header 信任打开）。
+func (s *Server) trustedProxyNetworks() []*net.IPNet {
+	if s == nil || s.m == nil || s.m.pg == nil {
+		return nil
+	}
+	raw, ok, err := s.m.pg.GetSetting(settingTrustedProxies)
+	if err != nil || !ok {
+		return nil
+	}
+	return parseCIDRList(raw)
+}
+
+// parseCIDRList 解析逗号分隔的 CIDR / 单 IP 列表。解析失败的项跳过（宁可少信
+// 一个代理，也不要因为一个写错的网段把整个 header 信任打开）。
+func parseCIDRList(raw string) []*net.IPNet {
+	var out []*net.IPNet
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, n, err := net.ParseCIDR(part); err == nil {
+			out = append(out, n)
+			continue
+		}
+		// 也允许直接写单个 IP。
+		if ip := net.ParseIP(part); ip != nil {
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			out = append(out, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+		}
+	}
+	return out
+}
+
+// isTrustedProxy 判断请求的对端地址是否落在可信代理网段里。
+func isTrustedProxy(remoteAddr string, nets []*net.IPNet) bool {
+	host := remoteAddr
+	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range nets {
+		if n != nil && n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// clientIPFrom 返回本次请求应归属的来源 IP，以及是否采信了转发头。
+//
+// 与 clientIP 的区别：clientIP 无条件信任转发头（可被伪造绕过限流），
+// 这个版本只在请求来自可信代理时才采信。
+func (s *Server) clientIPFrom(r *http.Request) string {
+	return clientIPWithNets(r, s.trustedProxyNetworks())
+}
+
+// clientIPWithNets 是 clientIPFrom 的纯函数版本（便于测试）。
+func clientIPWithNets(r *http.Request, nets []*net.IPNet) string {
+	remote := r.RemoteAddr
+	if !isTrustedProxy(remote, nets) {
+		// 直连（或代理不可信）：用连接的真实来源，伪造不了。
+		host := remote
+		if h, _, err := net.SplitHostPort(remote); err == nil {
+			host = h
+		}
+		return host
+	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if i := strings.IndexByte(xff, ','); i >= 0 {
 			return strings.TrimSpace(xff[:i])
@@ -173,9 +268,22 @@ func clientIP(r *http.Request) string {
 	if xr := r.Header.Get("X-Real-IP"); xr != "" {
 		return strings.TrimSpace(xr)
 	}
-	host := r.RemoteAddr
-	if i := strings.LastIndexByte(host, ':'); i >= 0 {
-		host = host[:i]
+	host := remote
+	if h, _, err := net.SplitHostPort(remote); err == nil {
+		host = h
 	}
 	return host
+}
+
+// trustedProxiesSetting 读取可信代理网段设置（读失败返回空串 —— 取不到配置
+// 就退回到「不采信转发头」这个安全默认）。
+func trustedProxiesSetting(pg *db.DB) string {
+	if pg == nil {
+		return ""
+	}
+	v, _, err := pg.GetSetting(settingTrustedProxies)
+	if err != nil {
+		return ""
+	}
+	return v
 }

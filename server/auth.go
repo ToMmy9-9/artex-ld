@@ -203,7 +203,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !inserted {
-		pg.RecordAudit("ARTEX", "auth", "init", "fail", clientIP(r), "平台已初始化，拒绝重复设置密码", nil)
+		pg.RecordAudit("ARTEX", "auth", "init", "fail", s.clientIPFrom(r), "平台已初始化，拒绝重复设置密码", nil)
 		writeErr(w, 403, "密码已设置")
 		return
 	}
@@ -212,7 +212,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "token 生成失败")
 		return
 	}
-	pg.RecordAudit("ARTEX", "auth", "init", "success", clientIP(r), "首启初始化管理员密码", nil)
+	pg.RecordAudit("ARTEX", "auth", "init", "success", s.clientIPFrom(r), "首启初始化管理员密码", nil)
 	writeJSON(w, 200, map[string]any{"token": tok})
 }
 
@@ -254,7 +254,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.OldPassword)); err != nil {
-		pg.RecordAudit("ARTEX", "auth", "change_password", "fail", clientIP(r), "当前密码错误", nil)
+		pg.RecordAudit("ARTEX", "auth", "change_password", "fail", s.clientIPFrom(r), "当前密码错误", nil)
 		writeErr(w, 401, "当前密码错误")
 		return
 	}
@@ -267,7 +267,7 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErrInternal(w, 500, "保存失败: ", err)
 		return
 	}
-	pg.RecordAudit("ARTEX", "auth", "change_password", "success", clientIP(r), "修改密码成功", nil)
+	pg.RecordAudit("ARTEX", "auth", "change_password", "success", s.clientIPFrom(r), "修改密码成功", nil)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -285,7 +285,7 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
-	ip := clientIP(r)
+	ip := s.clientIPFrom(r)
 	uname := strings.TrimSpace(req.Username)
 	// 暴力破解防护：按 IP + 账号双维度检查锁定状态。命中锁定直接 429，不再做任何
 	// 口令比对（bcrypt 本身耗 CPU，先挡在前面同时也缓解了「海量尝试打满 CPU/连接」）。

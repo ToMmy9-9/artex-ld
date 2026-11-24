@@ -369,6 +369,11 @@ const (
 	// 任务跑一天涨 400–700MB —— 不设上限的话表会一直涨到撑爆磁盘。
 	// 保留最近 N 天足够覆盖「排查刚才那次调用」的场景。
 	settingLLMRecordRetentionDays = "llm_record_retention_days"
+	// 可信代理网段（CIDR 列表，逗号分隔）。只有请求来自这些网段时才采信
+	// X-Forwarded-For / X-Real-IP；否则用连接的真实来源地址。
+	// 不配就一律不采信转发头 —— 服务默认监听 :8787（所有网卡），直连的客户端
+	// 能伪造 XFF 绕过「按 IP 限流」，那等于登录限流形同虚设。
+	settingTrustedProxies = "auth.trusted_proxies"
 	// LLM 轮询(故障转移)。默认关闭——开启后走「全局激活配置」的 agent 在当前配置
 	// 不可用(余额不足/key 失效/限流/服务异常)时自动切到下一个配置。
 	// settingLLMPoolBindFallback 仅在轮询开启时有意义:默认关闭,即 agent/任务显式
