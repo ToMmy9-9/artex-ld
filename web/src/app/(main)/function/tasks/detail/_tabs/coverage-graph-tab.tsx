@@ -363,21 +363,21 @@ function toG6Nodes(renderNodes: RenderNode[], activeKeys: Set<string>, viewMode:
       // Two generous columns keep long host names readable. A single column is
       // used for short groups so the parent/child relationship remains obvious.
       if (items.length <= 8) {
-        items.forEach((rn, index) =>
+        items.forEach((rn, index) => {
           positions.set(rn.key, {
             x: (zoneBounds[zone][0] + zoneBounds[zone][1]) / 2,
             y: 90 + ((index + 1) * (virtualHeight - 150)) / (items.length + 1),
-          }),
-        );
+          });
+        });
       } else {
         const columns = [zoneBounds[zone][0] + 105, zoneBounds[zone][1] - 105];
         const rows = Math.ceil(items.length / 2);
-        items.forEach((rn, index) =>
+        items.forEach((rn, index) => {
           positions.set(rn.key, {
             x: columns[index % 2],
             y: 90 + ((Math.floor(index / 2) + 1) * (virtualHeight - 150)) / (rows + 1),
-          }),
-        );
+          });
+        });
       }
     }
   } else {

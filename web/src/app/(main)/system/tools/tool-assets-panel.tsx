@@ -277,7 +277,11 @@ export function ToolAssetsPanel() {
               <Card key={a.id}>
                 <CardContent className="pt-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <button className="flex min-w-0 flex-1 items-start gap-2 text-left" onClick={() => toggle(a.id)}>
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                      onClick={() => toggle(a.id)}
+                    >
                       {open ? (
                         <ChevronDown className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                       ) : (

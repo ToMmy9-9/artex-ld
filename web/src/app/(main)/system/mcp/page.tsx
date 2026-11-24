@@ -79,14 +79,26 @@ export default function MCPPage() {
       .catch(() => {});
     api
       .mcpServers()
-      .then((ss) => {
+      .then(async (ss) => {
         setServers(ss);
-        ss.forEach((s) =>
-          api
-            .resourceVisibility("mcp", s.id)
-            .then((ids) => setVisibility((v) => ({ ...v, [s.id]: ids })))
-            .catch(() => {}),
+        // 每个服务器的可见性要单独拉。用 Promise.all 等齐再更新，避免
+        // forEach 里 fire-and-forget —— 那样请求并发发出、错误被吞、
+        // 且后返回的会覆盖先返回的（竞态）。
+        const vis = await Promise.all(
+          ss.map(async (s) => {
+            try {
+              return [s.id, await api.resourceVisibility("mcp", s.id)] as const;
+            } catch {
+              // 单个失败不该拖垮整个列表 —— 退化成「无可见性限制」。
+              return [s.id, [] as string[]] as const;
+            }
+          }),
         );
+        setVisibility((v) => {
+          const next = { ...v };
+          for (const [id, ids] of vis) next[id] = ids;
+          return next;
+        });
       })
       // MCP 列表加载失败时若静默，页面会渲染成空卡片网格 —— 用户会以为
       // 「还没配 MCP」，然后去重复新建。必须把故障说出来。
@@ -417,8 +429,17 @@ export default function MCPPage() {
         {servers.map((s) => (
           <Card
             key={s.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`编辑 MCP 服务器 ${s.name}`}
             onClick={() => openEdit(s)}
-            className="hover:border-primary/60 cursor-pointer gap-3 transition hover:shadow-sm"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openEdit(s);
+              }
+            }}
+            className="hover:border-primary/60 focus-visible:ring-ring cursor-pointer gap-3 transition hover:shadow-sm focus-visible:ring-2 focus-visible:outline-none"
           >
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -427,13 +448,22 @@ export default function MCPPage() {
                 <Badge variant="outline" className="uppercase">
                   {s.transport}
                 </Badge>
-                <div className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                  <Switch checked={s.enabled} onCheckedChange={() => toggleEnabled(s)} aria-label="启用" />
+                <div className="ml-auto flex items-center gap-2">
+                  {/* 开关与删除按钮不该顺带打开编辑弹窗 —— 点击它们时阻止冒泡到 Card。 */}
+                  <Switch
+                    checked={s.enabled}
+                    onCheckedChange={() => toggleEnabled(s)}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="启用"
+                  />
                   <Button
                     size="icon"
                     variant="outline"
                     aria-label={`删除 MCP 服务器 ${s.name}`}
-                    onClick={() => setDeleteTarget(s)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(s);
+                    }}
                   >
                     <Trash2Icon className="text-destructive" />
                   </Button>
@@ -444,14 +474,16 @@ export default function MCPPage() {
               <p className="text-muted-foreground text-sm">
                 {s.tools && s.tools.length > 0 ? `${s.tools.length} 个工具` : "尚未发现工具"}
               </p>
-              <div className="grid gap-2" onClick={(e) => e.stopPropagation()}>
+              <div className="grid gap-2">
                 <span className="text-muted-foreground text-xs">可见性（按 Agent 授权）</span>
                 <div className="flex flex-wrap gap-x-4 gap-y-2">
                   {agents.map((a) => (
                     <label key={a.key} htmlFor={`mcp-vis-${s.id}-${a.key}`} className="flex items-center gap-2 text-sm">
                       <Checkbox
-                        id="mcp-vis-${s.id}-${a.key}"
+                        id={`mcp-vis-${s.id}-${a.key}`}
                         checked={(visibility[s.id] ?? []).includes(a.id)}
+                        // 点击勾选框不该顺带打开编辑弹窗 —— 冒泡到 Card 会触发。
+                        onClick={(e) => e.stopPropagation()}
                         onCheckedChange={() => toggleVisibility(s.id, a.id, a.name)}
                       />
                       {a.name}

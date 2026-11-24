@@ -89,6 +89,7 @@ function MethodBadge({ method }: { method: string }) {
 // exchange — otherwise a body search only says "this row matched", not where.
 function SnippetText({ text }: { text: string }) {
   const parts: React.ReactNode[] = [];
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: \x01/\x02 是服务端标记命中片段的分隔符，是协议约定不是笔误
   const re = /\x01([^\x02]*)\x02/g;
   let last = 0;
   let m: RegExpExecArray | null;

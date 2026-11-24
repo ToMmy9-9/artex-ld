@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ClickableRow } from "@/components/clickable-row";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { RefreshingBar } from "@/components/loading-indicator";
 import { PageHeader } from "@/components/page-header";
@@ -415,14 +416,26 @@ export default function SkillsPage() {
       .catch(() => {});
     api
       .skills()
-      .then((ss) => {
+      .then(async (ss) => {
         setSkills(ss);
-        ss.forEach((s) =>
-          api
-            .skillVisibility(s.name)
-            .then((ids) => setVisibility((v) => ({ ...v, [s.name]: ids })))
-            .catch(() => {}),
+        // 每个 skill 的可见性要单独拉。用 Promise.all 等齐再更新，
+        // 避免 forEach 里 fire-and-forget —— 那样请求并发发出、错误被吞、
+        // 且后返回的会覆盖先返回的（竞态）。
+        const vis = await Promise.all(
+          ss.map(async (s) => {
+            try {
+              return [s.name, await api.skillVisibility(s.name)] as const;
+            } catch {
+              // 单个失败不该拖垮整个列表 —— 退化成「无可见性限制」。
+              return [s.name, [] as string[]] as const;
+            }
+          }),
         );
+        setVisibility((v) => {
+          const next = { ...v };
+          for (const [name, ids] of vis) next[name] = ids;
+          return next;
+        });
       })
       .catch((e) => {
         toast.error(`加载 Skill 列表失败：${(e as Error)?.message ?? e}`);
@@ -757,10 +770,12 @@ export default function SkillsPage() {
         const open = expanded.has(key);
         return (
           <div key={node.path}>
-            <div
+            <ClickableRow
               className="group relative flex cursor-pointer select-none items-center gap-1 rounded py-0.5 pr-1 text-sm hover:bg-muted"
               style={{ paddingLeft: baseIndent }}
+              onActivate={() => toggleExpanded(key)}
               onClick={() => toggleExpanded(key)}
+              ariaLabel={`${open ? "收起" : "展开"} ${node.name}`}
             >
               <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
               {open ? (
@@ -810,7 +825,7 @@ export default function SkillsPage() {
                   <Trash2Icon className="size-3 text-destructive" />
                 </Button>
               </span>
-            </div>
+            </ClickableRow>
             {open && (
               <>
                 {renderTree(node.children, skill, depth + 1)}
@@ -824,14 +839,16 @@ export default function SkillsPage() {
       // file node
       const isSelected = selected?.skill === skill && selected.path === node.path;
       return (
-        <div
+        <ClickableRow
           key={node.path}
           className={cn(
             "group relative flex cursor-pointer select-none items-center gap-1 rounded py-0.5 pr-1 text-sm",
             isSelected ? "bg-accent text-accent-foreground" : "hover:bg-muted",
           )}
           style={{ paddingLeft: baseIndent + 16 }}
+          onActivate={() => setSelected({ skill, path: node.path })}
           onClick={() => setSelected({ skill, path: node.path })}
+          ariaLabel={`选择 ${node.name}`}
         >
           <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate font-mono text-xs" title={node.path}>
@@ -856,7 +873,7 @@ export default function SkillsPage() {
               <Trash2Icon className="size-3 text-destructive" />
             </Button>
           </span>
-        </div>
+        </ClickableRow>
       );
     });
   }
@@ -937,15 +954,20 @@ export default function SkillsPage() {
                 return (
                   <div key={s.name}>
                     {/* skill 根节点 */}
-                    <div
+                    <ClickableRow
                       className={cn(
                         "group relative flex cursor-pointer select-none items-center gap-1 rounded px-2 py-1 text-sm",
                         isSkillSelected ? "bg-accent text-accent-foreground" : "hover:bg-muted",
                       )}
+                      onActivate={() => {
+                        toggleExpanded(s.name);
+                        setSelected({ skill: s.name, path: null });
+                      }}
                       onClick={() => {
                         toggleExpanded(s.name);
                         setSelected({ skill: s.name, path: null });
                       }}
+                      ariaLabel={`${isOpen ? "收起" : "展开"} ${s.name}`}
                     >
                       <ChevronRightIcon
                         className={cn("size-3.5 shrink-0 transition-transform", isOpen && "rotate-90")}
@@ -1009,7 +1031,7 @@ export default function SkillsPage() {
                           <Trash2Icon className="size-3 text-destructive" />
                         </Button>
                       </span>
-                    </div>
+                    </ClickableRow>
 
                     {/* 展开：递归文件树 */}
                     {isOpen && (
@@ -1156,7 +1178,7 @@ export default function SkillsPage() {
                             className="flex cursor-pointer items-center gap-2 text-sm"
                           >
                             <Checkbox
-                              id="sk-detail-mcp-${m.id}"
+                              id={`sk-detail-mcp-${m.id}`}
                               checked={detailMcps.includes(m.name)}
                               onCheckedChange={(on) => toggleSkillMcp(selectedSkill.name, m.name, !!on)}
                             />
@@ -1177,7 +1199,7 @@ export default function SkillsPage() {
                           className="flex cursor-pointer items-center gap-2 text-sm"
                         >
                           <Checkbox
-                            id="sk-detail-agent-${a.key}"
+                            id={`sk-detail-agent-${a.key}`}
                             checked={(visibility[selectedSkill.name] ?? []).includes(a.id)}
                             onCheckedChange={() => toggleVisibility(selectedSkill.name, a.id, a.name)}
                           />
@@ -1392,7 +1414,7 @@ export default function SkillsPage() {
                       className="flex cursor-pointer items-center gap-2 text-sm"
                     >
                       <Checkbox
-                        id="sk-new-mcp-${m.id}"
+                        id={`sk-new-mcp-${m.id}`}
                         checked={newMcps.includes(m.name)}
                         onCheckedChange={(on) =>
                           setNewMcps((cur) => (on ? [...cur, m.name] : cur.filter((n) => n !== m.name)))
@@ -1427,7 +1449,7 @@ export default function SkillsPage() {
                       className="flex cursor-pointer items-center gap-2 text-sm"
                     >
                       <Checkbox
-                        id="sk-new-agent-${a.key}"
+                        id={`sk-new-agent-${a.key}`}
                         checked={newVisibility.includes(a.id)}
                         onCheckedChange={(on) =>
                           setNewVisibility((cur) => (on ? [...cur, a.id] : cur.filter((id) => id !== a.id)))

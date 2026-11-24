@@ -13,6 +13,7 @@ import { Bot, PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { AgentEditor } from "@/components/agent-editor";
+import { ClickableRow } from "@/components/clickable-row";
 // 【二开·P-TPL·U8】起
 import { PlannerTemplateManager, WorkerTemplateManager } from "@/components/prompt-template-manager";
 import {
@@ -105,28 +106,34 @@ function AgentGridCard({
           <span className="rounded border px-1.5 py-0.5">工具 {agent.tool_count ?? 0}</span>
           {/* 【二开·P-TPL·U8】起 —— 「提示词：模板库 →」chip：打开 planner模板管理 Sheet（span 而非 <a>/<button>：button 内不能嵌交互元素） */}
           {onOpenPlannerTemplates && (
-            <span
-              className="hover:border-foreground cursor-pointer rounded border px-1.5 py-0.5"
+            <ClickableRow
+              as="span"
+              className="hover:border-foreground focus-visible:ring-ring cursor-pointer rounded border px-1.5 py-0.5 focus-visible:ring-2 focus-visible:outline-none"
               title="planner 提示词由模板库管理；新建任务时选择模板，未选则用默认模板打底"
+              onActivate={onOpenPlannerTemplates}
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenPlannerTemplates();
               }}
+              ariaLabel="打开 planner 提示词模板库"
             >
               提示词：模板库 →
-            </span>
+            </ClickableRow>
           )}
           {onOpenWorkerTemplates && (
-            <span
-              className="hover:border-foreground cursor-pointer rounded border px-1.5 py-0.5"
+            <ClickableRow
+              as="span"
+              className="hover:border-foreground focus-visible:ring-ring cursor-pointer rounded border px-1.5 py-0.5 focus-visible:ring-2 focus-visible:outline-none"
               title="worker 提示词由模板库管理；新建任务时选择模板，未选则用默认模板打底"
+              onActivate={onOpenWorkerTemplates}
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenWorkerTemplates();
               }}
+              ariaLabel="打开 worker 提示词模板库"
             >
               提示词：模板库 →
-            </span>
+            </ClickableRow>
           )}
           {/* 【二开·P-TPL·U8】止 */}
         </div>

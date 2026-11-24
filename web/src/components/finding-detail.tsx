@@ -665,9 +665,13 @@ function ReproductionSection({
 
       {lightbox && (
         // biome-ignore lint/a11y/noStaticElementInteractions: click-anywhere to dismiss
+        // biome-ignore lint/a11y/useKeyWithClickEvents: 灯箱遮罩靠 Esc / 关闭按钮退出，遮罩本身不必可聚焦
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
           onClick={() => setLightbox(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setLightbox(null);
+          }}
         >
           <img src={lightbox} alt="evidence" className="max-h-full max-w-full rounded-md object-contain shadow-2xl" />
           <button
@@ -778,7 +782,17 @@ function EvidenceStrip({
             src={it.url}
             alt={it.evidence.caption || "evidence"}
             className="h-24 w-full cursor-zoom-in bg-muted object-cover"
+            role="button"
+            tabIndex={0}
+            aria-label={it.evidence.caption || "evidence"}
             onClick={() => onZoom(it.url)}
+            onKeyDown={(e) => {
+              // 缩略图可点击放大 —— 键盘用户也要能放大（Enter/Space）。
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onZoom(it.url);
+              }
+            }}
           />
           <button
             type="button"

@@ -406,6 +406,7 @@ export default function ReportsPage() {
                 </Button>
                 {s.logo_path && (
                   <button
+                    type="button"
                     className="text-muted-foreground hover:text-destructive text-left text-xs"
                     onClick={() => setS({ ...s, logo_path: "" })}
                   >
