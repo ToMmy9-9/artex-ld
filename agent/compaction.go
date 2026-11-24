@@ -46,6 +46,13 @@ type Compactor struct {
 	n, m     int           // minor / major thresholds (§7 N=20, M=8)
 	cooldown time.Duration // min gap between compactions per task (§7 60s)
 	maxDur   time.Duration // hard cap on one background compaction
+	// blockTimeout caps ONE block's summarisation request. The batch ctx (maxDur)
+	// is a shared budget across all blocks in the run, so a single slow request
+	// used to consume it and starve every sibling in the same batch — they then all
+	// failed together with "context deadline exceeded" (43 of them in one second on
+	// production). Capping each block isolates the damage: the slow one dies alone
+	// and the rest still fold.
+	blockTimeout time.Duration
 
 	mu      sync.Mutex
 	running map[int64]bool
@@ -63,6 +70,10 @@ func NewCompactor(prov llm.Provider, model string) *Compactor {
 		m:        8,
 		cooldown: 60 * time.Second,
 		maxDur:   5 * time.Minute,
+		// 90s: a compression of ≤26 nodes at MaxTokens 1500 normally returns in a
+		// few seconds. Measured p95 on production is well under 30s, so 90s only
+		// fires on a genuinely wedged request — which is exactly what it is for.
+		blockTimeout: 90 * time.Second,
 		running:  map[int64]bool{},
 		lastRun:  map[int64]time.Time{},
 	}
@@ -186,6 +197,15 @@ func (c *Compactor) minor(ctx context.Context, ts *db.ExplorationStore) {
 		return // this batch has no ≥2 connected/shared-parent block — nothing to fold (§7)
 	}
 	for _, b := range blocks {
+		// Stop starting new blocks once the shared batch budget is spent. Without
+		// this check every remaining block is still attempted, each one instantly
+		// failing on an already-expired ctx and writing a failure record — that is
+		// how 43 errors landed in a single second. Skipping them leaves the nodes
+		// uncovered so the next run picks them up (the trigger counts uncovered
+		// cold nodes, so nothing is lost).
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		c.foldBlock(ctx, ts, g, b, nodeByID, cvers, c.generationFor(b, nil))
 	}
 	// A minor may have pushed the segment count over M → merge in the same run.
@@ -252,6 +272,11 @@ func (c *Compactor) major(ctx context.Context, ts *db.ExplorationStore) {
 		log.Printf("[compaction] supersede exp=%d: %v", ts.ID(), err)
 	}
 	for _, b := range toCreate {
+		// Same shared-budget guard as minor(): once the batch ctx is spent, stop
+		// starting blocks instead of firing off a burst of doomed requests.
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		c.foldBlock(ctx, ts, g, b, nodeByID, cvers, c.generationFor(b, active))
 	}
 }
@@ -525,7 +550,21 @@ func (c *Compactor) compress(ctx context.Context, g *coldGraph, b block, nodeByI
 		MaxTokens: 1500,
 		Thinking:  llm.SummarizeThinking(c.prov),
 	}
-	msg, _, _, err := c.prov.Complete(ctx, req)
+	// Per-block budget on top of the shared batch ctx. The batch ctx is a total
+	// budget for the whole run, and blocks are folded serially, so without this a
+	// single wedged request eats the remainder and every later block in the same
+	// batch dies with it. Measured on production 2026-11-25 00:30: 22 blocks
+	// completed, then 43 failed simultaneously in the same second with
+	// "context deadline exceeded" — one shared 5-minute ctx exhausted, 43 blocks
+	// reporting the same cause. With a per-block cap each failure is isolated and
+	// the rest of the batch still makes progress.
+	perBlock := c.blockTimeout
+	if perBlock <= 0 {
+		perBlock = 90 * time.Second // zero value must not mean "no time at all"
+	}
+	blockCtx, cancel := context.WithTimeout(ctx, perBlock)
+	defer cancel()
+	msg, _, _, err := c.prov.Complete(blockCtx, req)
 	if err != nil {
 		return "", err
 	}
