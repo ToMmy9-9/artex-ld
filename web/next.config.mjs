@@ -30,6 +30,15 @@ function environmentConfig(exportMode, mockMode) {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    // 限制静态导出的并发 worker 数。
+    //
+    // 为什么要限：Next 默认按 CPU 核数开 worker（本机 19 个），它们并发往
+    // out/ 写文件时会互相阻塞 —— 实测构建在 "Finalizing page optimization"
+    // 阶段每 90 秒才落 3 个文件，慢到几乎不可用。降到 4 个后写入正常。
+    // 代价是静态页面生成慢一点（本来只要 1 秒内），但整体快得多。
+    cpus: 4,
+  },
   // 避免父目录的 lockfile 影响根目录推断及资源路径生成。
   turbopack: {
     root: fileURLToPath(new URL(".", import.meta.url)),
