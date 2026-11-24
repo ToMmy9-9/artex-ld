@@ -37,6 +37,16 @@ func (s *Server) runLLMRecordRetention(ctx context.Context) {
 			log.Printf("[llm-retention] 清理失败: %v", err)
 		} else if n > 0 {
 			log.Printf("[llm-retention] 已清理 %d 条超期的 LLM 调用记录", n)
+			// 删行不还磁盘：普通 VACUUM 只把空间标记为「可重用」，磁盘占用不变。
+			// llm_records 是持续增长的大表（生产库实测 2.6GB），必须重写表才能把
+			// 空间真正还给操作系统 —— 否则行越删越少、磁盘却一直满。
+			// VACUUM FULL 会短暂锁表（重写 2.6GB 实测约 7 秒），清理是一小时
+			// 一次的低频动作，这个锁窗可接受。
+			if err := s.m.pg.VacuumLLMRecords(ctx); err != nil {
+				log.Printf("[llm-retention] VACUUM FULL 失败（磁盘空间未回收）: %v", err)
+			} else {
+				log.Printf("[llm-retention] 已重写表，磁盘空间已回收")
+			}
 		}
 		timer.Reset(llmRecordRetentionInterval)
 	}

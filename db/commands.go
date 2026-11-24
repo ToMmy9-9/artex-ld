@@ -9,6 +9,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -356,6 +357,24 @@ func (d *DB) DeleteLLMRecordsOlderThan(cutoff time.Time) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// VacuumLLMRecords rewrites the llm_records table to reclaim disk space.
+//
+// 为什么需要 FULL：普通的 VACUUM 只是把删掉的行标记成「空间可重用」，**磁盘
+// 占用不会变**。llm_records 是持续增长的大表（生产库实测 2.6GB / 9300 行，
+// 单行平均 190KB），保留策略每天删掉几千行后，磁盘空间必须靠重写表才能真正
+// 还给操作系统 —— 否则删了行，磁盘照样被占满。
+//
+// FULL 会短暂持有表的 ACCESS EXCLUSIVE 锁（期间读写阻塞）。这张表的写入是
+// 逐条 INSERT（LLM 调用记录），重写 2.6GB 实测约 7 秒，锁窗在这个量级可接受；
+// 而且清理是一小时一次的低频动作，不在业务高峰。
+//
+// 传 table 名是为了让调用方能复用；这里只允许固定的表名，不接受外部输入。
+func (d *DB) VacuumLLMRecords(ctx context.Context) error {
+	// VACUUM 不能在事务块里跑（Postgres 限制），所以直接用连接执行。
+	_, err := d.ExecContext(ctx, `VACUUM FULL llm_records`)
+	return err
 }
 
 // CountLLMRecords returns the total number of stored LLM call records.
