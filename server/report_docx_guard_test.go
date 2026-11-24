@@ -21,7 +21,49 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"artex/db"
 )
+
+// waitReportJobDone 等后台报告生成 goroutine 结束。
+//
+// 为什么必须等：generateReport 是异步的（返回 202 后 go func 继续跑），而
+// newTestServer 用 t.TempDir() 给 dataDir —— Go 会在测试结束时删它。若后台
+// goroutine 还在往 data/reports 写文件，清理就会报
+// "unlinkat ...: The directory is not empty"，**测试断言其实通过了**，
+// 却被 Go 判成 FAIL（实测失败率约 60%）。
+//
+// 轮询 job.Status 而不是 sleep 固定时长：既确定又不会拖慢正常路径。
+func waitReportJobDone(t *testing.T, s *Server, taskID string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		s.reportMu.Lock()
+		j := s.reportJobs[taskID]
+		status := ""
+		if j != nil {
+			status = j.Status
+		}
+		s.reportMu.Unlock()
+		if status != "" && status != "generating" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("报告生成任务 %s 在 30s 内未结束", taskID)
+}
+
+// cleanReportRows 删掉本测试产生的报告行。
+//
+// 报告生成成功后会往 reports 表写一条记录，而测试库是所有测试共用的 ——
+// 不清理的话每跑一次就多一条垃圾（实测已积了 10 条 task 78/79 的残留）。
+func cleanReportRows(t *testing.T, pg *db.DB, taskIDs ...int64) {
+	t.Helper()
+	for _, id := range taskIDs {
+		_, _ = pg.Exec(`DELETE FROM reports WHERE task_id = $1`, id)
+	}
+}
 
 // TestGenerateReportRejectsDocxWhenPythonMissing 缺 python-docx 时 docx 请求应被
 // 入口拒绝（5xx 且提示可操作），而不是先 202 再后台失败。
@@ -77,6 +119,9 @@ func TestGenerateReportAllowsMarkdownWhenPythonMissing(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("md 格式不依赖 python，应返回 202，实际 %d（body=%s）", rec.Code, rec.Body.String())
 	}
+	// 等后台生成结束 —— 否则它还在往 data/reports 写文件时 TempDir 清理会失败。
+	waitReportJobDone(t, s, "78")
+	cleanReportRows(t, pg, 78)
 }
 
 // TestGenerateReportAllowsDocxWhenPythonPresent 依赖齐备时必须正常放行，
@@ -97,4 +142,6 @@ func TestGenerateReportAllowsDocxWhenPythonPresent(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("依赖齐备时应返回 202，实际 %d（body=%s）", rec.Code, rec.Body.String())
 	}
+	waitReportJobDone(t, s, "79")
+	cleanReportRows(t, pg, 79)
 }

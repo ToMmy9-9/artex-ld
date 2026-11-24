@@ -39,23 +39,33 @@ func TestDeleteLLMRecordsOlderThan(t *testing.T) {
 		}
 	})
 
-	// cutoff = 36 小时前 → 应该只删掉 48 小时前那条
+	// cutoff = 36 小时前 → 我插的那条 48 小时前的记录必须被删，
+	// 而 24 小时前与刚插入的两条必须留下。
+	//
+	// 这里刻意**不断言删除的绝对行数**：测试库是所有测试共用的，别的测试
+	// 留下的历史记录也会被一起删掉（实测删除数会在 1 与 2 之间浮动，导致
+	// 断言间歇性失败）。只验证「我插的那几条的存活情况」，与库里其它数据无关。
 	cutoff := time.Now().Add(-36 * time.Hour)
-	n, err := d.DeleteLLMRecordsOlderThan(cutoff)
-	if err != nil {
+	if _, err := d.DeleteLLMRecordsOlderThan(cutoff); err != nil {
 		t.Fatalf("DeleteLLMRecordsOlderThan: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("删除行数=%d, want 1（只该删 48 小时前那条）", n)
-	}
 
-	// 剩下的两条都该还在
-	for i, id := range ids[1:] {
-		var exists bool
-		if err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM llm_records WHERE id=$1)`, id).Scan(&exists); err != nil {
+	exists := func(id int64) bool {
+		t.Helper()
+		var ok bool
+		if err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM llm_records WHERE id=$1)`, id).Scan(&ok); err != nil {
 			t.Fatalf("检查记录 %d: %v", id, err)
 		}
-		if !exists {
+		return ok
+	}
+
+	// 48 小时前那条 —— 超期，必须被删
+	if exists(ids[0]) {
+		t.Fatal("48 小时前的记录超期了却没被删掉")
+	}
+	// 24 小时前与刚插入的 —— 未超期，必须保留
+	for i, id := range ids[1:] {
+		if !exists(id) {
 			t.Fatalf("记录 %d（索引 %d）不该被删除", id, i)
 		}
 	}
@@ -70,10 +80,21 @@ func TestDeleteLLMRecordsOlderThanZeroCutoff(t *testing.T) {
 	}
 	defer d.Close()
 
-	before, err := d.CountLLMRecords()
-	if err != nil {
-		t.Fatalf("CountLLMRecords: %v", err)
+	// 插一条 ts 很老（必定超期）的记录：零值 cutoff 也不该删它。
+	// 零值 cutoff 的语义是「时间零之前」，没有任何记录的 ts 早于它 ——
+	// 如果实现把零值当成「无限早」，这条就会被删掉，测试能抓到。
+	old := time.Now().Add(-365 * 24 * time.Hour)
+	var id int64
+	if err := d.QueryRow(
+		`INSERT INTO llm_records(ts, model, status) VALUES ($1,'retention-zero','ok') RETURNING id`,
+		old,
+	).Scan(&id); err != nil {
+		t.Fatalf("插入测试记录: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = d.Exec(`DELETE FROM llm_records WHERE id=$1`, id)
+	})
+
 	n, err := d.DeleteLLMRecordsOlderThan(time.Time{})
 	if err != nil {
 		t.Fatalf("DeleteLLMRecordsOlderThan(zero): %v", err)
@@ -81,12 +102,13 @@ func TestDeleteLLMRecordsOlderThanZeroCutoff(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("零值 cutoff 删了 %d 行, want 0", n)
 	}
-	after, err := d.CountLLMRecords()
-	if err != nil {
-		t.Fatalf("CountLLMRecords(after): %v", err)
+
+	var exists bool
+	if err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM llm_records WHERE id=$1)`, id).Scan(&exists); err != nil {
+		t.Fatalf("检查记录: %v", err)
 	}
-	if after != before {
-		t.Fatalf("零值 cutoff 后行数变了: %d → %d", before, after)
+	if !exists {
+		t.Fatal("零值 cutoff 把超期记录删掉了 —— 零值必须表示「什么都不删」")
 	}
 }
 
