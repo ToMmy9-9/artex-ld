@@ -162,6 +162,62 @@ type Provider interface {
 	Complete(ctx context.Context, req CompletionRequest) (Message, string, Usage, error)
 }
 
+// ThinkingAware is an optional Provider capability: it exposes the
+// configuration-level thinking switch so callers can decide whether to
+// override it per request.
+//
+// Why it exists: several internal helpers (compaction summarizer, auto-title,
+// credential extraction, AI report, side-question summary) want thinking OFF
+// because they are pure summarization steps. They used to hardcode
+// `Thinking: "disabled"` — but some models (MiniMax-M3.1-Flash and friends)
+// REQUIRE adaptive thinking and reject `thinking.type="disabled"` with HTTP
+// 400, which silently broke those features (compaction alone failed 360 times
+// in three days).
+//
+// The correct behavior is: leave the per-request override empty and let the
+// profile's own setting win. Callers that must force thinking off can still
+// pass "disabled" explicitly, but should consult this interface first — a
+// provider configured with ThinkingType "enabled" must not be overridden to
+// "disabled".
+type ThinkingAware interface {
+	// ConfiguredThinkingType returns the profile-level thinking switch:
+	// "" (not sent / provider default), "enabled", or "disabled".
+	ConfiguredThinkingType() string
+}
+
+// ConfiguredThinkingType reports the provider's configuration-level thinking
+// switch. Both built-in providers keep a Config, so both satisfy ThinkingAware.
+func configuredThinkingType(cfg Config) string { return cfg.ThinkingType }
+
+// ThinkingTypeOf returns p's configured thinking switch, or "" when p does not
+// implement ThinkingAware (e.g. a test stub).
+func ThinkingTypeOf(p Provider) string {
+	if ta, ok := p.(ThinkingAware); ok {
+		return ta.ConfiguredThinkingType()
+	}
+	return ""
+}
+
+// SummarizeThinking returns the thinking switch a pure-summarization call
+// should use with provider p.
+//
+// Summarization steps (compaction, auto-title, credential extraction, AI
+// report, side-question summary) want thinking OFF to save tokens and time.
+// But some models (MiniMax-M3.1-Flash and friends) REQUIRE adaptive thinking
+// and reject `thinking.type="disabled"` with HTTP 400 — hardcoding "disabled"
+// silently broke those features (compaction alone failed 360 times in three
+// days).
+//
+// Rule: a provider configured with "enabled" must not be overridden; anything
+// else keeps "disabled" (the original intent). Providers that don't expose
+// their config fall back to "disabled", matching the old behavior.
+func SummarizeThinking(p Provider) string {
+	if ThinkingTypeOf(p) == "enabled" {
+		return "enabled"
+	}
+	return "disabled"
+}
+
 // NewProvider builds a built-in provider for cfg.Format. Missing APIKey/BaseURL
 // fall back to standard environment variables and public endpoints.
 func NewProvider(cfg Config) (Provider, error) {

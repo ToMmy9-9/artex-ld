@@ -65,7 +65,7 @@ func streamSummary(ctx context.Context, p llm.Provider, maxOut int, head []llm.M
 		System:    []string{summarySystemPrompt},
 		Messages:  reqMsgs,
 		MaxTokens: maxOut,
-		Thinking:  "disabled",
+		Thinking:  llm.SummarizeThinking(p),
 	}
 	var lastErr error
 	for range maxStreamingRetries {

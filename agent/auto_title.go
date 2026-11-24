@@ -30,7 +30,7 @@ func GenerateAutoTitle(ctx context.Context, prov llm.Provider, content string) (
 		System:    []string{autoTitleSystemPrompt},
 		Messages:  []llm.Message{llm.UserText(content)},
 		MaxTokens: 96,
-		Thinking:  "disabled",
+		Thinking:  llm.SummarizeThinking(prov),
 	})
 	if err != nil {
 		return "", err

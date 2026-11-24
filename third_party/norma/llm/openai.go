@@ -217,6 +217,13 @@ func flattenText(blocks []ContentBlock) string {
 	return s.String()
 }
 
+// ConfiguredThinkingType implements ThinkingAware: exposes the profile-level
+// thinking switch so callers can avoid overriding it to "disabled" for models
+// that require adaptive thinking.
+func (p *openaiProvider) ConfiguredThinkingType() string {
+	return configuredThinkingType(p.cfg)
+}
+
 func (p *openaiProvider) buildBody(req CompletionRequest, stream bool) ([]byte, error) {
 	// A non-empty per-request override (req.Thinking) wins over Config.ThinkingType.
 	thinkingType := p.cfg.ThinkingType

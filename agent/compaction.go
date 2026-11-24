@@ -523,7 +523,7 @@ func (c *Compactor) compress(ctx context.Context, g *coldGraph, b block, nodeByI
 		System:    []string{compressionSystemPrompt},
 		Messages:  []llm.Message{llm.UserText(buildCompressionInput(g, b, nodeByID))},
 		MaxTokens: 1500,
-		Thinking:  "disabled",
+		Thinking:  llm.SummarizeThinking(c.prov),
 	}
 	msg, _, _, err := c.prov.Complete(ctx, req)
 	if err != nil {

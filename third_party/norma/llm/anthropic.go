@@ -47,6 +47,13 @@ type anthropicTool struct {
 	InputSchema map[string]any `json:"input_schema"`
 }
 
+// ConfiguredThinkingType implements ThinkingAware: exposes the profile-level
+// thinking switch so callers can avoid overriding it to "disabled" for models
+// that require adaptive thinking.
+func (p *anthropicProvider) ConfiguredThinkingType() string {
+	return configuredThinkingType(p.cfg)
+}
+
 func (p *anthropicProvider) buildBody(req CompletionRequest, stream bool) ([]byte, error) {
 	maxTok := req.MaxTokens
 	if maxTok == 0 {

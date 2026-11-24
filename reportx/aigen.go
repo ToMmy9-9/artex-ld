@@ -48,7 +48,7 @@ func complete(ctx context.Context, pg *db.DB, system, user string, maxTokens int
 		System:    []string{system},
 		Messages:  []llm.Message{llm.UserText(user)},
 		MaxTokens: maxTokens,
-		Thinking:  "disabled",
+		Thinking:  llm.SummarizeThinking(prov),
 	})
 	if err != nil {
 		return "", err
