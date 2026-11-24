@@ -1,0 +1,9 @@
+event: message_start
+data: {"type":"message_start","message":{"id":"0754c79e29b13624fa0ee61fce375a48","type":"message","role":"assistant","content":[],"model":"MiniMax-M3.1-Flash","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":2661,"output_tokens":15470,"cache_read_input_tokens":120448,"output_tokens_details":{"thinking_tokens":221}}}
+
+event: message_stop
+data: {"type":"message_stop"}
+

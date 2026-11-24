@@ -131,6 +131,14 @@ func (p *anthropicProvider) Stream(ctx context.Context, req CompletionRequest) i
 		}
 		defer resp.Body.Close()
 		scan := newSSEScanner(resp.Body)
+		// sawStartInput records whether this stream's message_start carried a
+		// usable input side. Anthropic official reports the full input side in
+		// message_start and echoes it in message_delta, so forwarding both would
+		// double-count. MiniMax-style gateways put input_tokens=0 in message_start
+		// and the real numbers only in message_delta, so the echo is the ONLY
+		// source and must be forwarded. Deciding here — rather than inside the
+		// stateless frame parser — is what lets one code path serve both.
+		sawStartInput := false
 		for {
 			_, data, serr := scan.next()
 			if serr == io.EOF {
@@ -150,6 +158,20 @@ func (p *anthropicProvider) Stream(ctx context.Context, req CompletionRequest) i
 			}
 			if !ok {
 				continue
+			}
+			switch ev.Type {
+			case SEMessageStart:
+				if ev.Usage.InputTokens > 0 || ev.Usage.CacheReadTokens > 0 || ev.Usage.CacheWriteTokens > 0 {
+					sawStartInput = true
+				}
+			case SEMessageDelta:
+				if sawStartInput {
+					// message_start already contributed the input/cache side; keep
+					// only output here so the totals are not doubled.
+					ev.Usage.InputTokens = 0
+					ev.Usage.CacheReadTokens = 0
+					ev.Usage.CacheWriteTokens = 0
+				}
 			}
 			if !yield(ev, nil) {
 				return
@@ -296,10 +318,14 @@ func parseAnthropicFrame(data string) (StreamEvent, bool, error) {
 	case "message_delta":
 		ev := StreamEvent{Type: SEMessageDelta, StopReason: f.Delta.StopReason}
 		if f.Usage != nil {
-			// Only output here — the input side (input/cache) was already counted at
-			// message_start; message_delta re-echoes it, so counting it again would
-			// double the input/cache totals.
-			ev.Usage = Usage{OutputTokens: f.Usage.OutputTokens}
+			// Report the usage verbatim; de-duplicating the input side against
+			// message_start is the caller's job, because only the caller knows
+			// whether this stream actually reported it there. Anthropic official
+			// echoes the input side in BOTH frames, but MiniMax-style
+			// Anthropic-compatible gateways report input_tokens=0 at message_start
+			// and the real value only here — dropping it unconditionally loses the
+			// entire input side (it made input_tokens read 0 for 3408/3418 rows).
+			ev.Usage = f.Usage.norm()
 		}
 		return ev, true, nil
 	case "message_stop":
