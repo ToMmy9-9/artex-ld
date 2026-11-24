@@ -46,12 +46,10 @@ type Compactor struct {
 	n, m     int           // minor / major thresholds (§7 N=20, M=8)
 	cooldown time.Duration // min gap between compactions per task (§7 60s)
 	maxDur   time.Duration // hard cap on one background compaction
-	// blockTimeout caps ONE block's summarisation request. The batch ctx (maxDur)
-	// is a shared budget across all blocks in the run, so a single slow request
-	// used to consume it and starve every sibling in the same batch — they then all
-	// failed together with "context deadline exceeded" (43 of them in one second on
-	// production). Capping each block isolates the damage: the slow one dies alone
-	// and the rest still fold.
+	// blockTimeout caps ONE block's summarisation request, bounding the blast
+	// radius of a wedged upstream call. See the note on maxDur below: the batch
+	// ctx is a shared budget and blocks fold serially, so one stuck request can
+	// eat it and take the rest of the batch with it.
 	blockTimeout time.Duration
 
 	mu      sync.Mutex
@@ -69,10 +67,19 @@ func NewCompactor(prov llm.Provider, model string) *Compactor {
 		n:        20,
 		m:        8,
 		cooldown: 60 * time.Second,
-		maxDur:   5 * time.Minute,
-		// 90s: a compression of ≤26 nodes at MaxTokens 1500 normally returns in a
-		// few seconds. Measured p95 on production is well under 30s, so 90s only
-		// fires on a genuinely wedged request — which is exactly what it is for.
+		// maxDur is the TOTAL budget for one background run, and blocks fold one
+		// after another. Measured on production (24h of worker='compactor' rows):
+		// p50 8.1s, p95 20.1s, max 54.9s per block. At p50 a 65-block batch needs
+		// ~8.7 min, so a 5-minute cap cannot finish it — the tail is guaranteed to
+		// die regardless of how fast any individual call is. Hence the per-block
+		// cap below (isolates a wedged call) plus the ctx.Err() breaks in
+		// minor()/major() (stop starting doomed work and leave the remainder for
+		// the next run, which picks it up because the trigger counts uncovered
+		// cold nodes).
+		maxDur: 5 * time.Minute,
+		// 90s: ~4.5x the measured p95 (20.1s) and above the observed max (54.9s),
+		// so it only fires on a genuinely wedged request — which is exactly what
+		// it is for.
 		blockTimeout: 90 * time.Second,
 		running:  map[int64]bool{},
 		lastRun:  map[int64]time.Time{},
@@ -551,13 +558,14 @@ func (c *Compactor) compress(ctx context.Context, g *coldGraph, b block, nodeByI
 		Thinking:  llm.SummarizeThinking(c.prov),
 	}
 	// Per-block budget on top of the shared batch ctx. The batch ctx is a total
-	// budget for the whole run, and blocks are folded serially, so without this a
-	// single wedged request eats the remainder and every later block in the same
-	// batch dies with it. Measured on production 2026-11-25 00:30: 22 blocks
-	// completed, then 43 failed simultaneously in the same second with
-	// "context deadline exceeded" — one shared 5-minute ctx exhausted, 43 blocks
-	// reporting the same cause. With a per-block cap each failure is isolated and
-	// the rest of the batch still makes progress.
+	// budget for the whole run and blocks are folded serially, so it is spent by
+	// ordinary work long before a wedged call would matter: measured p50 is 8.1s
+	// per block, i.e. a 65-block batch needs ~8.7 min against a 5-minute cap.
+	// Observed on production 2026-11-25 00:30 — 22 blocks folded, then 43 failed
+	// in the same second with latency 0 (never left the process: the shared ctx
+	// was already expired). A per-block cap keeps one stuck call from consuming
+	// the remainder, and the ctx.Err() checks in the callers stop the batch from
+	// firing a burst of already-doomed requests at the tail.
 	perBlock := c.blockTimeout
 	if perBlock <= 0 {
 		perBlock = 90 * time.Second // zero value must not mean "no time at all"
