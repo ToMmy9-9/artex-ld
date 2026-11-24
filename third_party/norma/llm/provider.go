@@ -202,20 +202,35 @@ func ThinkingTypeOf(p Provider) string {
 // should use with provider p.
 //
 // Summarization steps (compaction, auto-title, credential extraction, AI
-// report, side-question summary) want thinking OFF to save tokens and time.
-// But some models (MiniMax-M3.1-Flash and friends) REQUIRE adaptive thinking
-// and reject `thinking.type="disabled"` with HTTP 400 — hardcoding "disabled"
-// silently broke those features (compaction alone failed 360 times in three
-// days).
+// report, side-question summary) would like thinking OFF to save tokens and
+// time. But some models (MiniMax-M3.1-Flash and friends) REQUIRE adaptive
+// thinking and reject `thinking.type="disabled"` with HTTP 400 — hardcoding
+// "disabled" silently broke those features (compaction alone failed 360 times
+// in three days).
 //
-// Rule: a provider configured with "enabled" must not be overridden; anything
-// else keeps "disabled" (the original intent). Providers that don't expose
-// their config fall back to "disabled", matching the old behavior.
+// Rules, in order:
+//   - profile explicitly says "disabled" → "disabled" (the user's choice wins;
+//     these models allow it)
+//   - profile says "enabled" → "enabled" (the model requires it)
+//   - profile says nothing ("") → "" — **do not send the field at all** and
+//     let the server decide.
+//
+// The third rule matters most: MiniMax-M3.1-Flash is configured with an empty
+// thinking_type in this project, and the server rejects an explicit
+// "disabled" for it. Sending nothing works for every model, so an unset
+// profile must not be turned into an explicit "disabled".
+//
+// A provider that doesn't expose its config (test stubs) also yields "", which
+// means "don't send" — the same safe default.
 func SummarizeThinking(p Provider) string {
-	if ThinkingTypeOf(p) == "enabled" {
+	switch ThinkingTypeOf(p) {
+	case "disabled":
+		return "disabled"
+	case "enabled":
 		return "enabled"
+	default:
+		return ""
 	}
-	return "disabled"
 }
 
 // NewProvider builds a built-in provider for cfg.Format. Missing APIKey/BaseURL

@@ -21,6 +21,15 @@ type fakeProvider struct {
 	complete func(context.Context, llm.CompletionRequest) (llm.Message, string, llm.Usage, error)
 }
 
+// isSummaryRequest 判断这次调用是不是「上下文摘要」。
+//
+// 不要用 Thinking 字段来判断：总结类调用不再硬编码 thinking=disabled
+// （profile 未配置时不发送该字段，否则会撞上要求 adaptive thinking 的模型，
+// 服务端直接回 400）。摘要调用有唯一的 System prompt，用它判断才稳。
+func isSummaryRequest(r llm.CompletionRequest) bool {
+	return len(r.System) > 0 && r.System[0] == summaryInstruction
+}
+
 func (p fakeProvider) Stream(ctx context.Context, r llm.CompletionRequest) iter.Seq2[llm.StreamEvent, error] {
 	return p.stream(ctx, r)
 }

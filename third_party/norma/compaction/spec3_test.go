@@ -18,7 +18,13 @@ type captureProvider struct {
 	failN   int
 	failErr error
 	calls   int
+	// thinking 模拟 profile 配置的思考开关（"" = 未配置）。
+	thinking string
 }
+
+// ConfiguredThinkingType 实现 llm.ThinkingAware，让测试能覆盖
+// 「profile 配了 thinking 就按配置走」。
+func (p *captureProvider) ConfiguredThinkingType() string { return p.thinking }
 
 func (p *captureProvider) Stream(_ context.Context, req llm.CompletionRequest) iter.Seq2[llm.StreamEvent, error] {
 	p.calls++
@@ -186,8 +192,10 @@ func TestProviderSummarizerReplaysRealMessages(t *testing.T) {
 		t.Fatalf("calls=%d, want 1", len(p.reqs))
 	}
 	req := p.reqs[0]
-	if req.Thinking != "disabled" {
-		t.Fatalf("thinking=%q, want disabled", req.Thinking)
+	// 思考开关跟随 profile 配置，未配置时不发送该字段（避免撞上要求
+	// adaptive thinking 的模型）。这个 stub 没配 thinking，所以期望空值。
+	if req.Thinking != "" {
+		t.Fatalf("thinking=%q, want \"\"（未配置时不发送）", req.Thinking)
 	}
 	if req.MaxTokens != 8000 { // min(20000, 8000)
 		t.Fatalf("maxTokens=%d, want 8000", req.MaxTokens)
@@ -260,5 +268,30 @@ func TestProviderSummarizerNonOverflowErrorSurfaces(t *testing.T) {
 	}
 	if len(p.reqs) != maxStreamingRetries {
 		t.Fatalf("want %d stream attempts, got %d", maxStreamingRetries, len(p.reqs))
+	}
+}
+
+// TestProviderSummarizerFollowsProfileThinking 覆盖「profile 配了 thinking
+// 就按配置走」：
+//   - 配 "disabled" → 显式关闭（省 token，这类模型允许）
+//   - 配 "enabled"  → 不能被覆盖成 disabled（模型强制要求）
+//   - 未配置        → 不发送该字段，交给服务端决定
+func TestProviderSummarizerFollowsProfileThinking(t *testing.T) {
+	for _, c := range []struct{ configured, want string }{
+		{"disabled", "disabled"},
+		{"enabled", "enabled"},
+		{"", ""},
+	} {
+		p := &captureProvider{reply: "<summary>DONE</summary>", thinking: c.configured}
+		s := ProviderSummarizer(p, 8000, false)
+		if _, err := s(context.Background(), []llm.Message{llm.UserText("hello")}); err != nil {
+			t.Fatalf("configured=%q: %v", c.configured, err)
+		}
+		if len(p.reqs) != 1 {
+			t.Fatalf("configured=%q: calls=%d", c.configured, len(p.reqs))
+		}
+		if got := p.reqs[0].Thinking; got != c.want {
+			t.Fatalf("configured=%q → Thinking=%q, want %q", c.configured, got, c.want)
+		}
 	}
 }

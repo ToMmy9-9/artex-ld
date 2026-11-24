@@ -2,7 +2,11 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"iter"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -21,8 +25,8 @@ func TestSummarizeThinkingFollowsProviderConfig(t *testing.T) {
 		configured string
 		want       string
 	}{
-		{"未配置 → 保持 disabled（省 token 的原意）", "", "disabled"},
-		{"显式 disabled → disabled", "disabled", "disabled"},
+		{"未配置 → 不发送该字段（交给服务端决定）", "", ""},
+		{"显式 disabled → disabled（用户的选择）", "disabled", "disabled"},
 		{"模型要求 enabled → 不能覆盖成 disabled", "enabled", "enabled"},
 	}
 	for _, c := range cases {
@@ -36,10 +40,11 @@ func TestSummarizeThinkingFollowsProviderConfig(t *testing.T) {
 }
 
 // TestSummarizeThinkingUnknownProvider 不暴露配置的 provider（如测试 stub）
-// 退回旧行为「disabled」—— 不能因为拿不到配置就改成 enabled（会白烧 token）。
+// 退回「不发送」—— 不能因为拿不到配置就硬发 disabled（会撞上要求 thinking
+// 的模型）。这比旧行为安全：服务端自己决定总不会 400。
 func TestSummarizeThinkingUnknownProvider(t *testing.T) {
-	if got := SummarizeThinking(stubProvider{}); got != "disabled" {
-		t.Fatalf("未知 provider 的 SummarizeThinking = %q, want \"disabled\"", got)
+	if got := SummarizeThinking(stubProvider{}); got != "" {
+		t.Fatalf("未知 provider 的 SummarizeThinking = %q, want \"\"（不发送）", got)
 	}
 }
 
@@ -52,4 +57,43 @@ func (stubProvider) Stream(ctx context.Context, req CompletionRequest) iter.Seq2
 
 func (stubProvider) Complete(ctx context.Context, req CompletionRequest) (Message, string, Usage, error) {
 	return Message{}, "", Usage{}, nil
+}
+
+// TestSummarizeThinkingOmitsFieldEndToEnd 端到端验证：总结类调用在 profile
+// 未配置 thinking 时，请求体里**根本不带** thinking 字段。
+//
+// 这条是本次修复的核心保证：MiniMax-M3.1-Flash 这类模型要求 adaptive
+// thinking，收到 thinking.type="disabled" 会回 HTTP 400。生产库里 profile 267
+// （MiniMax-M3.1-Flash）的 thinking_type 正是空的 —— 所以「未配置就不发送」
+// 是唯一正确的默认行为。
+func TestSummarizeThinkingOmitsFieldEndToEnd(t *testing.T) {
+	var raw []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ = io.ReadAll(r.Body)
+		w.Write([]byte(sse(`data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}`, ``, `data: [DONE]`, ``)))
+	}))
+	defer srv.Close()
+
+	p, err := NewProvider(Config{
+		Format:  FormatOpenAI,
+		BaseURL: srv.URL,
+		APIKey:  "k",
+		Model:   "m",
+		// profile 未配置 thinking（生产库里 MiniMax-M3.1-Flash 就是这样）
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	collect(t, p, CompletionRequest{
+		Messages: []Message{UserText("go")},
+		Thinking: SummarizeThinking(p),
+	})
+
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, raw)
+	}
+	if th, ok := m["thinking"]; ok {
+		t.Fatalf("未配置 thinking 时请求体不应带 thinking 字段，实际=%v（模型会回 400）", th)
+	}
 }
