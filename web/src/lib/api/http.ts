@@ -17,6 +17,115 @@ export function getToken(): string | null {
   return localStorage.getItem("artex_token");
 }
 
+/**
+ * authFetch：给「不能走 http()」的请求用 —— 文件上传/下载/SSE 之外的裸 fetch。
+ *
+ * 为什么需要：http() 已经处理了 401（清 token + 跳登录页）和后端返回的
+ * `{"error": "..."}` 消息。但项目里有十几处直接写 fetch(...)，各写各的：
+ * 有的只抛状态码（用户看到「export: 401」却不知道要重新登录），
+ * 有的抛中文、有的抛英文。全部走这个函数，行为就一致了。
+ */
+export async function authFetch(input: string, init?: RequestInit): Promise<Response> {
+  const token = getToken();
+  // 只有 body 是字符串（JSON）时才设 Content-Type。FormData / Blob / URLSearchParams
+  // 必须让浏览器自己设 —— 手设成 application/json 会让服务端解析失败。
+  const isJsonBody = typeof init?.body === "string";
+  const r = await fetch(input, {
+    ...init,
+    headers: {
+      ...(isJsonBody ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+  if (r.status === 401) {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("artex_token");
+      document.cookie = "artex_token=; path=/; max-age=0";
+      window.location.href = "/login";
+    }
+    throw new Error("未授权");
+  }
+  if (!r.ok) {
+    // 尽量把后端的可读错误取出来（与 http() 同款逻辑）。
+    let message = `${init?.method ?? "GET"} ${input}: ${r.status}`;
+    try {
+      const payload = (await r.json()) as { error?: unknown };
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        message = payload.error.trim();
+      }
+    } catch {
+      // 非 JSON 响应（如文件下载的 404 HTML）保留状态码兜底。
+    }
+    throw new Error(message);
+  }
+  return r;
+}
+
+/**
+ * downloadBlob：把一个响应存成文件下载。
+ *
+ * 用于报告、导出、工作区下载这类「后端返回二进制」的场景。
+ * 文件名优先取 Content-Disposition（后端会带中文名），取不到则用传入的兜底名。
+ */
+export async function downloadBlob(input: string, fallbackName: string, init?: RequestInit): Promise<void> {
+  const r = await authFetch(input, init);
+  const blob = await r.blob();
+  const disp = r.headers.get("Content-Disposition") ?? "";
+  const m = disp.match(/filename="?([^"]+)"?/);
+  const filename = m?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * uploadForm：POST 一个 FormData。
+ *
+ * FormData 的 Content-Type 必须由浏览器自己设（带 boundary）——手设成
+ * application/json 会让服务端解析失败，所以这里不走 authFetch 的 JSON 分支，
+ * 但仍然复用它的 401 处理与可读错误消息。
+ */
+export async function uploadForm<T>(input: string, fd: FormData, method = "POST"): Promise<T> {
+  const token = getToken();
+  const r = await fetch(input, {
+    method,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  if (r.status === 401) {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("artex_token");
+      document.cookie = "artex_token=; path=/; max-age=0";
+      window.location.href = "/login";
+    }
+    throw new Error("未授权");
+  }
+  if (!r.ok) {
+    let message = `上传失败: ${r.status}`;
+    try {
+      const payload = (await r.json()) as { error?: unknown };
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        message = payload.error.trim();
+      }
+    } catch {
+      try {
+        const text = (await r.text()).trim();
+        if (text) message = text;
+      } catch {
+        // 保留状态码兜底。
+      }
+    }
+    throw new Error(message);
+  }
+  return (await r.json()) as T;
+}
+
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   // 动态 import 让 6800 行 mock 数据只在 MOCK 构建进 bundle：此处必须内联
   // process.env 判定（而非经 lib/mock/enabled 的 MOCK 常量），DefinePlugin 才能

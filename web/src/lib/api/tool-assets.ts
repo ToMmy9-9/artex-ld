@@ -3,7 +3,7 @@
 // 用户上传攻防二进制 → 平台登记 → 内置工具管理员 agent 自动认领（判定能力、
 // 风险并产出受管权限契约）。本文件只做数据搬运，管控逻辑全在后端。
 
-import { del, get, post } from "@/lib/api/http";
+import { del, get, post, uploadForm } from "@/lib/api/http";
 import type { ToolAsset, ToolAssetContract, ToolAssetRun } from "@/lib/types";
 
 export interface ToolAssetsApi {
@@ -40,25 +40,13 @@ export const toolAssetsApi: ToolAssetsApi = {
   uploadToolAssets: (files: File[]) => {
     const form = new FormData();
     for (const f of files) form.append("file", f);
-    // http() 的 JSON 封装不适合 multipart：直接走 fetch，带 token 与 cookie。
+    // http() 的 JSON 封装不适合 multipart：用 uploadForm（FormData 的
+    // Content-Type 必须由浏览器自己设，否则服务端解析失败）。
     return (async () => {
-      const token = typeof window !== "undefined" ? localStorage.getItem("artex_token") : null;
-      const r = await fetch("/api/tool-assets/upload", {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-      });
-      if (!r.ok) {
-        let msg = `上传失败（${r.status}）`;
-        try {
-          const j = await r.json();
-          if (j?.error) msg = j.error;
-        } catch {
-          /* 非 JSON 错误体，保留默认文案 */
-        }
-        throw new Error(msg);
-      }
-      return (await r.json()) as Awaited<ReturnType<ToolAssetsApi["uploadToolAssets"]>>;
+      return (await uploadForm<Awaited<ReturnType<ToolAssetsApi["uploadToolAssets"]>>>(
+        "/api/tool-assets/upload",
+        form,
+      )) as Awaited<ReturnType<ToolAssetsApi["uploadToolAssets"]>>;
     })();
   },
 

@@ -13,6 +13,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { openSSE } from "@/lib/api";
+import { authFetch } from "@/lib/api/http";
 import { MOCK } from "@/lib/mock/enabled";
 import type { LogLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -115,8 +116,9 @@ export default function LogsPage() {
     setHistoryError("");
     try {
       const params = minDbId > 0 ? `?before=${minDbId}&limit=200` : `?limit=200`;
-      const res = await fetch(`/api/logs/history${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // 走 authFetch：原先裸 fetch 没带 token，登录过期后会静默拿到 401
+      // 并只报「HTTP 401」，用户看不出是登录态没了。
+      const res = await authFetch(`/api/logs/history${params}`);
       const data = (await res.json()) as { items: LogLine[]; has_more: boolean };
       if (data.items?.length) {
         // Assign synthetic seq numbers below current minimum to keep dedup working.

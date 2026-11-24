@@ -10,7 +10,20 @@
  *   - scope/workspace/assets/companies/exploration/traffic/audit 方法组：资产范围、工作区文件、资产企业、探索会话与观测端点
  */
 
-import { arr, del, findingFilterParams, get, getToken, http, patch, post, put, tq } from "@/lib/api/http";
+import {
+  arr,
+  authFetch,
+  del,
+  findingFilterParams,
+  get,
+  getToken,
+  http,
+  patch,
+  post,
+  put,
+  tq,
+  uploadForm,
+} from "@/lib/api/http";
 import { MOCK } from "@/lib/mock/enabled";
 import type {
   ActiveFindingRetest,
@@ -456,25 +469,15 @@ export const tasksApi = {
     if (MOCK) return { uploaded: files.length };
     const fd = new FormData();
     for (const f of files) fd.append("file", f);
-    const token = getToken();
-    const r = await fetch(`/api/workspace/upload?path=${encodeURIComponent(dir)}`, {
-      method: "POST",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: fd,
-    });
-    if (!r.ok) throw new Error(`上传失败: ${r.status}`);
-    return r.json() as Promise<{ uploaded: number }>;
+    return uploadForm<{ uploaded: number }>(`/api/workspace/upload?path=${encodeURIComponent(dir)}`, fd);
   },
   workspaceDownload: async (path: string) => {
     let blob: Blob;
     if (MOCK) {
       blob = new Blob([`（demo）${path} 的下载内容示例。`], { type: "text/plain" });
     } else {
-      const token = getToken();
-      const r = await fetch(`/api/workspace/download?path=${encodeURIComponent(path)}`, {
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      });
-      if (!r.ok) throw new Error(`下载失败: ${r.status}`);
+      // 走 authFetch：401 时清 token 跳登录页，错误消息取后端的可读文案。
+      const r = await authFetch(`/api/workspace/download?path=${encodeURIComponent(path)}`);
       blob = await r.blob();
     }
     const objUrl = URL.createObjectURL(blob);
@@ -615,10 +618,9 @@ export const tasksApi = {
       for (const [k, v] of findingFilterParams(opts.filters)) p.set(k, v);
     }
     const token = getToken();
-    const r = await fetch(`/api/exploration/findings/export?${p.toString()}`, {
+    const r = await authFetch(`/api/exploration/findings/export?${p.toString()}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    if (!r.ok) throw new Error(`export: ${r.status}`);
     const blob = await r.blob();
     // 文件名优先取后端 Content-Disposition,取不到则用默认名。
     const disp = r.headers.get("Content-Disposition") ?? "";
@@ -687,15 +689,9 @@ export const tasksApi = {
     side: "request" | "response",
     contextTask?: string,
   ) => {
-    const token = getToken();
-    const response = await fetch(
+    const response = await authFetch(
       `/api/exploration/findings/${id}/traffic/${bindingId}/body?side=${side}&download=1${contextTask ? `&context_task=${encodeURIComponent(contextTask)}` : ""}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
     );
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: "下载失败" }));
-      throw new Error(error.error ?? "下载失败");
-    }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1000,15 +996,7 @@ export const tasksApi = {
     fd.append("file", file);
     if (caption) fd.append("caption", caption);
     fd.append("step_index", String(stepIndex));
-    const token = getToken();
-    const r = await fetch(`/api/exploration/findings/${nodeId}/evidence`, {
-      method: "POST",
-      body: fd,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((body as { error?: string }).error || `上传失败(${r.status})`);
-    return body as FindingEvidenceItem;
+    return uploadForm<FindingEvidenceItem>(`/api/exploration/findings/${nodeId}/evidence`, fd);
   },
   findingEvidenceUpdate: (
     nodeId: string,

@@ -10,7 +10,7 @@
  *   - interceptGetJudgeConfig/interceptSetJudgeConfig/interceptJudgeUsage：LLM 兜底审批配置与用量
  */
 
-import { arr, del, get, getToken, interceptPageQuery, post, put } from "@/lib/api/http";
+import { arr, del, get, interceptPageQuery, post, put } from "@/lib/api/http";
 import { MOCK } from "@/lib/mock/enabled";
 import type {
   AssetInterceptRule,
@@ -75,25 +75,12 @@ export const interceptApi = {
   // ---- intercept tool-config (全局工具拦截范围) ----
   interceptGetToolConfig: async (): Promise<{ enabled_tools: string[] }> => {
     if (MOCK) return { enabled_tools: ["bash"] };
-    const token = getToken();
-    const r = await fetch("/api/intercept/tool-config", {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
+    // 走 get()：401 自动跳登录、错误消息取后端文案（原先裸 fetch 只抛状态码）
+    return get<{ enabled_tools: string[] }>("/intercept/tool-config");
   },
   interceptSetToolConfig: async (enabledTools: string[]): Promise<void> => {
     if (MOCK) return;
-    const token = getToken();
-    const r = await fetch("/api/intercept/tool-config", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ enabled_tools: enabledTools }),
-    });
-    if (!r.ok) throw new Error(await r.text());
+    await put<{ ok: boolean }>("/intercept/tool-config", { enabled_tools: enabledTools });
   },
 
   // ---- intercept LLM judge (模型兜底审批,全局配置) ----

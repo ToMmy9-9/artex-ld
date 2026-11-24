@@ -10,7 +10,7 @@
  *   - tools/mcp·/asset-sync/skills/visibility 方法组：工具目录、MCP、资产同步与资源可见性
  */
 
-import { arr, del, get, getToken, http, patch, post, put, tq } from "@/lib/api/http";
+import { arr, authFetch, del, get, http, patch, post, put, tq, uploadForm } from "@/lib/api/http";
 import type { ChatMention } from "@/lib/chat-mentions";
 import { MOCK } from "@/lib/mock/enabled";
 import type {
@@ -98,11 +98,8 @@ export const llmAgentsApi = {
   report: async (task?: string) => {
     // 动态 import + 构建期 alias（见 next.config.mjs）：demo 报告只在 MOCK 构建进 bundle。
     if (MOCK) return (await import("@/lib/mock/report")).mockReport(task);
-    const token = getToken();
-    const r = await fetch(`/api/report${tq(task)}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!r.ok) throw new Error(`report: ${r.status}`);
+    // 返回的是 markdown 文本（不是 JSON），所以用 authFetch 而非 get()。
+    const r = await authFetch(`/api/report${tq(task)}`);
     return r.text();
   },
   chatMentions: (kind: string, query: string, signal?: AbortSignal, cursor = "") =>
@@ -126,14 +123,10 @@ export const llmAgentsApi = {
       };
     const fd = new FormData();
     for (const f of files) fd.append("file", f);
-    const token = getToken();
-    const r = await fetch(`/api/chat/upload?scope=${scope}&id=${encodeURIComponent(id)}`, {
-      method: "POST",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: fd,
-    });
-    if (!r.ok) throw new Error(`上传失败: ${r.status} ${await r.text()}`);
-    return r.json() as Promise<{ attachments: ChatAttachment[] }>;
+    return uploadForm<{ attachments: ChatAttachment[] }>(
+      `/api/chat/upload?scope=${scope}&id=${encodeURIComponent(id)}`,
+      fd,
+    );
   },
   stopChat: (taskId: string) => post<{ status: string }>(`/tasks/${taskId}/chat/stop`, {}),
 
@@ -367,15 +360,11 @@ export const llmAgentsApi = {
     if (MOCK) return { name: file.name.replace(/\.zip$/i, ""), files: 1 };
     const fd = new FormData();
     fd.append("file", file);
-    const token = getToken();
-    const r = await fetch(`/api/skills/upload${overwrite ? "?overwrite=true" : ""}`, {
-      method: "POST",
-      body: fd,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body?.error || `上传失败(${r.status})`);
-    return body;
+    const body = await uploadForm<{ name?: string; files?: number }>(
+      `/api/skills/upload${overwrite ? "?overwrite=true" : ""}`,
+      fd,
+    );
+    return { name: body.name ?? file.name.replace(/\.zip$/i, ""), files: body.files ?? 0 };
   },
   deleteSkill: (name: string) => del<{ deleted: string }>(`/skills/${name}`),
   updateSkillMeta: (

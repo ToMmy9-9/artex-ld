@@ -6,13 +6,7 @@
  *   - llmRecords/llmRecordDetail/llmTasks/llmRecordsDeleteTask/tokensByModel：LLM 调用记录与按模型 token 聚合
  *   - checkUpdate / applyUpdate / rollbackUpdate：一键更新的检查、应用与回滚
  */
-import { arr, del, get, http, post, put } from "@/lib/api/http";
-
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("artex_token");
-}
-
+import { arr, del, get, http, post, put, uploadForm } from "@/lib/api/http";
 import type {
   CommandRecord,
   DailyTokenBucket,
@@ -73,15 +67,7 @@ export const miscApi = {
   uploadReportLogo: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
-    const token = getToken();
-    const r = await fetch("/api/report-assets/logo", {
-      method: "POST",
-      body: fd,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((body as { error?: string }).error || `上传失败(${r.status})`);
-    return body as { logo_path: string; url: string };
+    return uploadForm<{ logo_path: string; url: string }>("/api/report-assets/logo", fd);
   },
 
   // ---- commands (tool execution history, any tool) ----
@@ -212,17 +198,7 @@ export const miscApi = {
     fd.append("scope", scope);
     fd.append("task_id", String(taskId));
     fd.append("category", category);
-    const token = getToken();
-    const r = await fetch(`/api/knowledge/upload`, {
-      method: "POST",
-      body: fd,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      throw new Error((body as { error?: string }).error || `上传失败（HTTP ${r.status}）`);
-    }
-    return body as KnowledgeDoc;
+    return uploadForm<KnowledgeDoc>("/api/knowledge/upload", fd);
   },
 };
 
