@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 CREATE INDEX IF NOT EXISTS idx_llm_usage_task  ON llm_usage(task_id);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_model ON llm_usage(task_id, model);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_exp   ON llm_usage(exploration_id);
+-- 归档/统计查询写的是 COALESCE(task_id,'')=?，裸 task_id 索引用不上
+-- （表达式包住列 → B-tree 失效 → 全表扫）。llm_records 早就建了对应的
+-- 表达式索引，这里之前漏了，导致 llm_usage 的归档聚合每次都全表扫。
+CREATE INDEX IF NOT EXISTS idx_llm_usage_task_expr ON llm_usage(COALESCE(task_id, ''));
 `
 
 // EnsureLLMUsageTable creates the llm_usage metering table if it does not exist.
