@@ -2,18 +2,32 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-版本说明：`artex-ld` 从 `0.1.2` 起使用独立版本序列。Release 名称为 **artex-ld 0.2.2**，Git Tag 为 **v0.2.2**。`0.3.16`–`0.3.18` 是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的上游条目（合并带入）；`0.3.15` 及更早内容是 [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) 历史。
+版本说明：`artex-ld` 从 `0.1.2` 起使用独立版本序列。Release 名称为 **artex-ld 0.2.3**，Git Tag 为 **v0.2.3**。`0.3.16`–`0.3.18` 是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的上游条目（合并带入）；`0.3.15` 及更早内容是 [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) 历史。
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-25
+
 ### Fixed
 
-- **压缩在自适应思考模型上因预算不足产出空正文**（`agent/compaction.go`）。
+- **压缩在自适应思考模型上产出空正文 / 半截正文**（`agent/compaction.go`）。
   压缩固定 `max_tokens=1500`，而生产块（单节点 500+ 字、多 id/约束）会让
-  MiniMax-M3.1-Flash 思考 6k–21k 字，`stop=max_tokens` 且正文为空；实测 4k 仍为空
-  （思考随预算膨胀），8k 才稳定出正文。现改为两段预算：先 1.5k（简单块保持低成本），
-  仅当空正文且 `stop=max_tokens` 时升到 8192 重试一次（独立 150s 预算）；
-  非截断的空响应不重试。错误信息带 `stop` / `output_tokens` / 最终预算，便于定位。
+  MiniMax-M3.1-Flash 把预算全花在思考上：`finish_reason=length`、正文为空。
+  实测同一端点：1500 → 0 字正文 / 1500 思考 token；8192 → 1435 字正文 / 7626 token
+  （仅剩约 7% 余量）；更密的尾部需要 16384。现改为三段预算：
+
+  | 阶段 | max_tokens | 超时 | 触发 |
+  | --- | --- | --- | --- |
+  | 首试 | 1500 | 90s | 所有块（简单块保持低成本） |
+  | 升级 | 8192 | 300s | 空正文或半截正文，且 `stop=max_tokens` |
+  | 兜底 | 16384 | 300s | 8192 仍被截断 |
+
+  正文非空但 `stop=max_tokens` 也视为截断并升级；最终仍截断时返回最长的一份
+  正文而不是报错（不丢已产生的结论）。单次超时按「可转移的瞬时失败」处理：
+  批次 ctx 仍存活时升级重试，HTTP 400/401 与取消不重试。错误信息带
+  `stop` / `output_tokens` / 最终预算，日志可直接判断是截断还是超时。
+- 新增真实端点集成测试 `agent/compaction_live_test.go`（默认跳过）：
+  38 个 500+ 字节点、真实 `compress()` 路径，验证 1500 → 8192 升级并产出正文。
 - 修正测试注释中无法复核的「360 次」说法：可核记录为 11-24 09:00–18:32 的 34 条
   disabled 报错，更早数据已被 `llm_records` 保留策略清理。
 

@@ -26,6 +26,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -60,6 +61,7 @@ type Compactor struct {
 	// budget, while 8k produced bodies for all sampled blocks.
 	baseMaxTokens     int
 	retryMaxTokens    int
+	finalMaxTokens    int
 	retryBlockTimeout time.Duration
 
 	mu      sync.Mutex
@@ -98,7 +100,8 @@ func NewCompactor(prov llm.Provider, model string) *Compactor {
 		// thinking volume, and therefore latency, is much larger.
 		baseMaxTokens:     1500,
 		retryMaxTokens:    8192,
-		retryBlockTimeout: 150 * time.Second,
+		finalMaxTokens:    16384,
+		retryBlockTimeout: 300 * time.Second,
 		running:           map[int64]bool{},
 		lastRun:           map[int64]time.Time{},
 	}
@@ -577,25 +580,43 @@ func buildCompressionInput(g *coldGraph, b block, nodeByID map[int64]*db.Node) s
 // the provider does not retry it — we escalate once to retryMaxTokens. Measured
 // on real production prompts: 1.5k → empty, 4k → empty (thinking grew to ~15k),
 // 8k → body. Repeating the same budget or stopping at 4k is wasted money.
+//
+// A truncated body (stop=max_tokens with partial text) is escalated too: storing
+// a sentence cut mid-way is worse than paying for one more call. When the last
+// attempt still truncates, the longest body seen is returned rather than the
+// empty error, so the work is not thrown away.
+//
+// A per-attempt timeout is treated as transient while the batch context is still
+// alive: the escalated call gets a larger timeout anyway, and a slow-but-healthy
+// model should not lose a block. Non-timeout errors (HTTP 400/401, cancel) are
+// returned immediately — retrying them only burns quota.
 func (c *Compactor) compress(ctx context.Context, g *coldGraph, b block, nodeByID map[int64]*db.Node) (string, error) {
 	input := buildCompressionInput(g, b, nodeByID)
-	budgets := []int{c.baseMaxTokens, c.retryMaxTokens}
+	budgets := []int{c.baseMaxTokens, c.retryMaxTokens, c.finalMaxTokens}
 	if budgets[0] <= 0 {
 		budgets[0] = 1500
 	}
 	if budgets[1] <= 0 {
 		budgets[1] = 8192
 	}
-	timeouts := []time.Duration{c.blockTimeout, c.retryBlockTimeout}
+	if budgets[2] <= 0 {
+		budgets[2] = 16384
+	}
+	timeouts := []time.Duration{c.blockTimeout, c.retryBlockTimeout, c.retryBlockTimeout}
 	if timeouts[0] <= 0 {
 		timeouts[0] = 90 * time.Second // zero value must not mean "no time at all"
 	}
 	if timeouts[1] <= 0 {
-		timeouts[1] = 150 * time.Second
+		timeouts[1] = 300 * time.Second
+	}
+	if timeouts[2] <= 0 {
+		timeouts[2] = 300 * time.Second
 	}
 
+	var bestBody string
 	var lastStop string
 	var lastUsage llm.Usage
+	var lastErr error
 	for i, maxTok := range budgets {
 		req := llm.CompletionRequest{
 			System:    []string{compressionSystemPrompt},
@@ -616,21 +637,58 @@ func (c *Compactor) compress(ctx context.Context, g *coldGraph, b block, nodeByI
 		msg, stop, usage, err := c.prov.Complete(blockCtx, req)
 		cancel()
 		if err != nil {
+			lastErr = err
+			// A partial body is still useful: keep it rather than fail the block.
+			if bestBody != "" {
+				log.Printf("[compaction] retry failed after a %d-char partial body (%v); keeping the partial body",
+					len(bestBody), err)
+				return bestBody, nil
+			}
+			// Only a per-attempt deadline is transient. If the shared batch ctx is
+			// gone, or the error is an HTTP/format rejection, a retry cannot help.
+			if i < len(budgets)-1 && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("[compaction] block timed out at max_tokens=%d, retrying at max_tokens=%d with a larger timeout",
+					maxTok, budgets[i+1])
+				continue
+			}
 			return "", err
 		}
-		body := strings.TrimSpace(msg.Text())
+		lastErr = nil
 		lastStop, lastUsage = stop, usage
-		if body != "" {
+		body := strings.TrimSpace(msg.Text())
+		if len(body) > len(bestBody) {
+			bestBody = body
+		}
+		if body != "" && stop != "max_tokens" {
 			return body, nil
 		}
-		// Only max_tokens truncation is worth escalating. An empty normal stop
-		// already went through the provider's own empty-response retries; sending
-		// the same prompt with more budget would not change anything.
-		if stop != "max_tokens" || i == len(budgets)-1 {
+		if i == len(budgets)-1 {
+			// Final attempt: return the best partial body if there is one.
+			if bestBody != "" {
+				log.Printf("[compaction] final attempt truncated at max_tokens=%d; using the longest partial body (%d chars)",
+					maxTok, len(bestBody))
+				return bestBody, nil
+			}
 			break
 		}
-		log.Printf("[compaction] empty body at max_tokens=%d (stop=%s output_tokens=%d); retrying at max_tokens=%d",
-			maxTok, stop, usage.OutputTokens, budgets[i+1])
+		if body == "" && stop != "max_tokens" {
+			// Normal empty stop already went through the provider's own
+			// same-budget empty-response retries; a larger budget cannot fix it.
+			break
+		}
+		if body == "" {
+			log.Printf("[compaction] empty body at max_tokens=%d (stop=%s output_tokens=%d); retrying at max_tokens=%d",
+				maxTok, stop, usage.OutputTokens, budgets[i+1])
+		} else {
+			log.Printf("[compaction] truncated body (%d chars) at max_tokens=%d (stop=%s output_tokens=%d); retrying at max_tokens=%d",
+				len(body), maxTok, stop, usage.OutputTokens, budgets[i+1])
+		}
+	}
+	if bestBody != "" {
+		return bestBody, nil
+	}
+	if lastErr != nil {
+		return "", lastErr
 	}
 	return "", fmt.Errorf("empty body from model (stop=%s, output_tokens=%d, max_tokens=%d)",
 		lastStop, lastUsage.OutputTokens, budgets[len(budgets)-1])

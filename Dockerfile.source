@@ -10,7 +10,7 @@ COPY web/ ./
 RUN npm run build:static
 
 FROM golang:1.26-bookworm AS go-builder
-ARG ARTEX_VERSION=0.2.2
+ARG ARTEX_VERSION=0.2.3
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 WORKDIR /src

@@ -7,7 +7,7 @@
 以目标与事实驱动的 planner–worker 双图引擎为核心，叠加场景编排、意图审核、
 自定义执行者、漏洞交付流水线与完整运维面。
 
-当前版本 **0.2.2** · Git Tag **v0.2.2**
+当前版本 **0.2.3** · Git Tag **v0.2.3**
 
 [![Release](https://img.shields.io/github/v/release/steveopen1/artex-ld?display_name=tag&sort=semver)](https://github.com/steveopen1/artex-ld/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
@@ -53,13 +53,14 @@
 | 来源 | 版本 | 带来的能力 |
 | --- | --- | --- |
 | [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) | v0.3.15（共同基线） | 双图引擎、planner–worker、MITM 流量录制、内置工具与 Skill 体系 |
-| **artex-ld 自身** | 0.1.2 → 0.2.2 | **四个可控点**：场景可配、意图可审、执行者可指定、finding 可编排 |
+| **artex-ld 自身** | 0.1.2 → 0.2.3 | **四个可控点**：场景可配、意图可审、执行者可指定、finding 可编排 |
 | [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) | v0.3.27 | 计划任务、Finding 案例化、任务情报/凭据、代理池、worker 池、审批裁判重试、请求重放 |
 | [AntiFox-AI/antifox](https://github.com/AntiFox-AI/antifox) | v2.0 | **证据驱动交付**：复现过程落库、真实流量绑定、漏洞富化、证据截图、三语 docx 报告、两层 RAG 知识库 |
 
 版本谱系：`ARTEX v0.3.15` 为三方共同上游基线 → `artex-ld 0.1.4` 与 `RuoJi6 v0.3.27` 三方合并 →
 `artex-ld 0.2.0` 再并入 `AntiFox v2.0` 的交付能力；`0.2.1` 修复 Skill 可见性 seed、Markdown 报告头部与文档；`0.2.2` 修复发版流水线
-（可选集成降级、脚本执行位、全平台资产自动产出）。合并细节与逐项验证见
+（可选集成降级、脚本执行位、全平台资产自动产出）；`0.2.3` 修复自适应思考模型下的
+压缩空正文（三段预算 1500/8192/16384 + 截断/超时重试）。合并细节与逐项验证见
 [CHANGELOG](CHANGELOG.md) 与 [版本差异问题与修复方案](docs/ARTEX-版本差异问题与修复方案.md)。
 
 ### 一句话区分"上游"与"本仓库"
@@ -85,9 +86,9 @@
 
 ```bash
 mkdir artex && cd artex
-wget https://github.com/steveopen1/artex-ld/releases/download/v0.2.2/artex-0.2.2-linux-amd64.deploy.tar.gz
-tar xzf artex-0.2.2-linux-amd64.deploy.tar.gz
-sudo bash install.sh --server artex-0.2.2-linux-amd64.deploy.tar.gz
+wget https://github.com/steveopen1/artex-ld/releases/download/v0.2.3/artex-0.2.3-linux-amd64.deploy.tar.gz
+tar xzf artex-0.2.3-linux-amd64.deploy.tar.gz
+sudo bash install.sh --server artex-0.2.3-linux-amd64.deploy.tar.gz
 ```
 
 `install.sh --server` 会：安装 PostgreSQL 与运行依赖 → 幂等创建 `artex` 库/账号（密码随机生成，
@@ -131,12 +132,12 @@ Releases 提供 5 个平台的 zip，以及 linux-amd64 一键部署包：
 
 | 产物 | 平台 | 说明 |
 | --- | --- | --- |
-| `artex-0.2.2-linux-amd64.deploy.tar.gz` | linux/amd64 | 服务器一键部署包（含 `install.sh`、`start.sh`、`skills/`、`config.example.json`） |
-| `artex-0.2.2-linux-amd64.zip` | linux/amd64 | 免安装压缩包（`artex` + `start.sh` + `skills/` + `config.example.json`） |
-| `artex-0.2.2-linux-arm64.zip` | linux/arm64 | 免安装（ARM64 服务器 / ARM64 Kali） |
-| `artex-0.2.2-darwin-amd64.zip` | macOS Intel | 免安装 |
-| `artex-0.2.2-darwin-arm64.zip` | macOS Apple Silicon | 免安装 |
-| `artex-0.2.2-windows-amd64.zip` | Windows x64 | 含 `start.bat` |
+| `artex-0.2.3-linux-amd64.deploy.tar.gz` | linux/amd64 | 服务器一键部署包（含 `install.sh`、`start.sh`、`skills/`、`config.example.json`） |
+| `artex-0.2.3-linux-amd64.zip` | linux/amd64 | 免安装压缩包（`artex` + `start.sh` + `skills/` + `config.example.json`） |
+| `artex-0.2.3-linux-arm64.zip` | linux/arm64 | 免安装（ARM64 服务器 / ARM64 Kali） |
+| `artex-0.2.3-darwin-amd64.zip` | macOS Intel | 免安装 |
+| `artex-0.2.3-darwin-arm64.zip` | macOS Apple Silicon | 免安装 |
+| `artex-0.2.3-windows-amd64.zip` | Windows x64 | 含 `start.bat` |
 | `SHA256SUMS` | — | 覆盖全部 zip 与 linux-amd64 部署包 |
 
 Linux / macOS 解压后：

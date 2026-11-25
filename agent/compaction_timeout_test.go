@@ -47,6 +47,8 @@ func TestCompressHonoursPerBlockTimeout(t *testing.T) {
 
 	c := NewCompactor(prov, "m")
 	c.blockTimeout = 150 * time.Millisecond // 缩短以便快速断言
+	// 超时现在会在更大预算下重试一次；这里把重试预算也缩短，避免测试等 300s。
+	c.retryBlockTimeout = 150 * time.Millisecond
 
 	// 外层 ctx 给足 10 秒，若 compress 没用自己的预算就会一直挂到 10 秒。
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
