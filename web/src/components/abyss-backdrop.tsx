@@ -67,10 +67,10 @@ export function AbyssBackdrop() {
 
   return (
     <div ref={ref} className="abyss-backdrop" aria-hidden="true">
-      {/* 实测参考截图后只保留这一层：极淡点阵（亮度抖动仅 2 个色阶）。
-          参考背景的亮度 p5–p75 全在 34–38 之间 —— 没有光池、没有网格、没有光扫，
-          那些都是我此前自己加上去的，已全部删除。 */}
-      <div className="abyss-backdrop__layer abyss-backdrop__layer--near" />
+      {/* 外壳层只有两样：两记极淡中性灰光池 + 28px 点阵。
+          点阵被上面的玻璃 blur 平均成磨砂 —— 那是"玻璃感"的物理来源。 */}
+      <div className="abyss-backdrop__glow" />
+      <div className="abyss-backdrop__layer" />
     </div>
   );
 }

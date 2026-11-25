@@ -222,44 +222,43 @@ html.dark:root[data-theme-preset="abyss"] {
 .dark.dark[data-theme-preset="abyss"] body {
   background-color: transparent;
 }
-/* html 底色 = **页面画布色**，不是 ground。ground(#0f1216) 属于背板层；
-   html 若铺 ground，内容区的 96% 玻璃叠上去会被压暗到 #0e1115（实测差 13 个色阶）。 */
+/* html 底色 = **外壳色 #0A0F1A**（参考的 --shell-chrome）。
+   玻璃 rgba(38,48,68,.55) 必须叠在**外壳**上才合成出 #192131（≈截图 #1b2331）。
+   若 html 铺 --background(#1b2331)，玻璃叠上去会亮成 #1f2838（实测）——
+   这就是"玻璃反而把底变亮"的原因。 */
 .dark[data-theme-preset="abyss"] {
   background-image: none;
-  background-color: var(--background);
+  background-color: #0a0f1a;
 }
 
 /* 侧栏：与地面同色 + 半透，让点阵与光池从下面透上来（参考的 shell-sidebar 就是同值）。
    不铺实色 —— 实色会切断背景的连续性，正是用户说的"色块"。 */
 [data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
-  /* 侧栏与内容区同族：半透 + blur，让点阵连续穿过两侧（参考的 shell-sidebar
-     与 ground 同值，靠描边与模糊分层，不靠色差）。 */
-  background: color-mix(in oklab, var(--sidebar) 96%, transparent);
-  border-right: 1px solid color-mix(in oklab, var(--sidebar-border) 55%, transparent);
-  /* 不开 backdrop-filter：实测 blur+saturate 会把背景提亮约 5 个色阶
-     （#1b2331 → 渲染成 #202839），与参考的 p50=36 对不上。
-     参考的页面画布就是实色玻璃，层次靠描边与阴影。 */
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  /* 参考的 --shell-sidebar 与 --shell-panel **同值同材质**（左右两块同一块玻璃），
+     分隔只靠发丝描边。 */
+  background: rgba(38, 48, 68, 0.55);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px) saturate(1.6);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
 }
 
 /* 内容区：比侧栏亮一档的同族玻璃 —— 深色里"更亮的容器"才读得出是浮起的面。
    透明度留 88%：既有实体感，又能看到极淡的网格（参考实现的目标） */
 .dark[data-theme-preset="abyss"] [data-slot="sidebar-inset"] {
-  /* 页面画布 = 参考的 glass 档：rgba(38,48,68,.55)。
-     它比 ground 亮、比卡片暗，点阵与光池从下面透上来。
-     这就是参考里"壳层（左右两块面板）"的材质。 */
-  /* 参考的 p5–p75 只有 34–38，说明页面背景基本是**实色**（玻璃几乎不透）。
-     这里用 96% —— 留一点点让点阵在最底层若隐若现，不用 88%（那会让画布偏蓝偏亮）。 */
-  /* 实色画布：参考的亮度分布 p5–p75 = 34–38，几乎是一条水平线，
-     说明页面画布是**实色**。此前用 96% 半透 + blur(20px) saturate(1.4)，
-     blur 会把底层点阵平均掉、saturate 又把颜色提饱和，
-     实测把 #1b2331 渲成 #202839（偏蓝偏亮 13 个色阶）—— 这才是"底色感觉不对"的原因。 */
-  background: var(--background);
-  border-color: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  /* 参考的 --shell-panel：rgba(38,48,68,.55)。叠在外壳 #0A0F1A 上合成 #192131，
+     与截图实测 #1b2331 差 2 阶。**必须保留半透** —— 玻璃感就是这层叠出来的；
+     改成实色数值虽对，但会变成一块平色板（我上一版就是这么错的）。 */
+  background: rgba(38, 48, 68, 0.55);
+  border: none;
+  border-radius: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  /* blur 让下面的点阵平均成磨砂 —— 这是"玻璃"而不是"半透色块"的关键。
+     参考用 --mat-reg-blur: 24px + saturate 1.8；这里取 16px，
+     因为我们的点阵更淡，糊太狠会看不出材质。 */
+  backdrop-filter: blur(16px) saturate(1.6);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
 }
 
 /* 主内容顶栏：吸顶时不能透出滚动内容，但色相必须与容器一致 */
@@ -446,22 +445,26 @@ html.dark:root[data-theme-preset="abyss"] {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   氛围背板 —— 依据 alkaid 暗色截图的**定量测量**重做
+   氛围背板 —— 依据 alkaid 的 **dark shell 令牌 + 截图实测** 重建
    ───────────────────────────────────────────────────────────────────────
-   对 1895x974 的参考截图做主内容区密集采样（跳过侧栏文字），亮度分布：
+   参考的真源在 `theme/industries.ts` 的 `shell.dark`（内联写到 <html> 上）：
 
-     p5=34  p25=35  p50=36  p75=38  p95=83
+     chrome : #0A0F1A                      ← 最外壳（10px 缝隙）
+     panel  : rgba(38, 48, 68, 0.55)       ← 右列页面画布 = **半透玻璃**
+     sidebar: rgba(38, 48, 68, 0.55)       ← 左栏 = **同一块玻璃**
 
-   结论：整页背景亮度几乎是常数（34–38，0-255 刻度）。四角互相差 ≤6。
-   **没有大面积渐变，没有明显光斑。**
+   "玻璃感"就是这么来的：外壳是一块亮黑 #0A0F1A，左右两列各覆一层
+   rgba(38,48,68,.55) 的玻璃。合成结果实测：
 
-   所以"科技感"不来自光效，而来自三件事：
-     1. 极暗且统一的深蓝底（#1c2333 一档，不是中性灰也不是纯黑）
-     2. 玻璃面板边缘的高光（p95=83 那部分几乎全部来自描边与文字）
-     3. 亚像素级的极淡纹理，只在近距离可见，不构成"亮斑"
+     color-mix(#263044 55%, #0A0F1A) = #192131
+     截图实测页面画布              = #1b2331     ← 差 2 阶，吻合
 
-   之前我做的 0.16 强度的光池、网格线、扫描光带 —— 全是我自己加的，
-   测量数据里根本没有这些。这里全部删掉，只保留参考实际有的东西。
+   这也解释了为什么"透明/玻璃"必须保留：它不是装饰，是这套配色的构造方式。
+   我之前把画布改成实色 #1b2331，数值虽然对，但**丢掉了玻璃层**，
+   所以观感是"一块平色板"而不是"一块玻璃"。
+
+   背板本身只需要一层：外壳色 #0A0F1A。玻璃由 sidebar-inner / sidebar-inset
+   各自的 rgba 叠出来（见下方对应规则）。
    ═══════════════════════════════════════════════════════════════════════ */
 
 .abyss-backdrop {
@@ -475,51 +478,53 @@ html.dark:root[data-theme-preset="abyss"] {
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  /* 外壳/缝隙色（实测 #0f1216） */
-  background-color: #0f1216;
+  /* 外壳色：参考的 --shell-chrome #0A0F1A */
+  background-color: #0a0f1a;
 }
 
-.dark.dark[data-theme-preset="abyss"] body > *:not(.abyss-backdrop) {
+.dark[data-theme-preset="abyss"] body > *:not(.abyss-backdrop) {
   position: relative;
   z-index: 1;
 }
 
-/* ── 唯一的一层：极淡点阵 ──
-   参考里 p50=36、p75=38 这 2 个色阶的抖动就是点阵贡献的。
-   浓度按实测反推：底 #1c2333 的亮度约 35，点阵峰值到 38，
-   换算成白色叠加约 1.2% —— 所以用 0.014，不是之前那个 0.075。
-   它只在暗背景上制造"轻微颗粒感"，不做可见的格子。 */
-.abyss-backdrop__layer--near {
+/* 极淡的点阵：参考的亮度抖动只有 2~3 个色阶（p50=36 → p75=38），
+   这部分来自 28px 点阵（rgba(255,255,255,.028)）。
+   它是**透过玻璃**看到的那一层 —— 玻璃 blur 会把它抹成均匀磨砂，
+   这正是"面板看起来是块玻璃"而不是"一块纯色"的物理原因。 */
+.abyss-backdrop__layer {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.014) 1px, transparent 0);
-  background-size: 24px 24px;
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.028) 1px, transparent 0);
+  background-size: 28px 28px;
   will-change: transform;
   transition: transform 340ms cubic-bezier(0.16, 1, 0.3, 1);
   transform: translate3d(
-    calc(var(--abyss-px, 0) * 6px),
-    calc(var(--abyss-py, 0) * 6px),
+    calc(var(--abyss-px, 0) * 5px),
+    calc(var(--abyss-py, 0) * 5px),
     0
   );
 }
 
-/* ── 玻璃"受光"：参考的科技感主要来自这一层，不是背景 ——
-   面板上缘 1px 的冷白高光 + 极轻的内阴影，让它读起来像一块有厚度的玻璃。
-   这条是 p95=83 那部分亮度的真实来源之一。 ── */
-.dark[data-theme-preset="abyss"] [data-slot="card"],
-.dark[data-theme-preset="abyss"] [data-slot="sidebar-inset"],
-.dark[data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+/* 参考还给暗色加了两记极淡的中性灰环境光池（base.css 的 html.dark body）：
+   rgba(190,198,215,.055) 1100x620 @74%/-12% 与 rgba(150,158,175,.04) 900x560 @6%/108%。
+   强度是"几乎看不见但少了会觉得底很平"的量级 —— 照抄原值。
+   ⚠️ 它画在外壳层（#0A0F1A）上，再被玻璃盖住，所以视觉上更淡；不能因为"看起来没有"
+   就把它删掉，删了底会变成一块死平。 */
+.abyss-backdrop__glow {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1100px 620px at 74% -12%, rgba(190, 198, 215, 0.055), transparent 62%),
+    radial-gradient(900px 560px at 6% 108%, rgba(150, 158, 175, 0.04), transparent 60%);
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .abyss-backdrop__layer--near {
+  .abyss-backdrop__layer {
     transition: none;
     transform: none !important;
   }
 }
-.abyss-backdrop[data-abyss-still="1"] .abyss-backdrop__layer--near {
+.abyss-backdrop[data-abyss-still="1"] .abyss-backdrop__layer {
   transform: none !important;
 }
