@@ -88,29 +88,32 @@ value: abyss
   --severity-low: #94a3b8;
   --radius: 0.75rem;
 
-  /* 画布：深蓝黑 #1a202b（不是纯黑，也不是蓝紫光池）。
-     用十六进制而不是低亮度 oklch：oklch(0.205) 实测落到 #13181d，
-     比参考实现的 #252b37 暗一大截，整屏发闷。 */
-  --background: #1a202b;
-  --foreground: #e6eaf2;
+  /* 画布 = alkaid 的 --ground（oklch(0.185 0.012 250)，实测 = #0f1318）。
+     这是"壳层地面"：**比面板暗**。层次不是靠"画布亮一档"，而是靠面板比地面亮
+     + 点阵与光池透过来 —— 这是参考实现明确走过的路线（他们的注释里写了
+     "shadcn 那边 card 比 background 亮一档…这边按用户口径走统一底色"）。 */
+  --background: #0f1318;
+  --foreground: #edeef0;
 
-  /* 浮起的面：比画布**亮**一档（规则 1：深色里"浮起"=更亮） */
-  --card: #222937;
-  --card-foreground: #e6eaf2;
-  --popover: #262e3d;
-  --popover-foreground: #eef1f7;
+  /* 面板/卡片 = alkaid 的 --panel-solid #252b37（比地面亮一大档，才浮得起来） */
+  --card: #252b37;
+  --card-foreground: #edeef0;
+  --popover: #2c313d;
+  --popover-foreground: #f2f4f8;
 
   /* 品牌蓝：暗色下提亮一档，保证在深底上够醒目 */
   --primary: #5ca6ff;
   --primary-foreground: #0f1622;
 
-  --secondary: #2a3242;
-  --secondary-foreground: #e2e7f0;
-  --muted: #28303f;
-  /* muted 前景 #949BAA 档：对画布 5.0:1，过 AA（参考实现踩过 #8b93a1 只有 4.04:1） */
-  --muted-foreground: #949baa;
-  --accent: #303a4d;
-  --accent-foreground: #eef1f7;
+  /* 次级面/悬停：同色 + 极淡白叠加（参考口径），不是另一档色 */
+  --secondary: #212732;
+  --secondary-foreground: #e3e8f0;
+  --muted: #212732;
+  /* 参考实测：--text-secondary #A7ABB2 对 #0D0F12 = 8.5:1；
+     他们踩过 #8b93a1 只有 4.04:1 的坑，所以这一档不能压太暗。 */
+  --muted-foreground: #a7abb2;
+  --accent: #2f3644;
+  --accent-foreground: #f2f4f8;
   --destructive: #e06a62;
 
   /* 描边是暗色的主要分层手段（规则 2）：半透白而不是实色灰 */
@@ -124,13 +127,14 @@ value: abyss
   --chart-4: oklch(0.78 0.10 160);
   --chart-5: oklch(0.76 0.13 40);
 
-  /* 侧栏：与画布同色相、略深半档 —— 让内容区像"更亮的一块面板" */
-  --sidebar: #171d27;
-  --sidebar-foreground: #dfe4ee;
+  /* 侧栏 = 与地面同一块（参考：--shell-sidebar 与 --ground 同值），
+     靠右缘描边和玻璃 blur 与内容区分开，不靠色差 */
+  --sidebar: #0f1318;
+  --sidebar-foreground: #dde2ea;
   --sidebar-primary: #5ca6ff;
   --sidebar-primary-foreground: #0f1622;
-  --sidebar-accent: #2b3547;
-  --sidebar-accent-foreground: #eef1f7;
+  --sidebar-accent: #212732;
+  --sidebar-accent-foreground: #f2f4f8;
   --sidebar-border: oklch(1 0 0 / 9%);
   --sidebar-ring: #5ca6ff;
 
@@ -190,55 +194,59 @@ value: abyss
   filter: blur(2px);
 }
 
-/* ═══════════ 背景：深空网格 + 蓝调光斑 ═══════════
-   参考实现那句"深蓝黑底 + 蓝调网络从面板下透出来"就是这一层：
-   - 一层 40px 细网格（极低白透明度，只做"有纵深"的暗示，不是可见格子）
-   - 左上蓝光池 + 右下青光池（大面积、极低透明度，避免脏）
-   - background-attachment: fixed —— 滚动时网格不动，才有"面板浮在空间里"的感觉
-   画在 html 上、body 透明，这样半透明面板能真正透出它。 */
+/* ═══════════ 背景：点阵 + 中性灰环境光池 ═══════════
+   直接按 alkaid 的实现来（webapp/src/styles/base.css，html.dark body）：
+
+     background:
+       radial-gradient(circle at 1px 1px, var(--ambient-dot) 1px, transparent 0),  ← 点阵
+       radial-gradient(1100px 620px at 74% -12%, rgba(190,198,215,.055), transparent 62%), ← 光池1
+       radial-gradient(900px 560px at 6% 108%, rgba(150,158,175,.04), transparent 60%),   ← 光池2
+       var(--ground);
+     background-size: 28px 28px, auto, auto, auto;
+     background-attachment: fixed;
+
+   三个我们踩过的坑（他们的注释里都写过，我照抄结论）：
+   1) **点阵不是线网格**。28px 点阵 + blur(24px) 才是"磨砂看得见"的来源：
+      线网格在模糊后仍是直纹，点阵被平均掉后留下的是均匀磨砂感。
+      浓度 --ambient-dot = rgba(255,255,255,0.028)，再高就成"格子布"。
+   2) **光池是中性灰，不是蓝紫**。他们 2026-11-13 明确回退过：
+      "原两记冷光池是蓝紫的，整屏发蓝" ⇒ 改回 rgba(190,198,215) / rgba(150,158,175)。
+   3) **fixed attachment**：滚动时光池不跟着跑，否则像贴纸。 */
 .dark[data-theme-preset="abyss"] {
-  background-color: var(--background);
-  background-image:
-    radial-gradient(ellipse 90% 60% at 12% -10%, rgba(92, 166, 255, 0.22), transparent 64%),
-    radial-gradient(ellipse 70% 55% at 92% 108%, rgba(56, 211, 228, 0.14), transparent 64%),
-    radial-gradient(ellipse 55% 40% at 78% -6%, rgba(126, 120, 255, 0.09), transparent 60%),
-    linear-gradient(to right, rgba(120, 170, 255, 0.055) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(120, 170, 255, 0.055) 1px, transparent 1px);
-  background-size:
-    100% 100%,
-    100% 100%,
-    100% 100%,
-    48px 48px,
-    48px 48px;
-  background-attachment: fixed, fixed, fixed, fixed, fixed;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.045) 1px, transparent 0),
+    radial-gradient(1100px 620px at 74% -12%, rgba(190, 198, 215, 0.075), transparent 62%),
+    radial-gradient(900px 560px at 6% 108%, rgba(150, 158, 175, 0.055), transparent 60%),
+    var(--background);
+  background-size: 28px 28px, auto, auto, auto;
+  background-attachment: fixed;
 }
-/* body 透明：让上面的网格透上来（否则被 body 的实色底整块盖住） */
+
+/* body 必须透明，否则实色底把上面的点阵整块盖住（实测过：88% 不透明时完全看不见） */
 .dark[data-theme-preset="abyss"] body {
   background-color: transparent;
 }
 
-/* ── 壳层：把 shadcn 的 sidebar/inset 版面拉进 Abyss 的材质语言 ─────────
-   这里只改**表面**（背景/描边/圆角接缝），不动布局与交互；用属性选择器挂在
-   data-theme-preset=abyss 上，所以切到其它主题时这些样式完全不生效。 */
-
-/* 侧栏：同色玻璃（半透 + 模糊），背景网格从下面透上来 */
+/* 侧栏：与地面同色 + 半透，让点阵与光池从下面透上来（参考的 shell-sidebar 就是同值）。
+   不铺实色 —— 实色会切断背景的连续性，正是用户说的"色块"。 */
 [data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
-  background: color-mix(in oklab, var(--sidebar) 82%, transparent);
+  background: color-mix(in oklab, var(--sidebar) 72%, transparent);
   border-right: 1px solid var(--sidebar-border);
-  backdrop-filter: blur(12px) saturate(1.2);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
 }
 
 /* 内容区：比侧栏亮一档的同族玻璃 —— 深色里"更亮的容器"才读得出是浮起的面。
    透明度留 88%：既有实体感，又能看到极淡的网格（参考实现的目标） */
 .dark[data-theme-preset="abyss"] [data-slot="sidebar-inset"] {
-  /* 62%：既保住"面板是实体"的观感，又能看见背后的网格与光池。
-     88% 时网格被整块盖住 —— 实测对比后取这个值。 */
-  background: color-mix(in oklab, var(--background) 62%, transparent);
+  /* 参考的暗色玻璃档：--alkaid-glass-bg rgba(38,48,68,.55) + blur(5px) saturate(1.25)。
+     这里取面板色 55% —— 比地面亮、又透出点阵；太实会让背景看不见（88% 实测全被盖住），
+     太透则读起来不像一块面板。 */
+  background: color-mix(in oklab, var(--card) 55%, transparent);
   border-color: var(--border);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 5%);
-  backdrop-filter: blur(14px) saturate(1.15);
-  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
 }
 
 /* 主内容顶栏：吸顶时不能透出滚动内容，但色相必须与容器一致 */
