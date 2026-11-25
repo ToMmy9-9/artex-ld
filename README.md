@@ -7,7 +7,7 @@
 以目标与事实驱动的 planner–worker 双图引擎为核心，叠加场景编排、意图审核、
 自定义执行者、漏洞交付流水线与完整运维面。
 
-当前版本 **0.2.0** · Git Tag **v0.2.0**
+当前版本 **0.2.1** · Git Tag **v0.2.1**
 
 [![Release](https://img.shields.io/github/v/release/steveopen1/artex-ld?display_name=tag&sort=semver)](https://github.com/steveopen1/artex-ld/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
@@ -53,12 +53,13 @@
 | 来源 | 版本 | 带来的能力 |
 | --- | --- | --- |
 | [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) | v0.3.15（共同基线） | 双图引擎、planner–worker、MITM 流量录制、内置工具与 Skill 体系 |
-| **artex-ld 自身** | 0.1.2 → 0.2.0 | **四个可控点**：场景可配、意图可审、执行者可指定、finding 可编排 |
+| **artex-ld 自身** | 0.1.2 → 0.2.1 | **四个可控点**：场景可配、意图可审、执行者可指定、finding 可编排 |
 | [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) | v0.3.27 | 计划任务、Finding 案例化、任务情报/凭据、代理池、worker 池、审批裁判重试、请求重放 |
 | [AntiFox-AI/antifox](https://github.com/AntiFox-AI/antifox) | v2.0 | **证据驱动交付**：复现过程落库、真实流量绑定、漏洞富化、证据截图、三语 docx 报告、两层 RAG 知识库 |
 
 版本谱系：`ARTEX v0.3.15` 为三方共同上游基线 → `artex-ld 0.1.4` 与 `RuoJi6 v0.3.27` 三方合并 →
-`artex-ld 0.2.0` 再并入 `AntiFox v2.0` 的交付能力。合并细节与逐项验证见
+`artex-ld 0.2.0` 再并入 `AntiFox v2.0` 的交付能力；`0.2.1` 是 0.2.0 之上的补丁发布
+（文档与版本元数据修正、Skill 可见性 seed 与 Markdown 报告头部修复）。合并细节与逐项验证见
 [CHANGELOG](CHANGELOG.md) 与 [版本差异问题与修复方案](docs/ARTEX-版本差异问题与修复方案.md)。
 
 ### 一句话区分"上游"与"本仓库"
@@ -84,9 +85,9 @@
 
 ```bash
 mkdir artex && cd artex
-wget https://github.com/steveopen1/artex-ld/releases/download/v0.2.0/artex-0.2.0-linux-amd64.deploy.tar.gz
-tar xzf artex-0.2.0-linux-amd64.deploy.tar.gz
-sudo bash install.sh --server artex-0.2.0-linux-amd64.deploy.tar.gz
+wget https://github.com/steveopen1/artex-ld/releases/download/v0.2.1/artex-0.2.1-linux-amd64.deploy.tar.gz
+tar xzf artex-0.2.1-linux-amd64.deploy.tar.gz
+sudo bash install.sh --server artex-0.2.1-linux-amd64.deploy.tar.gz
 ```
 
 `install.sh --server` 会：安装 PostgreSQL 与运行依赖 → 幂等创建 `artex` 库/账号（密码随机生成，
@@ -130,8 +131,8 @@ export ARTEX_PG_DSN='postgres://artex:密码@127.0.0.1:5432/artex?sslmode=disabl
 
 | 产物 | 用途 |
 | --- | --- |
-| `artex-0.2.0-linux-amd64.deploy.tar.gz` | 服务器一键部署包（含 `install.sh`、`start.sh`、`skills/`、`config.example.json`） |
-| `artex-0.2.0-linux-amd64.zip` | 免安装压缩包（`artex` + `start.sh` + `skills/` + `config.example.json`） |
+| `artex-0.2.1-linux-amd64.deploy.tar.gz` | 服务器一键部署包（含 `install.sh`、`start.sh`、`skills/`、`config.example.json`） |
+| `artex-0.2.1-linux-amd64.zip` | 免安装压缩包（`artex` + `start.sh` + `skills/` + `config.example.json`） |
 | `SHA256SUMS` | 校验和 |
 
 解压后：
@@ -382,7 +383,7 @@ flowchart TB
 
 ### 5.3 数据与存储
 
-- **PostgreSQL**：当前 schema **81 张表**，覆盖任务/探索图/资产图、finding 与案例、证据与流量绑定、
+- **PostgreSQL**：当前 **83 张表**（`schema.sql` 81 张 + 运行时创建的 `llm_records` / `llm_usage`），覆盖任务/探索图/资产图、finding 与案例、证据与流量绑定、
   报告模板与登记、知识库、调度、通知、LLM 记录、审计、归档、拓扑、配置与工具目录。
 - **本地目录**：`data/`（流量正文、证据、附件、归档包、更新暂存、JWT key）、`skills/`。
 - **升级即迁移**：每次启动幂等重跑 `db/schema.sql`（`ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`），
@@ -687,7 +688,7 @@ artex-ld/
 ├── web/                  # Next.js 16 前端（静态导出）
 ├── skills/               # 31 个内置方法论 Skill
 ├── docs/                 # 部署、代码链、安全、迁移、流量证据等文档
-├── db/schema.sql         # 81 张表 + 幂等迁移 DDL
+├── db/schema.sql         # 83 张表（含运行时表）+ 幂等迁移 DDL
 ├── ARCHITECTURE.md       # 逐文件职责树
 └── CHANGELOG.md
 ```
@@ -712,7 +713,7 @@ artex-ld/
 7. **Release 只覆盖 linux-amd64**：当前发布资产只有 `linux-amd64` 的 zip 与 deploy 包；
    其他平台需 `./build.sh --release` 自行构建。Release workflow 需要仓库级
    `ARTEX_DOCKER_IMAGE` 变量与镜像仓库凭据，未配置时不会产出全平台资产。
-8. **文档与实现可能漂移**：本 README 按当前 `master` 代码核对（81 表 / 378 路由 / 31 Skill / 33 页面）；
+8. **文档与实现可能漂移**：本 README 按当前 `master` 代码核对（83 表 / 378 路由 / 31 Skill / 33 页面）；
    具体函数级行为以代码和 [全流程代码链文档](docs/ARTEX-二开-全流程代码链文档.md) 为准。
 9. **前端为静态导出**：多语言是本地 `i18n-lite` 文案表，不是完整 i18n 框架；新增语言需改前端源码。
 10. **合规责任在使用者**：工具的授权范围、数据保护、报告真实性由操作者与出具方负责。
