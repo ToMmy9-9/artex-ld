@@ -15,7 +15,8 @@ import (
 // 背景：压缩摘要、自动标题、凭据提取、AI 报告、侧边问答摘要都曾硬编码
 // `Thinking: "disabled"`（省 token）。但 MiniMax-M3.1-Flash 这类模型
 // **强制要求 adaptive thinking**，收到 disabled 直接回 HTTP 400 ——
-// 实测压缩功能因此在三天内失败 360 次，且功能看起来「只是偶尔失败」。
+// 实测压缩功能因此直接不可用（可核记录：11-24 09:00–18:32 共 34 条 disabled
+// 报错；更早数据已被 llm_records 保留策略清理），且现象看起来像「偶尔失败」。
 //
 // server/intercept.go 早就踩过同一个坑并修好（改成传 profile 的设置），
 // 但这几处一直没跟上。这条用例防止再有人硬编码。

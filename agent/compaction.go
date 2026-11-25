@@ -51,6 +51,16 @@ type Compactor struct {
 	// ctx is a shared budget and blocks fold serially, so one stuck request can
 	// eat it and take the rest of the batch with it.
 	blockTimeout time.Duration
+	// Budgets for the summarisation call. The first attempt stays cheap because
+	// most blocks are small. When the model burns the whole budget on thinking
+	// and returns no content with stop=max_tokens (measured on MiniMax-M3.1-Flash:
+	// dense production nodes produce 6k-21k chars of thinking against a 1.5k
+	// budget), compress retries ONCE at retryMaxTokens. Repeating the same budget
+	// is futile; 4k was measured to fail as well because thinking grows with the
+	// budget, while 8k produced bodies for all sampled blocks.
+	baseMaxTokens     int
+	retryMaxTokens    int
+	retryBlockTimeout time.Duration
 
 	mu      sync.Mutex
 	running map[int64]bool
@@ -81,8 +91,16 @@ func NewCompactor(prov llm.Provider, model string) *Compactor {
 		// so it only fires on a genuinely wedged request — which is exactly what
 		// it is for.
 		blockTimeout: 90 * time.Second,
-		running:  map[int64]bool{},
-		lastRun:  map[int64]time.Time{},
+		// First attempt 1.5k: cheap and sufficient for small blocks (12/12
+		// synthetic samples succeeded at 1.5k). Escalate to 8k only when the
+		// response is empty because the model hit max_tokens — the measured
+		// production failure mode. The escalated call gets 150s because the
+		// thinking volume, and therefore latency, is much larger.
+		baseMaxTokens:     1500,
+		retryMaxTokens:    8192,
+		retryBlockTimeout: 150 * time.Second,
+		running:           map[int64]bool{},
+		lastRun:           map[int64]time.Time{},
 	}
 }
 
@@ -549,38 +567,73 @@ func buildCompressionInput(g *coldGraph, b block, nodeByID map[int64]*db.Node) s
 }
 
 // compress runs the §4 body LLM call on one block. Uses the same model the agent
-// runs on; thinking disabled (a pure summarization step).
+// runs on; thinking follows the profile (no forced disabled — models such as
+// MiniMax-M3.1-Flash reject that with HTTP 400).
+//
+// The budget is two-stage. Most blocks are one-line facts and finish well within
+// baseMaxTokens. Dense production blocks (500+ char summaries, many ids and
+// constraints) make the model think 6k-21k chars; at 1.5k it returns no content
+// at all with stop=max_tokens. That is a truncation, not a transient glitch, so
+// the provider does not retry it — we escalate once to retryMaxTokens. Measured
+// on real production prompts: 1.5k → empty, 4k → empty (thinking grew to ~15k),
+// 8k → body. Repeating the same budget or stopping at 4k is wasted money.
 func (c *Compactor) compress(ctx context.Context, g *coldGraph, b block, nodeByID map[int64]*db.Node) (string, error) {
-	req := llm.CompletionRequest{
-		System:    []string{compressionSystemPrompt},
-		Messages:  []llm.Message{llm.UserText(buildCompressionInput(g, b, nodeByID))},
-		MaxTokens: 1500,
-		Thinking:  llm.SummarizeThinking(c.prov),
+	input := buildCompressionInput(g, b, nodeByID)
+	budgets := []int{c.baseMaxTokens, c.retryMaxTokens}
+	if budgets[0] <= 0 {
+		budgets[0] = 1500
 	}
-	// Per-block budget on top of the shared batch ctx. The batch ctx is a total
-	// budget for the whole run and blocks are folded serially, so it is spent by
-	// ordinary work long before a wedged call would matter: measured p50 is 8.1s
-	// per block, i.e. a 65-block batch needs ~8.7 min against a 5-minute cap.
-	// Observed on production 2026-11-25 00:30 — 22 blocks folded, then 43 failed
-	// in the same second with latency 0 (never left the process: the shared ctx
-	// was already expired). A per-block cap keeps one stuck call from consuming
-	// the remainder, and the ctx.Err() checks in the callers stop the batch from
-	// firing a burst of already-doomed requests at the tail.
-	perBlock := c.blockTimeout
-	if perBlock <= 0 {
-		perBlock = 90 * time.Second // zero value must not mean "no time at all"
+	if budgets[1] <= 0 {
+		budgets[1] = 8192
 	}
-	blockCtx, cancel := context.WithTimeout(ctx, perBlock)
-	defer cancel()
-	msg, _, _, err := c.prov.Complete(blockCtx, req)
-	if err != nil {
-		return "", err
+	timeouts := []time.Duration{c.blockTimeout, c.retryBlockTimeout}
+	if timeouts[0] <= 0 {
+		timeouts[0] = 90 * time.Second // zero value must not mean "no time at all"
 	}
-	body := strings.TrimSpace(msg.Text())
-	if body == "" {
-		return "", fmt.Errorf("empty body from model")
+	if timeouts[1] <= 0 {
+		timeouts[1] = 150 * time.Second
 	}
-	return body, nil
+
+	var lastStop string
+	var lastUsage llm.Usage
+	for i, maxTok := range budgets {
+		req := llm.CompletionRequest{
+			System:    []string{compressionSystemPrompt},
+			Messages:  []llm.Message{llm.UserText(input)},
+			MaxTokens: maxTok,
+			Thinking:  llm.SummarizeThinking(c.prov),
+		}
+		// Per-block budget on top of the shared batch ctx. The batch ctx is a total
+		// budget for the whole run and blocks are folded serially, so it is spent by
+		// ordinary work long before a wedged call would matter: measured p50 is 8.1s
+		// per block, i.e. a 65-block batch needs ~8.7 min against a 5-minute cap.
+		// Observed on production 2026-11-25 00:30 — 22 blocks folded, then 43 failed
+		// in the same second with latency 0 (never left the process: the shared ctx
+		// was already expired). A per-block cap keeps one stuck call from consuming
+		// the remainder, and the ctx.Err() checks in the callers stop the batch from
+		// firing a burst of already-doomed requests at the tail.
+		blockCtx, cancel := context.WithTimeout(ctx, timeouts[i])
+		msg, stop, usage, err := c.prov.Complete(blockCtx, req)
+		cancel()
+		if err != nil {
+			return "", err
+		}
+		body := strings.TrimSpace(msg.Text())
+		lastStop, lastUsage = stop, usage
+		if body != "" {
+			return body, nil
+		}
+		// Only max_tokens truncation is worth escalating. An empty normal stop
+		// already went through the provider's own empty-response retries; sending
+		// the same prompt with more budget would not change anything.
+		if stop != "max_tokens" || i == len(budgets)-1 {
+			break
+		}
+		log.Printf("[compaction] empty body at max_tokens=%d (stop=%s output_tokens=%d); retrying at max_tokens=%d",
+			maxTok, stop, usage.OutputTokens, budgets[i+1])
+	}
+	return "", fmt.Errorf("empty body from model (stop=%s, output_tokens=%d, max_tokens=%d)",
+		lastStop, lastUsage.OutputTokens, budgets[len(budgets)-1])
 }
 
 // compressionSystemPrompt is the §4 body prompt.

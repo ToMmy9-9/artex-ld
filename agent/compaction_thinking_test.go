@@ -17,7 +17,8 @@ import (
 // 为什么这条最关键：MiniMax-M3.1-Flash 这类模型**强制要求 adaptive thinking**，
 // 收到 thinking.type="disabled" 会直接回 HTTP 400。压缩是长任务的必需品
 // （上下文压不下去 → 任务因超限失败），所以这一条 400 就等于该模型下压缩功能
-// 完全不可用 —— 生产日志里曾因此失败 360 次。
+// 完全不可用。生产库可核到的记录是：11-24 09:00–18:32 共 34 条 disabled
+// 报错（更早的记录已被 llm_records 保留策略清理，原提交信息里的"360 次"无法复核）。
 //
 // 这里的 profile 没配置 thinking（与生产库 profile 267 一致），所以请求体里
 // 必须**根本没有** thinking 字段，而不是 thinking.type=disabled。
