@@ -1,19 +1,54 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
-  <title id="title">artex</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ARTEX</title>
+  <desc id="desc">ARTEX 标识：深空底上的断口圆环，缺口处一支朝外箭头表示找到破口</desc>
   <defs>
-    <linearGradient id="bg" x1="72" y1="48" x2="440" y2="472" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#4F46E5"/>
-      <stop offset="0.52" stop-color="#2563EB"/>
-      <stop offset="1" stop-color="#0891B2"/>
+    <linearGradient id="plate" x1="64" y1="40" x2="448" y2="472" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1C2331"/>
+      <stop offset="0.55" stop-color="#151B26"/>
+      <stop offset="1" stop-color="#0F141D"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(403 101) rotate(135) scale(235)" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#A5F3FC" stop-opacity="0.38"/>
-      <stop offset="1" stop-color="#A5F3FC" stop-opacity="0"/>
+    <linearGradient id="arc" x1="110" y1="120" x2="400" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8CC0FF"/>
+      <stop offset="0.46" stop-color="#5CA6FF"/>
+      <stop offset="1" stop-color="#38D3E4"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="330" y1="190" x2="392" y2="106" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38D3E4"/>
+      <stop offset="1" stop-color="#9BE7F0"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0" cy="0" r="1" gradientTransform="translate(150 118) rotate(46) scale(320)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5CA6FF" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#5CA6FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0" cy="0" r="1" gradientTransform="translate(390 406) rotate(-134) scale(250)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38D3E4" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#38D3E4" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#glow)"/>
-  <rect x="22" y="22" width="468" height="468" rx="106" fill="none" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="4"/>
-  <text x="250" y="326" text-anchor="middle" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="220" font-weight="700" letter-spacing="-12">LD</text>
-  <path d="M184 380H328" fill="none" stroke="#CFFAFE" stroke-width="10" stroke-linecap="round"/>
+
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#plate)"/>
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#glowA)"/>
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#glowB)"/>
+  <rect x="20.5" y="20.5" width="471" height="471" rx="115.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="1.5"/>
+
+  <!--
+    断口圆环：从 -30° 顺时针绕一整圈到 -58°，缺口落在 -58°..-30°（右上）。
+    圆心 (256,256) 半径 146，线宽 32。用单条 A 弧画完，缺口天然精确，
+    比"整圆 + 蒙版"更好控制 —— 蒙版切出来的口子边缘会随角度变形。
+  -->
+  <path d="M382.4 183.0 A146 146 0 1 1 333.4 132.2"
+        fill="none" stroke="url(#arc)" stroke-width="32" stroke-linecap="round"/>
+
+  <!--
+    破口箭头：沿缺口中心方向 (-44°) 从环内向环外冲出。
+    杆从 r=162 到 r=180（完全在环外），三角头基座在 r=180、尖端在 r=224。
+    三者共用同一方向向量，因此箭头与缺口严格同轴。
+  -->
+  <path d="M372.5 143.5 L385.5 131.0" stroke="#38D3E4" stroke-width="20" stroke-linecap="round"/>
+  <path d="M417.1 100.4 L401.5 147.5 L369.5 114.4 Z" fill="url(#bolt)"/>
+
+  <!-- 环内：两个节点与一条路径（34px 下仍可分辨） -->
+  <path d="M212 236 L268 296" stroke="#38D3E4" stroke-opacity="0.40" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="208" cy="230" r="16" fill="#E8ECF3" fill-opacity="0.94"/>
+  <circle cx="272" cy="300" r="11" fill="#38D3E4"/>
 </svg>

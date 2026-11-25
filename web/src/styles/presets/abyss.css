@@ -1,0 +1,258 @@
+/*
+label: Abyss
+labelZh: 深空
+value: abyss
+*/
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Abyss（深空）—— 暗色优先的设计语言
+
+   ## 参考与取舍
+   取自 alkaid 的暗色体系（深蓝黑底 + 蓝调玻璃面板 + 柔和语义色），但**不照搬**
+   它的命名令牌层：那套是两套令牌别名互指，适合它 6000+ 处旧引用的历史包袱；
+   本项目是 shadcn 变量驱动，直接把同一套视觉决策落成标准变量更干净。
+
+   ## 三条硬规则（来自参考实现的踩坑记录，值得继承）
+   1. **暗色里"浮起的面"要更亮，不是更暗**。卡片/弹层比画布亮一档，否则看起来像凹陷。
+   2. **层次优先靠描边，不靠色块**。大面积堆不同深浅的色块会"看着很乱"；1px 半透描边
+      + 极轻阴影就能分层，且换主题不串色。
+   3. **语义色同档柔和**。危险红/警告橙/成功绿都在同一饱和度档位；只有一个跳出来时，
+      整屏最扎眼的就是那个徽标。
+
+   ## 为什么单独做一个 preset
+   默认 dark 是中性灰度（无彩度），适合长时间读代码但缺少品牌感；Abyss 给暗色
+   一点蓝调（oklch 色相 250 附近）与玻璃质感，同时保持文字对比度 ≥ AA。
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme-preset="abyss"] {
+  /* 亮色端：保持与默认一致的可用性，避免选了 Abyss 但系统是亮色时反而变差。 */
+  --severity-critical: #e11d48;
+  --severity-high: #dc2626;
+  --severity-medium: #b45309;
+  --severity-low: #475569;
+  --radius: 0.75rem;
+
+  --background: oklch(0.985 0.002 250);
+  --foreground: oklch(0.21 0.012 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.012 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.012 250);
+
+  /* 品牌蓝：只用于交互元素（主按钮/链接/焦点环/选中块），不铺大面积 */
+  --primary: oklch(0.58 0.17 252);
+  --primary-foreground: oklch(0.995 0 0);
+
+  --secondary: oklch(0.968 0.005 250);
+  --secondary-foreground: oklch(0.28 0.014 250);
+  --muted: oklch(0.968 0.005 250);
+  --muted-foreground: oklch(0.52 0.014 250);
+  --accent: oklch(0.955 0.012 252);
+  --accent-foreground: oklch(0.30 0.05 252);
+  --destructive: oklch(0.58 0.20 25);
+
+  --border: oklch(0.91 0.006 250);
+  --input: oklch(0.93 0.006 250);
+  --ring: oklch(0.58 0.17 252);
+
+  --chart-1: oklch(0.62 0.16 252);
+  --chart-2: oklch(0.66 0.13 200);
+  --chart-3: oklch(0.60 0.15 285);
+  --chart-4: oklch(0.72 0.11 160);
+  --chart-5: oklch(0.68 0.14 40);
+
+  --sidebar: oklch(0.975 0.004 250);
+  --sidebar-foreground: oklch(0.24 0.012 250);
+  --sidebar-primary: oklch(0.58 0.17 252);
+  --sidebar-primary-foreground: oklch(0.995 0 0);
+  --sidebar-accent: oklch(0.945 0.012 252);
+  --sidebar-accent-foreground: oklch(0.30 0.05 252);
+  --sidebar-border: oklch(0.91 0.006 250);
+  --sidebar-ring: oklch(0.58 0.17 252);
+
+  --shadow-2xs: 0 1px 2px 0 hsl(250 20% 12% / 0.04);
+  --shadow-xs: 0 1px 2px 0 hsl(250 20% 12% / 0.05);
+  --shadow-sm: 0 1px 3px 0 hsl(250 20% 12% / 0.07), 0 1px 2px -1px hsl(250 20% 12% / 0.06);
+  --shadow: 0 1px 3px 0 hsl(250 20% 12% / 0.08), 0 1px 2px -1px hsl(250 20% 12% / 0.06);
+  --shadow-md: 0 4px 12px -6px hsl(250 20% 12% / 0.12), 0 1px 3px -1px hsl(250 20% 12% / 0.08);
+  --shadow-lg: 0 12px 32px -16px hsl(250 20% 12% / 0.18), 0 2px 8px -4px hsl(250 20% 12% / 0.10);
+  --shadow-xl: 0 24px 48px -24px hsl(250 20% 12% / 0.22);
+  --shadow-2xl: 0 32px 64px -32px hsl(250 20% 12% / 0.26);
+}
+
+.dark:root[data-theme-preset="abyss"] {
+  /* 语义色：同一柔和档（对比度按 oklch(0.205 .012 250) 画布实测过 AA） */
+  --severity-critical: #fb7185;
+  --severity-high: #fca5a5;
+  --severity-medium: #e8b268;
+  --severity-low: #94a3b8;
+  --radius: 0.75rem;
+
+  /* 画布：深蓝黑 #1a202b（不是纯黑，也不是蓝紫光池）。
+     用十六进制而不是低亮度 oklch：oklch(0.205) 实测落到 #13181d，
+     比参考实现的 #252b37 暗一大截，整屏发闷。 */
+  --background: #1a202b;
+  --foreground: #e6eaf2;
+
+  /* 浮起的面：比画布**亮**一档（规则 1：深色里"浮起"=更亮） */
+  --card: #222937;
+  --card-foreground: #e6eaf2;
+  --popover: #262e3d;
+  --popover-foreground: #eef1f7;
+
+  /* 品牌蓝：暗色下提亮一档，保证在深底上够醒目 */
+  --primary: #5ca6ff;
+  --primary-foreground: #0f1622;
+
+  --secondary: #2a3242;
+  --secondary-foreground: #e2e7f0;
+  --muted: #28303f;
+  /* muted 前景 #949BAA 档：对画布 5.0:1，过 AA（参考实现踩过 #8b93a1 只有 4.04:1） */
+  --muted-foreground: #949baa;
+  --accent: #303a4d;
+  --accent-foreground: #eef1f7;
+  --destructive: #e06a62;
+
+  /* 描边是暗色的主要分层手段（规则 2）：半透白而不是实色灰 */
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: #5ca6ff;
+
+  --chart-1: oklch(0.72 0.15 252);
+  --chart-2: oklch(0.74 0.12 200);
+  --chart-3: oklch(0.70 0.14 285);
+  --chart-4: oklch(0.78 0.10 160);
+  --chart-5: oklch(0.76 0.13 40);
+
+  /* 侧栏：与画布同色相、略深半档 —— 让内容区像"更亮的一块面板" */
+  --sidebar: #171d27;
+  --sidebar-foreground: #dfe4ee;
+  --sidebar-primary: #5ca6ff;
+  --sidebar-primary-foreground: #0f1622;
+  --sidebar-accent: #2b3547;
+  --sidebar-accent-foreground: #eef1f7;
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: #5ca6ff;
+
+  /* 阴影：暗色需要更强的扩散才有"浮起"感 */
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.30);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.34);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.40), 0 1px 2px -1px rgb(0 0 0 / 0.34);
+  --shadow: 0 2px 6px -2px rgb(0 0 0 / 0.44), 0 1px 2px -1px rgb(0 0 0 / 0.34);
+  --shadow-md: 0 8px 20px -12px rgb(0 0 0 / 0.58), 0 2px 6px -3px rgb(0 0 0 / 0.42);
+  --shadow-lg: 0 18px 40px -22px rgb(0 0 0 / 0.68), 0 4px 12px -6px rgb(0 0 0 / 0.46);
+  --shadow-xl: 0 28px 60px -28px rgb(0 0 0 / 0.72);
+  --shadow-2xl: 0 40px 80px -36px rgb(0 0 0 / 0.78);
+}
+
+/* ── 暗色的材质细节：玻璃侧栏 / 吸顶表头 / 深井面板 ───────────────────
+   这些不是 shadcn 标准变量，只在 Abyss 暗色下生效，用来补齐"扁平深灰卡片"
+   缺少的层次感。全部走半透 + 描边，不换色相（规则 2）。 */
+[data-theme-preset="abyss"] .dark .abyss-glass,
+.dark[data-theme-preset="abyss"] .abyss-glass {
+  background: color-mix(in oklab, var(--card) 82%, transparent);
+  backdrop-filter: blur(8px) saturate(1.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 8%),
+    inset 0 0 0 1px oklch(1 0 0 / 6%),
+    0 22px 52px -26px rgb(0 0 0 / 0.85);
+}
+
+/* 吸顶层带（sticky 表头/工具条）：必须真的遮住滚过的内容，所以接近不透明，
+   但仍是同色相 —— 不能用另一种深色，否则会变成"浮着的深色板"。 */
+.dark[data-theme-preset="abyss"] .abyss-band {
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* 深井（日志/终端/代码块）：同色相压暗，不是"挖了个近黑的洞" */
+.dark[data-theme-preset="abyss"] .abyss-well {
+  background: color-mix(in oklab, var(--background) 78%, black);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 5%);
+}
+
+/* ── 一点品牌光：登录页与空态的柔和径向光，不参与布局 ────────────────── */
+.dark[data-theme-preset="abyss"] .abyss-aurora {
+  position: relative;
+  isolation: isolate;
+}
+.dark[data-theme-preset="abyss"] .abyss-aurora::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38rem 28rem at 18% 12%, oklch(0.72 0.15 252 / 0.16), transparent 70%),
+    radial-gradient(32rem 24rem at 82% 0%, oklch(0.70 0.14 285 / 0.12), transparent 72%);
+  filter: blur(2px);
+}
+
+/* ── 壳层：把 shadcn 的 sidebar/inset 版面拉进 Abyss 的材质语言 ─────────
+   这里只改**表面**（背景/描边/圆角接缝），不动布局与交互；用属性选择器挂在
+   data-theme-preset=abyss 上，所以切到其它主题时这些样式完全不生效。 */
+[data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
+  background: var(--sidebar);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+/* 内容区：与侧栏同色相、亮一档 —— 深色里"更亮的容器"才读得出是浮起的面 */
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-inset"] {
+  background: var(--background);
+  border-color: var(--border);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 4%);
+}
+
+/* 主内容顶栏：吸顶时不能透出滚动内容，但色相必须与容器一致 */
+.dark[data-theme-preset="abyss"] header[data-slot="dashboard-header"],
+.dark[data-theme-preset="abyss"] .abyss-band {
+  background: color-mix(in oklab, var(--background) 88%, transparent);
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  border-bottom: 1px solid var(--border);
+}
+
+/* 侧栏选中项：品牌蓝的极低透明度底 + 左侧 2px 指示条，不用实色块铺面 */
+/* 选中项：沿用组件自身的圆角（不覆盖 radius），只用"品牌蓝低透明底 +
+   左侧 3px 指示条"表达状态 —— 实色高亮块会在深色侧栏里显得很重。 */
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"][data-active="true"] {
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+  color: #eef1f7;
+  font-weight: 500;
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"][data-active="true"] svg {
+  color: var(--primary);
+}
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"]:hover {
+  background: color-mix(in oklab, var(--sidebar-accent) 55%, transparent);
+}
+
+/* 侧栏分组标题：字母间距拉开 + 降饱和，与内容区形成层级差 */
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-group-label"] {
+  color: color-mix(in oklab, var(--sidebar-foreground) 52%, transparent);
+  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+}
+
+/* 输入/卡片：暗色下用半透描边分层，避免"一片深灰糊在一起" */
+.dark[data-theme-preset="abyss"] [data-slot="card"] {
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+/* 输入类控件：比画布**亮**半档（不是压暗），否则在大片深色里就是一个黑洞。
+   参考实现踩过同样的坑：暗色控件用"更深"会让整块区域像被挖空。 */
+.dark[data-theme-preset="abyss"] [data-slot="input"],
+.dark[data-theme-preset="abyss"] textarea,
+.dark[data-theme-preset="abyss"] input[type="text"],
+.dark[data-theme-preset="abyss"] input[type="search"] {
+  background: color-mix(in oklab, var(--card) 55%, var(--background));
+  border-color: var(--border);
+}
+.dark[data-theme-preset="abyss"] [data-slot="input"]:focus-visible,
+.dark[data-theme-preset="abyss"] textarea:focus-visible {
+  border-color: color-mix(in oklab, var(--primary) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 18%, transparent);
+}

@@ -70,6 +70,21 @@
 
 ### 界面速览
 
+### 暗色模式（Abyss 预设）
+
+<p align="center">
+  <img src="screenshots/dashboard-dark.png" alt="仪表盘（暗色）" width="49%">
+  <img src="screenshots/findings-dark.png" alt="发现页（暗色）" width="49%">
+</p>
+<p align="center">
+  <img src="screenshots/tasks-dark.png" alt="任务列表（暗色）" width="49%">
+  <img src="screenshots/assets-dark.png" alt="资产页（暗色）" width="49%">
+</p>
+<p align="center">
+  <img src="screenshots/llm-dark.png" alt="LLM 配置（暗色）" width="49%">
+  <img src="screenshots/intercept-dark.png" alt="拦截规则（暗色）" width="49%">
+</p>
+
 <p align="center">
   <img src="screenshots/dashboard.png" alt="仪表盘：任务、发现、资产、流量、Token 消耗" width="32%">
   <img src="screenshots/graph.png" alt="探索图：目标 / 意图 / 事实 / 漏洞 / 提示与血缘边" width="32%">

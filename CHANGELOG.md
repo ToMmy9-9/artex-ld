@@ -8,6 +8,15 @@
 
 ### Added
 
+- **Abyss（深空）暗色主题预设**（`web/src/styles/presets/abyss.css`）。参考
+  [alkaid](https://github.com/steveopen1/alkaid) 的暗色体系落地，三条设计规则：
+  暗色里"浮起的面"要更亮而非更暗；层次靠半透描边而非色块；语义色保持同一柔和档。
+  提供深蓝黑画布（`#1a202b`）、比画布亮一档的卡片、品牌蓝交互色，并补齐侧栏选中态、
+  输入控件、吸顶表头、玻璃面板、深井面板等表面样式。切到其它预设时全部不生效。
+- **Logo / 图标重构**（`web/public/logo.svg`、`logo.png`）。深空底 + 断口圆环 +
+  冲出缺口的箭头，表达"找到破口"；小尺寸（32/64px）下仍可辨识。
+- **暗色模式产品截图**（`screenshots/*-dark.png`）：仪表盘、任务、发现、资产、LLM、拦截规则。
+
 - **平台拦截提醒可配置 + 附带流量证据**（`guard/blockmessage.go`、`guard/guard.go`、
   `server/intercept_evidence.go`、`settings`）。此前拦截只把一句写死前缀的文案内联进
   该次工具调用的 `tool_result`，用户自定义的规则 message 塞不进工具名/命令，deny 也不写
