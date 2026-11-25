@@ -30,7 +30,17 @@ value: abyss
   --severity-high: #dc2626;
   --severity-medium: #b45309;
   --severity-low: #475569;
-  --radius: 0.75rem;
+  /* 直角：项目统一禁用圆角卡片/按钮。--radius 归零后，shadcn 派生的
+     --radius-sm/md/lg/xl（calc(--radius ± Npx)）全部落到 0 或负值，
+     负值会被浏览器钳成 0，所以整站自然变成直角，不需要逐组件改类名。 */
+  --radius: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 
   --background: oklch(0.985 0.002 250);
   --foreground: oklch(0.21 0.012 250);
@@ -86,7 +96,15 @@ value: abyss
   --severity-high: #fca5a5;
   --severity-medium: #e8b268;
   --severity-low: #94a3b8;
-  --radius: 0.75rem;
+  /* 同上：直角 */
+  --radius: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 
   /* 画布 = alkaid 的 --ground（oklch(0.185 0.012 250)，实测 = #0f1318）。
      这是"壳层地面"：**比面板暗**。层次不是靠"画布亮一档"，而是靠面板比地面亮
@@ -314,4 +332,114 @@ value: abyss
 .dark[data-theme-preset="abyss"] textarea:focus-visible {
   border-color: color-mix(in oklab, var(--primary) 55%, transparent);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 18%, transparent);
+}
+
+/* ═══════════ 直角（0 radius）下的细节补偿 ═══════════
+   圆角原本承担了"柔和"和"焦点指示"两项功能，归零后这两件事要换别的方式表达，
+   否则界面会显得生硬、且焦点不可见。
+
+   1) 保留必须为圆的控件：头像、开关、滑块、进度环、单选点、滚动条拇指。
+      这些是"物理上是圆的"，改成方的会读成 bug 而不是风格。 */
+[data-theme-preset="abyss"] [data-slot="avatar"],
+[data-theme-preset="abyss"] [data-slot="avatar-image"],
+[data-theme-preset="abyss"] [data-slot="avatar-fallback"],
+[data-theme-preset="abyss"] [data-slot="switch"],
+[data-theme-preset="abyss"] [data-slot="switch-thumb"],
+[data-theme-preset="abyss"] [data-slot="slider-thumb"],
+[data-theme-preset="abyss"] [data-slot="progress-indicator"],
+[data-theme-preset="abyss"] [data-slot="radio-group-item"] {
+  border-radius: 9999px;
+}
+
+/* 2) 焦点环：没有圆角后，2px ring 偏移会显得很近，改成外扩 2px 的清晰描边 */
+[data-theme-preset="abyss"] button:focus-visible,
+[data-theme-preset="abyss"] a:focus-visible,
+[data-theme-preset="abyss"] [role="button"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* 3) 卡片/面板：直角下靠 1px 描边立边界（圆角时靠阴影就够，直角时不够） */
+.dark[data-theme-preset="abyss"] [data-slot="card"] {
+  border: 1px solid color-mix(in oklab, var(--border) 100%, transparent);
+  box-shadow: none;
+}
+
+/* 4) 侧栏选中态：直角 + 3px 竖条会更硬，改用左缘整条描边更利落 */
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"][data-active="true"] {
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+}
+
+/* 5) 弹层：直角下阴影是唯一的"浮起"信号，权重加大 */
+.dark[data-theme-preset="abyss"] [data-slot="popover-content"],
+.dark[data-theme-preset="abyss"] [data-slot="dropdown-menu-content"],
+.dark[data-theme-preset="abyss"] [data-slot="dialog-content"] {
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px -20px rgb(0 0 0 / 0.7);
+}
+
+/* ═══════════ 全局直角兜底 ═══════════
+   --radius 归零只能覆盖走 token 的圆角（rounded-sm/md/lg）。shadcn 组件里还有一批
+   直接写死的 Tailwind 档位（rounded-xl / rounded-2xl / rounded-t-xl / rounded-[min(...)]），
+   它们读的是 Tailwind 内建 scale，不跟 --radius 走 —— 实测卡片仍是 4px，就是这条漏网。
+
+   这里按 data-slot 精确覆盖，不用 `* { border-radius: 0 }` 这种暴力写法：
+   那会把头像、开关、滑块、进度环、单选点一起压成方的，看着像坏了。
+   只有明确"必须是圆的"那几个 slot 例外（见下方白名单）。 */
+[data-theme-preset="abyss"] :where(
+  [data-slot="card"],
+  [data-slot="card-header"],
+  [data-slot="card-footer"],
+  [data-slot="card-action"],
+  [data-slot="button"],
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="select-trigger"],
+  [data-slot="select-content"],
+  [data-slot="select-item"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-item"],
+  [data-slot="popover-content"],
+  [data-slot="dialog-content"],
+  [data-slot="dialog-header"],
+  [data-slot="dialog-footer"],
+  [data-slot="sheet-content"],
+  [data-slot="drawer-content"],
+  [data-slot="tabs-list"],
+  [data-slot="tabs-trigger"],
+  [data-slot="badge"],
+  [data-slot="alert"],
+  [data-slot="table"],
+  [data-slot="sidebar-menu-button"],
+  [data-slot="sidebar-group-label"],
+  [data-slot="sidebar-menu-sub-button"],
+  [data-slot="tooltip-content"],
+  [data-slot="command"],
+  [data-slot="command-item"],
+  [data-slot="checkbox"],
+  [data-slot="separator"],
+  [data-slot="scroll-area-thumb"]
+) {
+  border-radius: 0 !important;
+}
+
+/* 卡片内的图片与页脚也要跟着直角（组件里写的是 rounded-t-xl / rounded-b-xl） */
+[data-theme-preset="abyss"] [data-slot="card"] > img:first-child,
+[data-theme-preset="abyss"] [data-slot="card"] > img:last-child {
+  border-radius: 0 !important;
+}
+
+/* 白名单：物理上必须是圆的控件，显式还原 */
+[data-theme-preset="abyss"] [data-slot="avatar"],
+[data-theme-preset="abyss"] [data-slot="avatar-image"],
+[data-theme-preset="abyss"] [data-slot="avatar-fallback"],
+[data-theme-preset="abyss"] [data-slot="switch"],
+[data-theme-preset="abyss"] [data-slot="switch-thumb"],
+[data-theme-preset="abyss"] [data-slot="slider-thumb"],
+[data-theme-preset="abyss"] [data-slot="slider-track"],
+[data-theme-preset="abyss"] [data-slot="progress"],
+[data-theme-preset="abyss"] [data-slot="progress-indicator"],
+[data-theme-preset="abyss"] [data-slot="radio-group-item"],
+[data-theme-preset="abyss"] [data-slot="scroll-area-thumb"] {
+  border-radius: 9999px !important;
 }
