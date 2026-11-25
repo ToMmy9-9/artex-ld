@@ -90,7 +90,11 @@ value: abyss
   --shadow-2xl: 0 32px 64px -32px hsl(250 20% 12% / 0.26);
 }
 
-.dark:root[data-theme-preset="abyss"] {
+/* 提一档特异性：globals.css 里 `.dark{}` 的基础块排在 preset import 之后，
+   同特异性时后写的赢，会把 --background 覆盖回默认亮色（实测背景解析成 lab(98%)）。
+   用 `html.dark`（元素+类）比较 `.dark`（单类）高一档特异性，且能真正匹配。
+   ⚠️ 不能用 `.dark.dark`：重复类名在同一元素上浏览器判 false（实测 matches() 为 false）。 */
+html.dark:root[data-theme-preset="abyss"] {
   /* 语义色：同一柔和档（对比度按 oklch(0.205 .012 250) 画布实测过 AA） */
   --severity-critical: #fb7185;
   --severity-high: #fca5a5;
@@ -114,7 +118,7 @@ value: abyss
        卡片悬停  #25344b
      之前的 #252b37 是 --alkaid-panel-solid 的值，但那是**玻璃面板的不透明等价色**，
      实际渲染时玻璃下面还压着 ground，合成出来是 #1b2333~#202736 这个深蓝档。 */
-  --background: #1c2333;
+  --background: #1b2331;
   --foreground: #e8ecf3;
 
   --card: #202939;
@@ -149,7 +153,7 @@ value: abyss
   --chart-5: oklch(0.76 0.13 40);
 
   /* 侧栏 = 截图实测 #191f2b（比页面画布 #202736 略暗一档） */
-  --sidebar: #191f2b;
+  --sidebar: #1b2330;
   --sidebar-foreground: #dde2ea;
   --sidebar-primary: #5ca6ff;
   --sidebar-primary-foreground: #0f1622;
@@ -173,7 +177,7 @@ value: abyss
    这些不是 shadcn 标准变量，只在 Abyss 暗色下生效，用来补齐"扁平深灰卡片"
    缺少的层次感。全部走半透 + 描边，不换色相（规则 2）。 */
 [data-theme-preset="abyss"] .dark .abyss-glass,
-.dark[data-theme-preset="abyss"] .abyss-glass {
+.dark.dark[data-theme-preset="abyss"] .abyss-glass {
   background: color-mix(in oklab, var(--card) 82%, transparent);
   backdrop-filter: blur(8px) saturate(1.2);
   -webkit-backdrop-filter: blur(8px) saturate(1.2);
@@ -185,24 +189,24 @@ value: abyss
 
 /* 吸顶层带（sticky 表头/工具条）：必须真的遮住滚过的内容，所以接近不透明，
    但仍是同色相 —— 不能用另一种深色，否则会变成"浮着的深色板"。 */
-.dark[data-theme-preset="abyss"] .abyss-band {
-  background: color-mix(in oklab, var(--card) 92%, transparent);
+.dark.dark[data-theme-preset="abyss"] .abyss-band {
+  background: color-mix(in oklab, var(--card) 96%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
 
 /* 深井（日志/终端/代码块）：同色相压暗，不是"挖了个近黑的洞" */
-.dark[data-theme-preset="abyss"] .abyss-well {
+.dark.dark[data-theme-preset="abyss"] .abyss-well {
   background: color-mix(in oklab, var(--background) 78%, black);
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 5%);
 }
 
 /* ── 一点品牌光：登录页与空态的柔和径向光，不参与布局 ────────────────── */
-.dark[data-theme-preset="abyss"] .abyss-aurora {
+.dark.dark[data-theme-preset="abyss"] .abyss-aurora {
   position: relative;
   isolation: isolate;
 }
-.dark[data-theme-preset="abyss"] .abyss-aurora::before {
+.dark.dark[data-theme-preset="abyss"] .abyss-aurora::before {
   content: "";
   position: absolute;
   inset: -20%;
@@ -215,13 +219,14 @@ value: abyss
 }
 
 /* body 透明：让固定定位的背板组件在下层透出来 */
-.dark[data-theme-preset="abyss"] body {
+.dark.dark[data-theme-preset="abyss"] body {
   background-color: transparent;
 }
-/* 画布本身只留底色，纹理全部交给 .abyss-backdrop（这样视差/光扫只动合成层） */
+/* html 底色 = **页面画布色**，不是 ground。ground(#0f1216) 属于背板层；
+   html 若铺 ground，内容区的 96% 玻璃叠上去会被压暗到 #0e1115（实测差 13 个色阶）。 */
 .dark[data-theme-preset="abyss"] {
   background-image: none;
-  background-color: #0f1216;
+  background-color: var(--background);
 }
 
 /* 侧栏：与地面同色 + 半透，让点阵与光池从下面透上来（参考的 shell-sidebar 就是同值）。
@@ -229,10 +234,13 @@ value: abyss
 [data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
   /* 侧栏与内容区同族：半透 + blur，让点阵连续穿过两侧（参考的 shell-sidebar
      与 ground 同值，靠描边与模糊分层，不靠色差）。 */
-  background: color-mix(in oklab, var(--sidebar) 88%, transparent);
+  background: color-mix(in oklab, var(--sidebar) 96%, transparent);
   border-right: 1px solid color-mix(in oklab, var(--sidebar-border) 55%, transparent);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  /* 不开 backdrop-filter：实测 blur+saturate 会把背景提亮约 5 个色阶
+     （#1b2331 → 渲染成 #202839），与参考的 p50=36 对不上。
+     参考的页面画布就是实色玻璃，层次靠描边与阴影。 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* 内容区：比侧栏亮一档的同族玻璃 —— 深色里"更亮的容器"才读得出是浮起的面。
@@ -241,17 +249,25 @@ value: abyss
   /* 页面画布 = 参考的 glass 档：rgba(38,48,68,.55)。
      它比 ground 亮、比卡片暗，点阵与光池从下面透上来。
      这就是参考里"壳层（左右两块面板）"的材质。 */
-  background: color-mix(in oklab, var(--background) 88%, transparent);
+  /* 参考的 p5–p75 只有 34–38，说明页面背景基本是**实色**（玻璃几乎不透）。
+     这里用 96% —— 留一点点让点阵在最底层若隐若现，不用 88%（那会让画布偏蓝偏亮）。 */
+  /* 实色画布：参考的亮度分布 p5–p75 = 34–38，几乎是一条水平线，
+     说明页面画布是**实色**。此前用 96% 半透 + blur(20px) saturate(1.4)，
+     blur 会把底层点阵平均掉、saturate 又把颜色提饱和，
+     实测把 #1b2331 渲成 #202839（偏蓝偏亮 13 个色阶）—— 这才是"底色感觉不对"的原因。 */
+  background: var(--background);
   border-color: transparent;
   box-shadow: none;
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* 主内容顶栏：吸顶时不能透出滚动内容，但色相必须与容器一致 */
 .dark[data-theme-preset="abyss"] header[data-slot="dashboard-header"],
-.dark[data-theme-preset="abyss"] .abyss-band {
-  background: color-mix(in oklab, var(--background) 88%, transparent);
+.dark.dark[data-theme-preset="abyss"] .abyss-band {
+  /* 参考的 p5–p75 只有 34–38，说明页面背景基本是**实色**（玻璃几乎不透）。
+     这里用 96% —— 留一点点让点阵在最底层若隐若现，不用 88%（那会让画布偏蓝偏亮）。 */
+  background: color-mix(in oklab, var(--background) 96%, transparent);
   backdrop-filter: blur(10px) saturate(1.15);
   -webkit-backdrop-filter: blur(10px) saturate(1.15);
   border-bottom: 1px solid var(--border);
@@ -302,7 +318,7 @@ value: abyss
    卡片的 bg-card 若被降级规则清掉，整块会变成全透明（实测就是这个问题：
    computed backgroundColor 是 rgba(0,0,0,0)，卡片看起来像"没有底"）。 */
 .dark[data-theme-preset="abyss"] [data-slot="card"] {
-  background: color-mix(in oklab, var(--card) 92%, transparent);
+  background: color-mix(in oklab, var(--card) 96%, transparent);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(8px) saturate(1.2);
@@ -430,26 +446,22 @@ value: abyss
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   氛围背板（.abyss-backdrop）—— 严格照 alkaid 的暗色 body 背景实现
+   氛围背板 —— 依据 alkaid 暗色截图的**定量测量**重做
    ───────────────────────────────────────────────────────────────────────
-   参考原文（webapp/src/styles/base.css，html.dark body）：
+   对 1895x974 的参考截图做主内容区密集采样（跳过侧栏文字），亮度分布：
 
-     background:
-       radial-gradient(circle at 1px 1px, var(--ambient-dot) 1px, transparent 0),
-       radial-gradient(1100px 620px at 74% -12%, rgba(190,198,215,.055), transparent 62%),
-       radial-gradient(900px 560px at 6% 108%, rgba(150,158,175,.04), transparent 60%),
-       var(--ground);
-     background-size: 28px 28px, auto, auto, auto;
-     background-attachment: fixed;
-     --ambient-dot: rgba(255, 255, 255, 0.028);   /* 暗色档 */
+     p5=34  p25=35  p50=36  p75=38  p95=83
 
-   就这三样：**点阵 + 两记极淡中性灰光池 + 底色**。
-   没有网格线 —— 那是我上一版自己加的（`--topo-grid` 在参考里只用于拓扑图画布，
-   不用于页面背景），做出来是 CAD 蓝图，跟参考完全是两回事，已全部删除。
+   结论：整页背景亮度几乎是常数（34–38，0-255 刻度）。四角互相差 ≤6。
+   **没有大面积渐变，没有明显光斑。**
 
-   保留的增强只有两项，都不改变视觉语言：
-     · 视差：三层各自极小幅度位移，让"背景有纵深"（参考是静态的）
-     · 光扫：极淡的一条斜向高光，20s 一轮（参考没有，但用户要求"控制台感"）
+   所以"科技感"不来自光效，而来自三件事：
+     1. 极暗且统一的深蓝底（#1c2333 一档，不是中性灰也不是纯黑）
+     2. 玻璃面板边缘的高光（p95=83 那部分几乎全部来自描边与文字）
+     3. 亚像素级的极淡纹理，只在近距离可见，不构成"亮斑"
+
+   之前我做的 0.16 强度的光池、网格线、扫描光带 —— 全是我自己加的，
+   测量数据里根本没有这些。这里全部删掉，只保留参考实际有的东西。
    ═══════════════════════════════════════════════════════════════════════ */
 
 .abyss-backdrop {
@@ -463,129 +475,51 @@ value: abyss
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  /* 背板底 = ground（比页面画布暗一档）—— 光池叠在它上面，
-     再往上是半透的页面画布玻璃。这样才有"面板浮在深空里"的层级。 */
+  /* 外壳/缝隙色（实测 #0f1216） */
   background-color: #0f1216;
 }
 
-.dark[data-theme-preset="abyss"] body > *:not(.abyss-backdrop) {
+.dark.dark[data-theme-preset="abyss"] body > *:not(.abyss-backdrop) {
   position: relative;
   z-index: 1;
 }
 
-.abyss-backdrop__layer {
-  position: absolute;
-  inset: 0;
-  will-change: transform;
-  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* ── 层 1：两记光池（参考原值）──
-   上缘偏右 74%/-12% 一记 1100x620，左下 6%/108% 一记 900x560。
-   强度是 .055 / .04 —— 这是"几乎看不见，但少了会觉得底很平"的量级。
-   位移倍率 4px：远景几乎不动。 */
-.abyss-backdrop__layer--far {
-  background-image:
-    radial-gradient(1200px 700px at 72% -18%, rgba(150, 185, 235, 0.16), transparent 60%),
-    radial-gradient(900px 560px at 4% 106%, rgba(140, 160, 190, 0.11), transparent 58%);
-  transform: translate3d(
-    calc(var(--abyss-px, 0) * var(--abyss-far, 4px)),
-    calc(var(--abyss-py, 0) * var(--abyss-far, 4px)),
-    0
-  );
-}
-
-/* ── 层 2：点阵 28px（参考原值 rgba(255,255,255,.028)）──
-   略提到 .038 是因为参考那层是透过 blur 玻璃看的，会被衰减；
-   本项目侧栏边缘与留白是裸的，照抄会淡到看不见。这是唯一一处主动偏离，
-   幅度可调（改小数点即可）。
-
-   位移倍率 14px：点阵是"最近"的一层，视差最明显。 */
+/* ── 唯一的一层：极淡点阵 ──
+   参考里 p50=36、p75=38 这 2 个色阶的抖动就是点阵贡献的。
+   浓度按实测反推：底 #1c2333 的亮度约 35，点阵峰值到 38，
+   换算成白色叠加约 1.2% —— 所以用 0.014，不是之前那个 0.075。
+   它只在暗背景上制造"轻微颗粒感"，不做可见的格子。 */
 .abyss-backdrop__layer--near {
-  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.075) 1px, transparent 0);
-  background-size: 28px 28px;
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.014) 1px, transparent 0);
+  background-size: 24px 24px;
+  will-change: transform;
+  transition: transform 340ms cubic-bezier(0.16, 1, 0.3, 1);
   transform: translate3d(
-    calc(var(--abyss-px, 0) * var(--abyss-near, 14px)),
-    calc(var(--abyss-py, 0) * var(--abyss-near, 14px)),
+    calc(var(--abyss-px, 0) * 6px),
+    calc(var(--abyss-py, 0) * 6px),
     0
   );
 }
 
-/* ── 光扫：极淡一条斜向高光，20s 一轮 ──
-   强度刻意压到 .03/.05 —— 再亮就成了"加载条"，不是环境光。 */
-.abyss-backdrop__sweep {
-  position: absolute;
-  top: -20%;
-  left: -40%;
-  width: 40%;
-  height: 140%;
-  pointer-events: none;
-  background: linear-gradient(
-    100deg,
-    transparent 0%,
-    rgba(190, 205, 235, 0.03) 42%,
-    rgba(205, 220, 245, 0.05) 50%,
-    rgba(190, 205, 235, 0.03) 58%,
-    transparent 100%
-  );
-  transform: translate3d(0, 0, 0) skewX(-18deg);
-  animation: abyss-sweep 20s linear infinite;
-  will-change: transform;
+/* ── 玻璃"受光"：参考的科技感主要来自这一层，不是背景 ——
+   面板上缘 1px 的冷白高光 + 极轻的内阴影，让它读起来像一块有厚度的玻璃。
+   这条是 p95=83 那部分亮度的真实来源之一。 ── */
+.dark[data-theme-preset="abyss"] [data-slot="card"],
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-inset"],
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
 
-@keyframes abyss-sweep {
-  0% {
-    transform: translate3d(0, 0, 0) skewX(-18deg);
-  }
-  100% {
-    transform: translate3d(350%, 0, 0) skewX(-18deg);
-  }
-}
-
-/* ── 暗角：参考没有，但深底上加一层极淡暗角能让视线收敛 ──
-   强度比上一版 (.38) 降到 .16 —— 那版太重，把光池压没了。 */
-.abyss-backdrop__vignette {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(ellipse 130% 105% at 50% 45%, transparent 62%, rgba(0, 0, 0, 0.16) 100%);
-}
-
-/* ── 无障碍 / 省电 ── */
 @media (prefers-reduced-motion: reduce) {
-  .abyss-backdrop__sweep {
-    animation: none;
-    opacity: 0.5;
-  }
-  .abyss-backdrop__layer {
+  .abyss-backdrop__layer--near {
     transition: none;
     transform: none !important;
   }
 }
-.abyss-backdrop[data-abyss-still="1"] .abyss-backdrop__sweep {
-  animation: none;
-  opacity: 0.5;
-}
-.abyss-backdrop[data-abyss-still="1"] .abyss-backdrop__layer {
+.abyss-backdrop[data-abyss-still="1"] .abyss-backdrop__layer--near {
   transform: none !important;
-}
-
-/* ═══════════ 登录页左面板 ═══════════
-   品牌色只用于交互元素（按钮/链接），不铺大面积 —— 这是参考实现反复强调的
-   "克制"口径。原来那块 bg-primary 铺满三分之一屏，是高饱和蓝的误用。 */
-.login-brand-panel {
-  /* 左面板要比右面板（--background #252b37）**暗一档**才有对称感 ——
-     同色会让"左 logo / 右表单"读成一整块。用 ground #1a202b 一档。 */
-  background:
-    radial-gradient(760px 520px at 28% -12%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 62%),
-    radial-gradient(620px 480px at 82% 112%, rgba(56, 211, 228, 0.12), transparent 60%),
-    #1a202b;
-  border-right: 1px solid var(--border);
-}
-
-/* 亮色端：左面板也用低调的浅灰，不用品牌蓝铺面 */
-:root:not(.dark) .login-brand-panel {
-  background:
-    radial-gradient(760px 520px at 28% -12%, color-mix(in oklab, var(--primary) 10%, transparent), transparent 62%),
-    oklch(0.975 0.004 250);
 }
