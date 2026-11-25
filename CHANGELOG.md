@@ -14,6 +14,9 @@
 - **CI 自动产出完整资产**：5 个平台的 zip + linux-amd64 一键部署包 +
   覆盖两者的 `SHA256SUMS`；同一 tag 重跑时检测到「已发布且指向当前提交」改为
   notice 跳过，不再把流水线染红。
+- **修复仓库内脚本缺少执行位导致 CI 失败**：`build.sh` 等以 `100644` 入库，CI 直接
+  `./build.sh` 会以 exit 126 失败；本次把构建/部署脚本的 git 模式改为 `100755`，
+  并让 CI 统一用 `bash build.sh` 调用，避免再次依赖执行位。
 - **Demo 工作流降级为可选部署**（`.github/workflows/demo.yml`）：Release 资产不完整、
   非 latest、或缺少 Vercel 变量/密钥时输出 notice 并跳过，而不是失败；
   配置齐全时部署行为不变。
