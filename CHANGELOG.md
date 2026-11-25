@@ -2,9 +2,11 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-版本说明：`artex-ld` 从 `0.1.2` 起使用独立版本序列。Release 名称为 **artex-ld 0.2.1**，Git Tag 为 **v0.2.1**。`0.3.16`–`0.3.18` 是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的上游条目（合并带入）；`0.3.15` 及更早内容是 [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) 历史。
+版本说明：`artex-ld` 从 `0.1.2` 起使用独立版本序列。Release 名称为 **artex-ld 0.2.2**，Git Tag 为 **v0.2.2**。`0.3.16`–`0.3.18` 是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的上游条目（合并带入）；`0.3.15` 及更早内容是 [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) 历史。
 
 ## [Unreleased]
+
+## [0.2.2] - 2026-11-25
 
 ### Changed
 
@@ -20,6 +22,7 @@
 - **Demo 工作流降级为可选部署**（`.github/workflows/demo.yml`）：Release 资产不完整、
   非 latest、或缺少 Vercel 变量/密钥时输出 notice 并跳过，而不是失败；
   配置齐全时部署行为不变。
+- 版本元数据统一为 `0.2.2`（`Dockerfile.source` / `docker-compose.yml` / `.env.example` / `web/package.json`）。
 
 ### Fixed
 
