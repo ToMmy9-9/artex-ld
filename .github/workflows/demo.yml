@@ -13,8 +13,9 @@ on:
         required: true
         type: string
     secrets:
+      # 可选集成：没有 Vercel 凭据时工作流应跳过部署，而不是把 Release 流水线染红。
       VERCEL_TOKEN:
-        required: true
+        required: false
   workflow_dispatch:
     inputs:
       tag:
@@ -47,52 +48,66 @@ jobs:
         uses: actions/github-script@v7
         env:
           REQUESTED_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         with:
           script: |
             const { owner, repo } = context.repo;
+            const setSkip = (reason) => {
+              core.setOutput('deploy', 'false');
+              core.notice(`跳过 Demo 部署：${reason}`);
+            };
             const { data: latest } = await github.rest.repos.getLatestRelease({ owner, repo });
             const tag = process.env.REQUESTED_TAG || latest.tag_name;
+            core.setOutput('tag', tag);
             if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag)) {
               throw new Error('只允许 v主版本.次版本.修订号 的正式标签');
             }
-            const { data: release } = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
-            if (release.draft || release.prerelease) throw new Error('草稿和预发布版本不可部署');
+            let release;
+            try {
+              ({ data: release } = await github.rest.repos.getReleaseByTag({ owner, repo, tag }));
+            } catch (e) {
+              return setSkip(`找不到 Release ${tag}`);
+            }
+            if (release.draft || release.prerelease) {
+              return setSkip(`Release ${tag} 是草稿或预发布版本`);
+            }
             const version = tag.slice(1);
             const assets = new Set(release.assets.map(asset => asset.name));
-            for (const platform of ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64', 'windows-amd64']) {
-              if (!assets.has(`artex-${version}-${platform}.zip`)) throw new Error(`缺少 ${platform} 发布包`);
+            const platforms = ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64', 'windows-amd64'];
+            const missing = platforms.filter(p => !assets.has(`artex-${version}-${p}.zip`));
+            if (missing.length) {
+              return setSkip(`Release ${tag} 缺少 ${missing.join(' / ')} 发布包（补齐资产后可重新运行）`);
             }
-            if (!assets.has('SHA256SUMS')) throw new Error('缺少发布校验文件');
-            core.setOutput('tag', tag);
-            core.setOutput('current', String(tag === latest.tag_name));
+            if (!assets.has('SHA256SUMS')) {
+              return setSkip(`Release ${tag} 缺少 SHA256SUMS`);
+            }
             if (tag !== latest.tag_name) {
-              core.notice(`${tag} 已被 ${latest.tag_name} 替代，跳过以免覆盖新版 Demo`);
+              return setSkip(`${tag} 已被 ${latest.tag_name} 替代，避免覆盖新版 Demo`);
             }
-
-      - name: Check deployment configuration
-        if: steps.release.outputs.current == 'true'
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          for name in VERCEL_ORG_ID VERCEL_PROJECT_ID VERCEL_TOKEN DEMO_URL; do
-            if [ -z "${!name}" ]; then
-              echo "::error::请先在仓库 Actions 中配置 $name，参见 README 的在线 Demo 部署说明"
-              exit 1
-            fi
-          done
-          if [[ ! "$DEMO_URL" =~ ^https://[a-zA-Z0-9][a-zA-Z0-9.-]+/?$ ]]; then
-            echo "::error::DEMO_URL 必须是 HTTPS 生产域名，不能含路径、查询参数或凭据"
-            exit 1
-          fi
+            const required = {
+              VERCEL_ORG_ID: process.env.VERCEL_ORG_ID,
+              VERCEL_PROJECT_ID: process.env.VERCEL_PROJECT_ID,
+              VERCEL_TOKEN: process.env.VERCEL_TOKEN,
+              DEMO_URL: process.env.DEMO_URL,
+            };
+            const unset = Object.entries(required).filter(([, v]) => !v).map(([k]) => k);
+            if (unset.length) {
+              return setSkip(`未配置 ${unset.join(' / ')}`);
+            }
+            if (!/^https:\/\/[a-zA-Z0-9][a-zA-Z0-9.-]+\/?$/.test(process.env.DEMO_URL)) {
+              return setSkip('DEMO_URL 不是合法的 HTTPS 生产域名');
+            }
+            core.setOutput('deploy', 'true');
+            core.setOutput('current', 'true');
 
       - uses: actions/checkout@v4
-        if: steps.release.outputs.current == 'true'
+        if: steps.release.outputs.deploy == 'true'
         with:
           ref: refs/tags/${{ steps.release.outputs.tag }}
           persist-credentials: false
 
       - name: Verify the released commit and write deployment metadata
-        if: steps.release.outputs.current == 'true'
+        if: steps.release.outputs.deploy == 'true'
         env:
           EXPECTED_COMMIT: ${{ inputs.commit }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -110,18 +125,18 @@ jobs:
           jq -n '{"$schema":"https://openapi.vercel.sh/vercel.json", framework:"nextjs", installCommand:"npm ci", buildCommand:"npm run build", git:{deploymentEnabled:false}}' > web/vercel.json
 
       - uses: actions/setup-node@v4
-        if: steps.release.outputs.current == 'true'
+        if: steps.release.outputs.deploy == 'true'
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - name: Install Vercel CLI
-        if: steps.release.outputs.current == 'true'
+        if: steps.release.outputs.deploy == 'true'
         run: npm install --global vercel@64.2.0
 
       - name: Configure the dedicated demo project
-        if: steps.release.outputs.current == 'true'
+        if: steps.release.outputs.deploy == 'true'
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -159,21 +174,21 @@ jobs:
           jq -e --arg domain "$domain" '.name == $domain and .verified == true' /tmp/demo-domain.json
 
       - name: Pull production project settings
-        if: steps.release.outputs.current == 'true'
+        if: steps.release.outputs.deploy == 'true'
         working-directory: web
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Build the mock demo
-        if: steps.release.outputs.current == 'true'
+        if: steps.release.outputs.deploy == 'true'
         working-directory: web
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel build --prod --token="$VERCEL_TOKEN"
 
       - name: Check latest release again before publishing
-        if: steps.release.outputs.current == 'true'
+        if: steps.release.outputs.deploy == 'true'
         id: publish
         uses: actions/github-script@v7
         env:

@@ -127,23 +127,27 @@ export ARTEX_PG_DSN='postgres://artex:密码@127.0.0.1:5432/artex?sslmode=disabl
 
 ### 2.4 方式四：预编译二进制
 
-当前 Release **只提供 `linux-amd64`** 的两种产物：
+Releases 提供 5 个平台的 zip，以及 linux-amd64 一键部署包：
 
-| 产物 | 用途 |
-| --- | --- |
-| `artex-0.2.1-linux-amd64.deploy.tar.gz` | 服务器一键部署包（含 `install.sh`、`start.sh`、`skills/`、`config.example.json`） |
-| `artex-0.2.1-linux-amd64.zip` | 免安装压缩包（`artex` + `start.sh` + `skills/` + `config.example.json`） |
-| `SHA256SUMS` | 校验和 |
+| 产物 | 平台 | 说明 |
+| --- | --- | --- |
+| `artex-0.2.1-linux-amd64.deploy.tar.gz` | linux/amd64 | 服务器一键部署包（含 `install.sh`、`start.sh`、`skills/`、`config.example.json`） |
+| `artex-0.2.1-linux-amd64.zip` | linux/amd64 | 免安装压缩包（`artex` + `start.sh` + `skills/` + `config.example.json`） |
+| `artex-0.2.1-linux-arm64.zip` | linux/arm64 | 免安装（ARM64 服务器 / ARM64 Kali） |
+| `artex-0.2.1-darwin-amd64.zip` | macOS Intel | 免安装 |
+| `artex-0.2.1-darwin-arm64.zip` | macOS Apple Silicon | 免安装 |
+| `artex-0.2.1-windows-amd64.zip` | Windows x64 | 含 `start.bat` |
+| `SHA256SUMS` | — | 覆盖全部 zip 与 linux-amd64 部署包 |
 
-解压后：
+Linux / macOS 解压后：
 
 ```bash
 cp config.example.json config.json   # 填 database 连接
 ./start.sh                           # → http://localhost:8787
 ```
 
-Linux ARM64 / macOS / Windows 请用 `./build.sh --release` 自行构建；构建矩阵见
-[`.github/workflows/release.yml`](.github/workflows/release.yml)。
+Windows 解压后运行 `start.bat`。跨平台产物与 CI 同源；**仅 linux/amd64 在干净 PostgreSQL 上做过
+启动冒烟**，其余平台为交叉编译产物，未实机验证。需要自定义构建时用 `./build.sh --release`。
 
 ### 2.5 首次使用
 
@@ -710,9 +714,10 @@ artex-ld/
 5. **静态沙箱 ≠ 动态隔离**：脚本分析只做语法树/AST 静态解析，不执行；实际执行仍靠目标环境与操作者约束。
 6. **可选依赖会降级**：无 pgvector → 关键词检索；无 python-docx → 仅 Markdown；无 MCP → 相关工具缺席。
    这些降级是有意设计，不是故障。
-7. **Release 只覆盖 linux-amd64**：当前发布资产只有 `linux-amd64` 的 zip 与 deploy 包；
-   其他平台需 `./build.sh --release` 自行构建。Release workflow 需要仓库级
-   `ARTEX_DOCKER_IMAGE` 变量与镜像仓库凭据，未配置时不会产出全平台资产。
+7. **跨平台产物只做过构建验证**：Release 提供 5 平台 zip；仅 linux/amd64 在干净 PostgreSQL 上
+   做过启动冒烟，arm64 / macOS / Windows 为交叉编译产物，未实机运行。Docker 镜像发布需配置
+   `ARTEX_DOCKER_IMAGE` 与 Docker Hub 凭据；未配置时流水线自动跳过 Docker 步骤，
+   不影响二进制与 GitHub Release；Demo 部署同理（缺 Vercel 配置时跳过而非失败）。
 8. **文档与实现可能漂移**：本 README 按当前 `master` 代码核对（83 表 / 378 路由 / 31 Skill / 33 页面）；
    具体函数级行为以代码和 [全流程代码链文档](docs/ARTEX-二开-全流程代码链文档.md) 为准。
 9. **前端为静态导出**：多语言是本地 `i18n-lite` 文案表，不是完整 i18n 框架；新增语言需改前端源码。

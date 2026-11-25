@@ -2,9 +2,26 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-版本说明：`artex-ld` 从 `0.1.2` 起使用独立版本序列。Release 名称为 **artex-ld 0.2.0**，Git Tag 为 **v0.2.0**。`0.3.16`–`0.3.18` 是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的上游条目（合并带入）；`0.3.15` 及更早内容是 [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) 历史。
+版本说明：`artex-ld` 从 `0.1.2` 起使用独立版本序列。Release 名称为 **artex-ld 0.2.1**，Git Tag 为 **v0.2.1**。`0.3.16`–`0.3.18` 是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的上游条目（合并带入）；`0.3.15` 及更早内容是 [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) 历史。
 
 ## [Unreleased]
+
+### Changed
+
+- **Release 流水线不再被可选集成阻断**（`.github/workflows/release.yml`）：
+  `ARTEX_DOCKER_IMAGE` 未配置时跳过 Docker 构建/发布，前端、五平台二进制与
+  GitHub Release 照常产出；Docker 已配置但构建失败时仍会阻止发布。
+- **CI 自动产出完整资产**：5 个平台的 zip + linux-amd64 一键部署包 +
+  覆盖两者的 `SHA256SUMS`；同一 tag 重跑时检测到「已发布且指向当前提交」改为
+  notice 跳过，不再把流水线染红。
+- **Demo 工作流降级为可选部署**（`.github/workflows/demo.yml`）：Release 资产不完整、
+  非 latest、或缺少 Vercel 变量/密钥时输出 notice 并跳过，而不是失败；
+  配置齐全时部署行为不变。
+
+### Fixed
+
+- v0.2.1 Release 补齐 `linux-arm64` / `darwin-amd64` / `darwin-arm64` / `windows-amd64`
+  与完整 `SHA256SUMS`，修复 Demo 流水线因资产不完整而失败的问题。
 
 ## [0.2.1] - 2026-11-25
 
