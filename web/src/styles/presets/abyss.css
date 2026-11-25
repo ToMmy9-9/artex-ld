@@ -106,29 +106,30 @@ value: abyss
   --radius-3xl: 0px;
   --radius-4xl: 0px;
 
-  /* 层级照 alkaid 的暗色结构（key: 它有两层底色，不是一层）：
-        ground   #0f1318  ← 最外层壳（app-shell 的 10px 缝隙、橡皮筋时露出的底）
-        panel    #252b37  ← **页面画布**（canvas = panel-solid），玻璃面板叠在它上面
-        card     panel + 一档 ← 卡片浮在画布上
-     我上一版把整个页面铺成了 ground(#0f1318)，所以满屏发黑、光池也看不出来 ——
-     实际参考的"深"是 ground，日常看到的是 panel(#252b37)。 */
-  --background: #252b37;
-  --foreground: #edeef0;
+  /* 全部取自 alkaid 暗色截图的**像素采样**（不是从 CSS 变量猜的）：
+       外壳缝隙  #0f1216
+       侧栏      #191f2b
+       页面画布  #202736
+       卡片      #202939   ← 与画布只差 ~3，靠描边分隔，不靠色差
+       卡片悬停  #25344b
+     之前的 #252b37 是 --alkaid-panel-solid 的值，但那是**玻璃面板的不透明等价色**，
+     实际渲染时玻璃下面还压着 ground，合成出来是 #1b2333~#202736 这个深蓝档。 */
+  --background: #1c2333;
+  --foreground: #e8ecf3;
 
-  /* 卡片 = 画布 + 一档（参考 --alkaid-canvas-card：panel 97% + white 3%） */
-  --card: #2c3140;
-  --card-foreground: #edeef0;
-  --popover: #333949;
-  --popover-foreground: #f2f4f8;
+  --card: #202939;
+  --card-foreground: #e8ecf3;
+  --popover: #232c3d;
+  --popover-foreground: #eef2f8;
 
   /* 品牌蓝：暗色下提亮一档，保证在深底上够醒目 */
   --primary: #5ca6ff;
   --primary-foreground: #0f1622;
 
   /* 次级面/悬停：同色 + 极淡白叠加（参考口径），不是另一档色 */
-  --secondary: #212732;
+  --secondary: #222b3b;
   --secondary-foreground: #e3e8f0;
-  --muted: #212732;
+  --muted: #222b3b;
   /* 参考实测：--text-secondary #A7ABB2 对 #0D0F12 = 8.5:1；
      他们踩过 #8b93a1 只有 4.04:1 的坑，所以这一档不能压太暗。 */
   --muted-foreground: #a7abb2;
@@ -147,13 +148,12 @@ value: abyss
   --chart-4: oklch(0.78 0.10 160);
   --chart-5: oklch(0.76 0.13 40);
 
-  /* 侧栏 = 与地面同一块（参考：--shell-sidebar 与 --ground 同值），
-     靠右缘描边和玻璃 blur 与内容区分开，不靠色差 */
-  --sidebar: #0f1318;
+  /* 侧栏 = 截图实测 #191f2b（比页面画布 #202736 略暗一档） */
+  --sidebar: #191f2b;
   --sidebar-foreground: #dde2ea;
   --sidebar-primary: #5ca6ff;
   --sidebar-primary-foreground: #0f1622;
-  --sidebar-accent: #212732;
+  --sidebar-accent: #232c3d;
   --sidebar-accent-foreground: #f2f4f8;
   --sidebar-border: oklch(1 0 0 / 9%);
   --sidebar-ring: #5ca6ff;
@@ -221,7 +221,7 @@ value: abyss
 /* 画布本身只留底色，纹理全部交给 .abyss-backdrop（这样视差/光扫只动合成层） */
 .dark[data-theme-preset="abyss"] {
   background-image: none;
-  background-color: #0f1318;
+  background-color: #0f1216;
 }
 
 /* 侧栏：与地面同色 + 半透，让点阵与光池从下面透上来（参考的 shell-sidebar 就是同值）。
@@ -229,7 +229,7 @@ value: abyss
 [data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
   /* 侧栏与内容区同族：半透 + blur，让点阵连续穿过两侧（参考的 shell-sidebar
      与 ground 同值，靠描边与模糊分层，不靠色差）。 */
-  background: color-mix(in oklab, #1d2431 78%, transparent);
+  background: color-mix(in oklab, var(--sidebar) 88%, transparent);
   border-right: 1px solid color-mix(in oklab, var(--sidebar-border) 55%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
@@ -241,7 +241,7 @@ value: abyss
   /* 页面画布 = 参考的 glass 档：rgba(38,48,68,.55)。
      它比 ground 亮、比卡片暗，点阵与光池从下面透上来。
      这就是参考里"壳层（左右两块面板）"的材质。 */
-  background: color-mix(in oklab, var(--background) 82%, transparent);
+  background: color-mix(in oklab, var(--background) 88%, transparent);
   border-color: transparent;
   box-shadow: none;
   backdrop-filter: blur(20px) saturate(1.4);
@@ -302,7 +302,7 @@ value: abyss
    卡片的 bg-card 若被降级规则清掉，整块会变成全透明（实测就是这个问题：
    computed backgroundColor 是 rgba(0,0,0,0)，卡片看起来像"没有底"）。 */
 .dark[data-theme-preset="abyss"] [data-slot="card"] {
-  background: color-mix(in oklab, var(--card) 88%, transparent);
+  background: color-mix(in oklab, var(--card) 92%, transparent);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(8px) saturate(1.2);
@@ -465,7 +465,7 @@ value: abyss
   overflow: hidden;
   /* 背板底 = ground（比页面画布暗一档）—— 光池叠在它上面，
      再往上是半透的页面画布玻璃。这样才有"面板浮在深空里"的层级。 */
-  background-color: #0f1318;
+  background-color: #0f1216;
 }
 
 .dark[data-theme-preset="abyss"] body > *:not(.abyss-backdrop) {
