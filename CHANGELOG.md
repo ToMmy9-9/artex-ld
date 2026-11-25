@@ -8,6 +8,9 @@
 
 ### Added
 
+- **登录页左侧面板去色块**（`(auth)/login/page.tsx` + `.login-brand-panel`）。原来是
+  `bg-primary` 铺满三分之一屏 —— 品牌色只适合按钮/链接这种小面积，大面积铺就是一块
+  刺眼的高饱和蓝。改为深空底 + 两记光池 + 同心辅助圆环，与暗色主题一致。
 - **Abyss（深空）暗色主题预设**（`web/src/styles/presets/abyss.css`）。参考
   [alkaid](https://github.com/steveopen1/alkaid) 的暗色体系落地，三条设计规则：
   暗色里"浮起的面"要更亮而非更暗；层次靠半透描边而非色块；语义色保持同一柔和档。

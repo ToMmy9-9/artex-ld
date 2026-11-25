@@ -94,12 +94,19 @@ export default function LoginPage() {
 
   return (
     <div className="flex h-dvh">
-      {/* Left panel */}
-      <div className="hidden flex-col items-center justify-center bg-primary p-12 text-center lg:flex lg:w-1/3">
+      {/* Left panel —— 深空底 + 同心的辅助圆环。
+          原来这里是 bg-primary 整块铺色：--primary 是品牌交互色（#5ca6ff），
+          只适合按钮/链接这种小面积，铺满三分之一屏就是一块刺眼的高饱和蓝。
+          改成主题的深空底色，让 logo 与圆环自己成为焦点。 */}
+      <div className="login-brand-panel hidden flex-col items-center justify-center p-12 text-center lg:flex lg:w-1/3">
         <div className="relative flex items-center justify-center">
-          <div className="absolute size-80 rounded-full border border-primary-foreground/10" />
-          <div className="absolute size-60 rounded-full border border-primary-foreground/15" />
-          <div className="absolute size-40 rounded-full border border-primary-foreground/20" />
+          {[320, 240, 160].map((size) => (
+            <div
+              key={size}
+              className="absolute rounded-full border border-white/8"
+              style={{ width: size, height: size }}
+            />
+          ))}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="artex" width={160} height={160} className="relative drop-shadow-2xl" />
         </div>

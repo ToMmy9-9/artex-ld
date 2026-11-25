@@ -569,3 +569,23 @@ value: abyss
 .abyss-backdrop[data-abyss-still="1"] .abyss-backdrop__layer {
   transform: none !important;
 }
+
+/* ═══════════ 登录页左面板 ═══════════
+   品牌色只用于交互元素（按钮/链接），不铺大面积 —— 这是参考实现反复强调的
+   "克制"口径。原来那块 bg-primary 铺满三分之一屏，是高饱和蓝的误用。 */
+.login-brand-panel {
+  /* 左面板要比右面板（--background #252b37）**暗一档**才有对称感 ——
+     同色会让"左 logo / 右表单"读成一整块。用 ground #1a202b 一档。 */
+  background:
+    radial-gradient(760px 520px at 28% -12%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 62%),
+    radial-gradient(620px 480px at 82% 112%, rgba(56, 211, 228, 0.12), transparent 60%),
+    #1a202b;
+  border-right: 1px solid var(--border);
+}
+
+/* 亮色端：左面板也用低调的浅灰，不用品牌蓝铺面 */
+:root:not(.dark) .login-brand-panel {
+  background:
+    radial-gradient(760px 520px at 28% -12%, color-mix(in oklab, var(--primary) 10%, transparent), transparent 62%),
+    oklch(0.975 0.004 250);
+}
