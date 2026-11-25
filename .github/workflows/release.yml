@@ -234,8 +234,10 @@ jobs:
   # GITHUB_TOKEN 发布的 Release 不会再次触发 release: published 工作流。
   # 直接依赖发布 job，保证 ZIP、校验文件和镜像全部发布成功后才更新 Demo。
   demo:
-    # 复用工作流的隐式门禁：prepare / release 任一失败或跳过，本 job 自动跳过。
     needs: [prepare, release]
+    # 必须显式 always()：release 的依赖链里 docker-publish 在未启用时是 skipped，
+    # 隐式 success() 会把它当成失败而连带跳过本 job；这里只按 release 的真实结果判断。
+    if: always() && needs.release.result == 'success'
     uses: ./.github/workflows/demo.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
