@@ -210,6 +210,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 | **出口与代理** | 代理池：导入/轮换/健康阈值/故障自愈；出口 IP 探测与顶栏展示 | `server/proxy_pool.go`、`server/egress_probe.go` | RuoJi6 |
 | | 全局出口代理、共享 `llmhttp` 客户端 | `llmhttp/`、`server/proxy_autoresume.go` | RuoJi6 |
 | **人机控制** | 拦截规则 allow / deny / **ask** + LLM 兜底裁判；审批记录全文检索 | `intercept/`、`server/intercept.go`、`db/intercept.go` | 上游 + RuoJi6 |
+| | **拦截提醒可配置**：模板 `{tool}/{rule}/{reason}/{command}/{action}`，deny 也写会话流，自动附带当次真实报文 `traffic_id` | `guard/blockmessage.go`、`server/intercept_evidence.go` | 二开 |
 | | 静态脚本沙箱：shell 语法树 / Python AST 静态解析，**绝不执行** | `intercept/shell_static.go`、`intercept/python_modules.go` | RuoJi6 |
 | | 请求重放（Burp Repeater 式）：编辑/历史/过滤/SSRF 防护 | `server/repeater.go`、`web/.../repeater` | RuoJi6 |
 | **LLM 运行时** | 多 profile、模型池、健康检查、重试/故障转移、配额识别、请求限速 | `llmpool/`、`llmrec/`、`server/llmpool.go`、`agent/provider.go` | 上游 + RuoJi6 |

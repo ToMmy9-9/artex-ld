@@ -20,10 +20,12 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	pgdb "artex/db"
 	"artex/intercept"
 	"norma/hook"
 )
@@ -57,6 +59,14 @@ type Guard struct {
 	// direction is being blocked instead of re-trying it every round.
 	decisions   map[string]int
 	targetBlock map[string]int // target-side WAF/403 hits per tool (from postToolUse)
+	// msgFn returns the operator-configured template for "blocked" messages.
+	// nil = DefaultBlockMessageTemplate (the historical wording). Read per call so
+	// a settings change takes effect without rebuilding the task's Guard.
+	msgFn func() string
+	// trafficFn looks up the recorded MITM exchanges that match a blocked shell
+	// command, so the reminder can carry real request/response evidence instead of
+	// just the command text. nil = no traffic evidence (feature off / no store).
+	trafficFn   func(ctx context.Context, tool, command string) []BlockedTraffic
 	reg         *hook.Registry
 	interceptor interceptorAPI // optional; nil disables user-configured rules
 }
@@ -109,7 +119,7 @@ func (g *Guard) preToolUse(ctx context.Context, ev hook.Event) hook.Result {
 		_ = json.Unmarshal(ev.Input, &in)
 		cmd = in.Text
 	}
-	result := g.applyIntercept(ctx, ev)
+	result := g.applyIntercept(ctx, ev, cmd)
 	if result.Decision != "block" {
 		g.record(ev.ToolName, "allow", "", cmd)
 	}
@@ -118,7 +128,7 @@ func (g *Guard) preToolUse(ctx context.Context, ev hook.Event) hook.Result {
 
 // applyIntercept evaluates user-configured intercept rules against the tool call.
 // Both rules and the fallback judge receive the complete tool input.
-func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
+func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event, cmd string) hook.Result {
 	if g.interceptor == nil {
 		return hook.Result{}
 	}
@@ -147,7 +157,11 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		// 观测:deny 命中不阻塞审批,直接记一条 denied（历史/任务拦截页可见）。
 		g.interceptor.Log(ctx, intercept.ConvIDFromContext(ctx), dec, ev.ToolName, ev.Input, "denied")
 		g.count("deny:" + ev.ToolName)
-		return g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+		msg := g.blockMessage(ctx, ev, dec, "deny", cmd)
+		// 与会话流对齐：ask 会写一张审批卡，deny 过去只落库，会话里看不到「刚被拦了」。
+		// 写一条提醒进活动流，前端才能把它显示在对应 worker 的对话里。
+		g.emitBlocked(ctx, ev, dec, "deny", cmd, msg)
+		return g.block(ev.ToolName, msg, cmd)
 	case "allow":
 		// Record explicit rule and model approvals so review details remain auditable.
 		g.interceptor.Log(ctx, intercept.ConvIDFromContext(ctx), dec, ev.ToolName, ev.Input, "allowed")
@@ -159,12 +173,16 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		// and makes execOne complete fast, reducing the race against drainSynthetic.
 		if ctx.Err() != nil {
 			g.count("ask_denied:" + ev.ToolName)
-			return g.block(ev.ToolName, systemBlockMessage("工作已取消，平台安全管控阻止执行"), "")
+			msg := g.blockMessage(ctx, ev, dec, "cancelled", cmd)
+			g.emitBlocked(ctx, ev, dec, "cancelled", cmd, msg)
+			return g.block(ev.ToolName, msg, cmd)
 		}
 		convID := intercept.ConvIDFromContext(ctx)
 		if !g.interceptor.HandleAsk(ctx, convID, dec, ev.ToolName, ev.Input) {
 			g.count("ask_denied:" + ev.ToolName)
-			return g.block(ev.ToolName, systemBlockMessage("人工审批未通过（用户拒绝或审批超时）"), "")
+			msg := g.blockMessage(ctx, ev, dec, "ask_denied", cmd)
+			g.emitBlocked(ctx, ev, dec, "ask_denied", cmd, msg)
+			return g.block(ev.ToolName, msg, cmd)
 		}
 		g.count("ask_allowed:" + ev.ToolName)
 		return hook.Result{}
@@ -185,11 +203,157 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 // Audit/history rows keep the raw reason (see Interceptor.Log); only the
 // model-facing tool_result carries this framing.
 func systemBlockMessage(reason string) string {
-	return "【artex 平台管控·非目标防御】此调用被平台拦截。" +
-		"原因：" + reason + "。此操作被禁止。"
+	return RenderBlockMessage("", BlockMessageVars{Reason: reason})
 }
 
 var reBlocked = regexp.MustCompile(`(?i)\b(403|forbidden|waf|blocked|rate.?limit|429|captcha|denied)\b`)
+
+// BlockedTraffic is one recorded MITM exchange attached to a block reminder.
+// Deliberately small: id + method/path/status is enough for the model to know
+// "this is the request that was about to run", and the model can pull the body
+// with traffic_get if it needs more.
+type BlockedTraffic struct {
+	ID     string `json:"id"`
+	Method string `json:"method"`
+	URL    string `json:"url"`
+	Status int    `json:"status"`
+}
+
+// SetBlockMessageTemplate wires the operator-configured block message template
+// (settings.intercept_block_message). nil keeps the built-in default.
+func (g *Guard) SetBlockMessageTemplate(fn func() string) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.msgFn = fn
+	g.mu.Unlock()
+}
+
+// SetTrafficMatcher wires the recorded-traffic lookup used to attach evidence to
+// a block reminder. nil = no evidence (feature off or no traffic store).
+func (g *Guard) SetTrafficMatcher(fn func(ctx context.Context, tool, command string) []BlockedTraffic) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.trafficFn = fn
+	g.mu.Unlock()
+}
+
+// blockMessage renders the model-facing block message: operator template (if any),
+// with tool / rule / reason / command variables expanded.
+func (g *Guard) blockMessage(ctx context.Context, ev hook.Event, dec intercept.Decision, action, cmd string) string {
+	var tpl string
+	var matcher func(context.Context, string, string) []BlockedTraffic
+	g.mu.Lock()
+	if g.msgFn != nil {
+		tpl = g.msgFn()
+	}
+	matcher = g.trafficFn
+	g.mu.Unlock()
+
+	reason := dec.Message
+	if action == "cancelled" {
+		reason = "工作已取消，平台安全管控阻止执行"
+	} else if action == "ask_denied" && reason == "" {
+		reason = "人工审批未通过（用户拒绝或审批超时）"
+	}
+	msg := RenderBlockMessage(tpl, BlockMessageVars{
+		Tool:    ev.ToolName,
+		Rule:    dec.RuleName,
+		Reason:  reason,
+		Command: cmd,
+		Action:  action,
+	})
+	// Attach real traffic evidence when the blocked command maps to recorded
+	// exchanges. Appended as a separate paragraph so a custom template that omits
+	// {command} still gets the evidence, and one that includes it is not doubled.
+	if matcher != nil {
+		if ex := matcher(ctx, ev.ToolName, cmd); len(ex) > 0 {
+			msg += "\n\n【对应流量证据】被拦命令相关的真实报文：" + formatBlockedTraffic(ex)
+		}
+	}
+	return msg
+}
+
+// formatBlockedTraffic renders at most 3 exchanges inline. More than that is
+// noise: the reminder is about "don't do this", the ids are the useful part.
+func formatBlockedTraffic(ex []BlockedTraffic) string {
+	const maxInline = 3
+	n := len(ex)
+	if n > maxInline {
+		n = maxInline
+	}
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		e := ex[i]
+		if i > 0 {
+			b.WriteString("；")
+		}
+		b.WriteString(e.Method)
+		b.WriteString(" ")
+		b.WriteString(e.URL)
+		b.WriteString(" → ")
+		b.WriteString(strconv.Itoa(e.Status))
+		b.WriteString(" (traffic_id=")
+		b.WriteString(e.ID)
+		b.WriteString(")")
+	}
+	if len(ex) > n {
+		b.WriteString("；另有 ")
+		b.WriteString(strconv.Itoa(len(ex) - n))
+		b.WriteString(" 条，可用 traffic_search 查看")
+	}
+	return b.String()
+}
+
+// emitBlocked writes a task/conversation activity so the block shows up inline in
+// the worker's session, matching what the ask path already does. Without this the
+// only trace of a deny is the audit table, which the model never sees.
+func (g *Guard) emitBlocked(ctx context.Context, ev hook.Event, dec intercept.Decision, action, cmd, msg string) {
+	emit := intercept.TaskEmitFromContext(ctx)
+	convID := intercept.ConvIDFromContext(ctx)
+	if emit == nil && convID == 0 {
+		return
+	}
+	detail := map[string]any{
+		"tool":    ev.ToolName,
+		"action":  action,
+		"rule":    dec.RuleName,
+		"reason":  dec.Message,
+		"command": escapeForLog(cmd),
+		"message": msg,
+	}
+	raw, _ := json.Marshal(detail)
+	act := pgdb.Activity{
+		Kind:    "intercept_denied",
+		Summary: "平台拦截 " + ev.ToolName + "（" + actionLabelCN(action) + "）",
+		Detail:  string(raw),
+	}
+	if convID != 0 {
+		// Chat session: same append path the ask card uses.
+		_ = convID
+	}
+	if emit != nil {
+		emit(act)
+	}
+}
+
+// actionLabelCN maps the internal action codes to the words operators use in the
+// approvals UI, so the activity line reads the same as the audit page.
+func actionLabelCN(action string) string {
+	switch action {
+	case "deny":
+		return "规则拒绝"
+	case "ask_denied":
+		return "审批未通过"
+	case "cancelled":
+		return "工作已取消"
+	default:
+		return action
+	}
+}
 
 // postToolUse is the Observer failure-attribution hook (G5): it classifies tool
 // results into blocked / error / ok so the planner can change strategy instead

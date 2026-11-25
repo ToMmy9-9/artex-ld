@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"iter"
 	"log"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -794,6 +795,13 @@ func (s *Server) emitManualTaskLLMSwitch(t *Task, previousID, nextID *int64) db.
 // graph_overview omit the block instead of emitting an all-zero one).
 func guardStatsResolver(t *Task) func() any {
 	return func() any {
+		// ARTEX_GUARD_STATS=0 关掉这段回流。存在的理由有两个：
+		//  1) A/B 对照需要能在同一份代码上开关，而不是维护两条分支；
+		//  2) 某些模型对每轮多出来的统计块不友好（上下文紧张 / 更容易分心），
+		//     留一个不重新编译就能关的开关比改代码更实际。
+		if os.Getenv("ARTEX_GUARD_STATS") == "0" {
+			return nil
+		}
 		if t == nil || t.Guard == nil {
 			return nil
 		}

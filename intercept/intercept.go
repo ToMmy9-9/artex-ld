@@ -119,6 +119,13 @@ func taskEmitFromCtx(ctx context.Context) func(db.Activity) {
 	return f
 }
 
+// TaskEmitFromContext exposes the task activity emitter attached by
+// WithTaskContext so sibling packages (guard) can write a block-reminder activity
+// into the same worker session stream the ask path already uses.
+func TaskEmitFromContext(ctx context.Context) func(db.Activity) {
+	return taskEmitFromCtx(ctx)
+}
+
 // compiledRule is an InterceptRule with the regex pre-compiled (nil for string rules).
 type compiledRule struct {
 	db.InterceptRule

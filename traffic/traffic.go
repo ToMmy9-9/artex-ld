@@ -2414,3 +2414,43 @@ func clip(s string, max int) string {
 	}
 	return s[:max] + fmt.Sprintf("\n... [截断，共 %d 字节；完整在流量文件树] ...", len(s))
 }
+
+// QueryRecentExchanges returns recent exchanges for one host, optionally filtered
+// by method and a URL/path substring. Built for callers that need "what just
+// happened on this endpoint" without the full PageQuery surface (which has no
+// time window). Empty method/path means "no filter on that dimension".
+func (t *Traffic) QueryRecentExchanges(ctx context.Context, since int64, host, method, path string, limit int) []ExchangeMeta {
+	if t == nil || t.db == nil {
+		return nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 5
+	}
+	q := `SELECT ` + exchangeMetaCols + ` FROM exchanges WHERE ts >= ? AND lower(host) = lower(?)`
+	args := []any{since, host}
+	if strings.TrimSpace(method) != "" {
+		q += ` AND upper(method) = upper(?)`
+		args = append(args, method)
+	}
+	if strings.TrimSpace(path) != "" {
+		q += ` AND url LIKE ?`
+		args = append(args, "%"+path+"%")
+	}
+	q += ` ORDER BY ts DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := t.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make([]ExchangeMeta, 0, limit)
+	for rows.Next() {
+		m, err := scanExchangeMeta(rows)
+		if err != nil {
+			return nil
+		}
+		out = append(out, m)
+	}
+	return out
+}

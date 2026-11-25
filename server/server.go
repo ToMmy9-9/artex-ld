@@ -213,6 +213,10 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1), credentialWake: make(chan struct{}, 1)}
 	m.SetTaskControlMutex(&s.concMu)
+	// 拦截提醒的流量证据：把「被拦命令 → 真实报文」的匹配器注入 manager，
+	// taskFromPG 再把它挂到每个任务的 Guard 上。只在这里注入一次，避免 manager
+	// 反向依赖 *Server。
+	m.trafficMatcherFactory = s.trafficMatcherForTask
 	// 【二开·P-EXEC·S1】engine.providerFn：执行器 agent 的 LLM 装配回调（走 providerForProfile 缓存链）
 	s.engine.providerFn = s.providerForProfile
 	s.initSideQuestions()
@@ -4204,6 +4208,10 @@ func (s *Server) settingsPayload() map[string]any {
 		"log_level": xlog.LevelString(),
 		// 可信代理网段：只有请求来自这些网段时才采信 X-Forwarded-For。
 		"auth_trusted_proxies": trustedProxiesSetting(s.m.pg),
+		// 平台拦截（deny / 审批未通过 / 已取消）反馈给模型的提醒模板。
+		// 空 = 内置默认；变量见 guard.RenderBlockMessage。
+		"intercept_block_message":          s.interceptBlockMessage(),
+		"intercept_traffic_evidence":       s.m.pg.GetBool(settingInterceptTrafficEvidence, true),
 	}
 }
 
@@ -4306,6 +4314,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 不配就一律不采信转发头 —— 直连客户端能伪造 XFF 绕过「按 IP 限流」。
 		// null = 不改，"" = 清空（回到「不采信转发头」）。
 		TrustedProxies *string `json:"auth_trusted_proxies"`
+		// 平台拦截提醒模板（null=不改，""=回到内置默认）与流量证据开关。
+		InterceptBlockMessage     *string `json:"intercept_block_message"`
+		InterceptTrafficEvidence  *bool   `json:"intercept_traffic_evidence"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		if maxBytesExceeded(err) {
@@ -4318,6 +4329,18 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if req.LogLevel != nil {
 		if err := s.m.pg.SetSetting(settingLogLevel, *req.LogLevel); err != nil {
 			writeErr(w, 400, err.Error())
+			return
+		}
+	}
+	if req.InterceptBlockMessage != nil {
+		if err := s.m.pg.SetSetting(settingInterceptBlockMessage, strings.TrimSpace(*req.InterceptBlockMessage)); err != nil {
+			writeErrRedacted(w, 500, err.Error())
+			return
+		}
+	}
+	if req.InterceptTrafficEvidence != nil {
+		if err := s.m.pg.SetBool(settingInterceptTrafficEvidence, *req.InterceptTrafficEvidence); err != nil {
+			writeErrRedacted(w, 500, err.Error())
 			return
 		}
 	}

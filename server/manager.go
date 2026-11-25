@@ -310,6 +310,9 @@ type Manager struct {
 	traffic     *traffic.Traffic       // process-wide recording proxy (may be nil)
 	enrich      *enrich.Engine         // engine-side asset auto-completion (DNS/HTTP)
 	interceptor *intercept.Interceptor // user-configured tool-call interception rules
+	// trafficMatcherFactory 由 Server 注入：按 taskID 构造「被拦命令 → 真实报文」
+	// 的匹配器，供 guard 在拦截提醒里附带流量证据。nil = 不附带证据。
+	trafficMatcherFactory func(taskID int64) func(context.Context, string, string) []guard.BlockedTraffic
 
 	companyMu sync.Mutex // serializes task/company-scope commits with live handle registration
 	// taskStateMu preserves commit order between PostgreSQL lifecycle writes and
@@ -1211,8 +1214,8 @@ func unixNanoOrZero(t *time.Time) int64 {
 	return t.UnixNano()
 }
 
-func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Interceptor) *Task {
-	return &Task{
+func taskFromPG(m *Manager, pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Interceptor) *Task {
+	t := &Task{
 		ID: strconv.FormatInt(pt.ID, 10), ExpID: pt.ExplorationID,
 		Name:       pt.Name,
 		Remark:     pt.Remark,
@@ -1239,6 +1242,42 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		ActiveRunSeconds: pt.ActiveRunSeconds, RunSegmentStartedAt: unixOrZero(pt.RunSegmentStartedAt),
 		Store: store, Guard: guard.NewWithInterceptor(ic), notify: make(chan struct{}, 1),
 	}
+	// 平台拦截提醒：模板与流量证据都是"每次拦截现读设置"，所以在 Guard 上挂
+	// resolver 而不是在构造时快照——改设置不必重建任务。
+	if t.Guard != nil {
+		// 模板：每次拦截现读，改设置不必重建任务。
+		t.Guard.SetBlockMessageTemplate(func() string {
+			v, _, _ := ptDBGetSetting(store, settingInterceptBlockMessage)
+			return strings.TrimSpace(v)
+		})
+		// 流量证据：把被拦命令里的 method+URL 映射到刚录制的真实报文。
+		// 需要 manager 才能拿到录制代理；traffic 未开启时 matcher 为 nil，
+		// guard 会跳过证据段落而不是打印空标题。
+		if m != nil {
+			tid, _ := strconv.ParseInt(t.ID, 10, 64)
+			if matcher := m.serverTrafficMatcher(tid); matcher != nil {
+				t.Guard.SetTrafficMatcher(matcher)
+			}
+		}
+	}
+	return t
+}
+
+// serverTrafficMatcher 让 manager 不直接依赖 *Server 的其它实现细节：
+// 由 Server 在启动时注入一个按 taskID 构造 matcher 的工厂。
+func (m *Manager) serverTrafficMatcher(taskID int64) func(context.Context, string, string) []guard.BlockedTraffic {
+	if m == nil || m.trafficMatcherFactory == nil {
+		return nil
+	}
+	return m.trafficMatcherFactory(taskID)
+}
+
+// ptDBGetSetting 通过探索存储拿到同一个 DB 句柄读设置；store 为 nil 时返回空。
+func ptDBGetSetting(store *pgdb.ExplorationStore, key string) (string, bool, error) {
+	if store == nil || store.DB() == nil {
+		return "", false, nil
+	}
+	return store.DB().GetSetting(key)
 }
 
 // UpdateTaskMetadata changes task metadata and asset visibility without interrupting any
@@ -1297,7 +1336,7 @@ func (m *Manager) CreateTaskWithOptions(description, goal string, opts pgdb.Task
 	if err != nil {
 		return nil, err
 	}
-	t := taskFromPG(pt, m.pg.Exploration(pt.ExplorationID), m.interceptor)
+	t := taskFromPG(m, pt, m.pg.Exploration(pt.ExplorationID), m.interceptor)
 	// 【二开·P-INTENT·D7】PreAgent 不落 tasks 表（仅建任务时透传）：db 侧 RETURNING 不回读，这里直接从 opts 补镜像
 	t.PreAgent = opts.PreAgent
 	m.mu.Lock()
@@ -1504,7 +1543,7 @@ func (m *Manager) LoadExisting() []*Task {
 		if _, ok := m.tasks[id]; ok {
 			continue
 		}
-		t := taskFromPG(pt, m.pg.Exploration(pt.ExplorationID), m.interceptor)
+		t := taskFromPG(m, pt, m.pg.Exploration(pt.ExplorationID), m.interceptor)
 		m.tasks[id] = t
 		loaded = append(loaded, t)
 	}

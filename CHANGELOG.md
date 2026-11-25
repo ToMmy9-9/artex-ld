@@ -8,6 +8,18 @@
 
 ### Added
 
+- **平台拦截提醒可配置 + 附带流量证据**（`guard/blockmessage.go`、`guard/guard.go`、
+  `server/intercept_evidence.go`、`settings`）。此前拦截只把一句写死前缀的文案内联进
+  该次工具调用的 `tool_result`，用户自定义的规则 message 塞不进工具名/命令，deny 也不写
+  会话流。现在：
+  - 模板可配（`settings.intercept_block_message`），支持 `{tool}` `{rule}` `{reason}`
+    `{command}` `{action}` 变量；空值回落内置默认（与历史文案等价）。超长命令按 200 字截断。
+  - 每次拦截额外往 worker 会话流写一条 `intercept_denied` 活动（deny / 审批未通过 /
+    已取消三种），与 `ask` 的审批卡对齐，前端能在对应会话里看到。
+  - 提醒自动附带当次真实报文：从被拦命令里抽 `method + URL`，在 30 分钟窗口内按
+    host/path 查录制流量；精确 method 命中优先，写操作通常未发出时退回同 host+path
+    的邻近报文。找不到就不附，不凭空猜。
+  - 开关 `settings.intercept_traffic_evidence`（默认开）。
 - **资产图谱显式边**（`db/asset_edges.go`、`db/schema.sql`）。新增 `asset_edges`
   表记录 `root_domain --contains--> subdomain --resolves_to--> ip --hosts--> service
   --exposes--> endpoint`，由各 `Upsert*` 在写资产时维护（best-effort，失败不影响入库）。

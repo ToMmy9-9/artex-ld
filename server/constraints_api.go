@@ -25,6 +25,13 @@ const (
 	settingConstraintsInjectWorker  = "constraints_inject_worker"
 	// settingLogLevel 【P-LOG·M0】日志级别热切换键：debug/info/warn/error。
 	settingLogLevel = "log_level"
+
+	// settingInterceptBlockMessage 是「平台拦截」提醒的可配置模板。
+	// 空 = 内置默认模板（与历史文案等价）。变量：{tool} {rule} {reason} {command} {action}。
+	settingInterceptBlockMessage = "intercept_block_message"
+
+	// settingInterceptTrafficEvidence 控制拦截提醒是否附带真实流量证据（默认开）。
+	settingInterceptTrafficEvidence = "intercept_traffic_evidence"
 )
 
 // constraintInjectPlanner / constraintInjectWorker 报告是否把操作约束注入对应 agent 的
@@ -181,4 +188,16 @@ func constraintDTOs(in []db.Constraint) []ConstraintDTO {
 		})
 	}
 	return out
+}
+
+// interceptBlockMessage 返回当前生效的平台拦截提醒模板。空串 = 用内置默认
+// (guard.DefaultBlockMessageTemplate)。每轮现读,改设置不必重启。
+func (s *Server) interceptBlockMessage() string {
+	v, _, _ := s.m.pg.GetSetting(settingInterceptBlockMessage)
+	return strings.TrimSpace(v)
+}
+
+// interceptTrafficEvidenceEnabled 报告拦截提醒是否附带真实流量证据(默认开)。
+func (s *Server) interceptTrafficEvidenceEnabled() bool {
+	return s.m.pg.GetBool(settingInterceptTrafficEvidence, true)
 }
