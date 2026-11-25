@@ -212,58 +212,14 @@ value: abyss
   filter: blur(2px);
 }
 
-/* ═══════════ 背景：科技感分层（蓝图网格 + 点阵 + 光池 + 暗角）═══════════
-   参考 alkaid 的核心结论保留（点阵、fixed attachment、光池要极淡），但**不足够**：
-   它那套是"几乎看不见，少了会觉得脏"的量级；用户明确要"科技效果"，所以在其上
-   叠了三层更明确的结构：
-
-   ┌ 1. 蓝图细网格 32px（白 3%）—— 承"工程图纸"的暗示，是科技感的主要来源
-   ├ 2. 点阵 28px（白 4.5%）—— 参考实现的原样保留：给毛玻璃提供高频纹理
-   ├ 3. 三重光池（冷蓝为主 + 中性灰补）—— 上缘偏右一记强、左下与右下各一记弱
-   ├ 4. 顶部横向光带 —— 模拟"屏幕/控制台的受光面"，只在最上沿极窄一条
-   └ 5. 四角暗角（vignette）—— 把视线收进中心，避免面板"浮在浅色雾里"
-
-   为什么网格和点阵要叠：
-     alkaid 的注释说"线网格模糊后仍是直纹，点阵被平均掉才成磨砂"。那是**透过玻璃看**
-     的结论。但背景本身（玻璃之外、侧栏边缘、页面留白）直接暴露给眼睛 —— 那一层需要
-     直纹才有"图纸感"。两层共存：直纹服务裸眼，点阵服务毛玻璃。 */
-.dark[data-theme-preset="abyss"] {
-  background-color: var(--background);
-  background-image:
-    /* ① 蓝图细网格（32px） */
-    linear-gradient(to right, rgba(120, 160, 220, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(120, 160, 220, 0.035) 1px, transparent 1px),
-    /* ② 主网格（128px）：每四格一条略亮的线，形成"主次网格" */
-    linear-gradient(to right, rgba(120, 160, 220, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(120, 160, 220, 0.06) 1px, transparent 1px),
-    /* ③ 点阵（28px，参考原值） */
-    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0),
-    /* ④ 光池：上缘偏右的主光（冷蓝）、左下副光、右下副光（中性灰） */
-    radial-gradient(1200px 680px at 76% -14%, rgba(92, 150, 255, 0.10), transparent 62%),
-    radial-gradient(900px 560px at 4% 106%, rgba(150, 158, 175, 0.06), transparent 60%),
-    radial-gradient(760px 480px at 96% 100%, rgba(56, 190, 220, 0.05), transparent 62%),
-    /* ⑤ 顶部横向光带：控制台受光面 */
-    linear-gradient(to bottom, rgba(140, 190, 255, 0.05), transparent 180px),
-    /* ⑥ 四角暗角 */
-    radial-gradient(ellipse 120% 100% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.35) 100%);
-  background-size:
-    32px 32px,
-    32px 32px,
-    128px 128px,
-    128px 128px,
-    28px 28px,
-    100% 100%,
-    100% 100%,
-    100% 100%,
-    100% 100%,
-    100% 100%;
-  background-attachment: fixed;
-  background-position: center;
-}
-
-/* body 必须透明，否则实色底把上面的点阵整块盖住（实测过：88% 不透明时完全看不见） */
+/* body 透明：让固定定位的背板组件在下层透出来 */
 .dark[data-theme-preset="abyss"] body {
   background-color: transparent;
+}
+/* 画布本身只留底色，纹理全部交给 .abyss-backdrop（这样视差/光扫只动合成层） */
+.dark[data-theme-preset="abyss"] {
+  background-image: none;
+  background-color: var(--background);
 }
 
 /* 侧栏：与地面同色 + 半透，让点阵与光池从下面透上来（参考的 shell-sidebar 就是同值）。
@@ -466,4 +422,174 @@ value: abyss
 [data-theme-preset="abyss"] [data-slot="radio-group-item"],
 [data-theme-preset="abyss"] [data-slot="scroll-area-thumb"] {
   border-radius: 9999px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   氛围背板（.abyss-backdrop）
+   ───────────────────────────────────────────────────────────────────────
+   五层 + 覆盖层，全部走 transform 合成，不触发重排/重绘：
+
+     far   128px 主网格 + 三重光池     ×0.004 位移（几乎不动 → 远景）
+     mid    32px 细网格 + 交点十字      ×0.010
+     near   28px 点阵                  ×0.018（动得最多 → 近景）
+     sweep  横向光扫（20s 一轮）       独立动画
+     vign   四角暗角                    固定
+
+   视差系数刻意极小：目的是"背景有纵深"，不是"背景跟着鼠标跑"。
+   位移量 = 归一化坐标(±1) × 系数 × 视口尺寸，最大约 4px/12px/8px。
+
+   只在 dark + abyss 下显示；其它主题 body 里这个 div 直接 display:none，
+   连监听都白装（但监听只在 mousemove 时算两行算术，成本可忽略）。
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.abyss-backdrop {
+  display: none;
+}
+
+.dark[data-theme-preset="abyss"] .abyss-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background-color: var(--background);
+}
+
+/* 内容层必须抬到背板之上；背板是 position:fixed + z-index:0，
+   而 body 里的兄弟节点都在同一个层叠上下文里，给它们一个更高的 z-index。 */
+.dark[data-theme-preset="abyss"] body > *:not(.abyss-backdrop) {
+  position: relative;
+  z-index: 1;
+}
+
+.abyss-backdrop__layer {
+  position: absolute;
+  /* 不用负 inset 外扩：那会让层的原点是小数（视口 × 3%），
+     1px 网格线因此跨两个物理像素渲染，抗锯齿把线"变粗变亮" —— 实测截图里
+     主网格看上去像 2~3px 的粗线就是这条。
+     inset:0 + 视差最大约 18px 时边缘会露一点，但兜底有同色 background-color，
+     肉眼不可见；而网格线严格落在整数像素上，才是 1px 的细线。 */
+  inset: 0;
+  will-change: transform;
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── 远景：主网格 128px + 三重光池 ── */
+.abyss-backdrop__layer--far {
+  background-image:
+    linear-gradient(to right, rgba(120, 160, 220, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120, 160, 220, 0.05) 1px, transparent 1px),
+    radial-gradient(1200px 680px at 76% -14%, rgba(92, 150, 255, 0.11), transparent 62%),
+    radial-gradient(900px 560px at 4% 106%, rgba(150, 158, 175, 0.06), transparent 60%),
+    radial-gradient(760px 480px at 96% 100%, rgba(56, 190, 220, 0.055), transparent 62%),
+    linear-gradient(to bottom, rgba(140, 190, 255, 0.05), transparent 180px);
+  background-size:
+    128px 128px,
+    128px 128px,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%;
+  transform: translate3d(
+    calc(var(--abyss-px, 0) * var(--abyss-far, 4px)),
+    calc(var(--abyss-py, 0) * var(--abyss-far, 4px)),
+    0
+  );
+}
+
+/* ── 中景：细网格 32px + 交点十字 ──
+   十字用两层 1px 渐变表示：每个 128px 交点处画一段 9px 的短线。
+   实现方式是"只在格子线的 1/14 处显色"——用两条 repeating-linear-gradient
+   叠加会太重，这里改用 background-image 的 4 条渐变（横竖各一条短线）。 */
+.abyss-backdrop__layer--mid {
+  background-image:
+    /* 细网格 */
+    linear-gradient(to right, rgba(120, 160, 220, 0.038) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120, 160, 220, 0.038) 1px, transparent 1px),
+    /* 交点十字：横线（9px 宽，居中在 128px 格点） */
+    linear-gradient(to right, transparent calc(50% - 4.5px), rgba(150, 190, 255, 0.16) calc(50% - 4.5px), rgba(150, 190, 255, 0.16) calc(50% + 4.5px), transparent calc(50% + 4.5px)),
+    /* 交点十字：竖线 */
+    linear-gradient(to bottom, transparent calc(50% - 4.5px), rgba(150, 190, 255, 0.16) calc(50% - 4.5px), rgba(150, 190, 255, 0.16) calc(50% + 4.5px), transparent calc(50% + 4.5px));
+  background-size:
+    32px 32px,
+    32px 32px,
+    128px 128px,
+    128px 128px;
+  transform: translate3d(
+    calc(var(--abyss-px, 0) * var(--abyss-mid, 10px)),
+    calc(var(--abyss-py, 0) * var(--abyss-mid, 10px)),
+    0
+  );
+}
+
+/* ── 近景：点阵 28px ── */
+.abyss-backdrop__layer--near {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0);
+  background-size: 28px 28px;
+  transform: translate3d(
+    calc(var(--abyss-px, 0) * var(--abyss-near, 18px)),
+    calc(var(--abyss-py, 0) * var(--abyss-near, 18px)),
+    0
+  );
+}
+
+/* ── 光扫：一条斜向高光每 20s 从左扫到右 ──
+   用 skew 让光带呈 20° 斜角（正水平的一条会像加载条，斜的才像环境光）。
+   动画只动 transform，不触发重绘。 */
+.abyss-backdrop__sweep {
+  position: absolute;
+  top: -20%;
+  left: -40%;
+  width: 40%;
+  height: 140%;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(120, 180, 255, 0.045) 42%,
+    rgba(160, 210, 255, 0.075) 50%,
+    rgba(120, 180, 255, 0.045) 58%,
+    transparent 100%
+  );
+  transform: translate3d(0, 0, 0) skewX(-18deg);
+  animation: abyss-sweep 20s linear infinite;
+  will-change: transform;
+}
+
+@keyframes abyss-sweep {
+  0% {
+    transform: translate3d(0, 0, 0) skewX(-18deg);
+  }
+  100% {
+    /* 从 -40% 扫到 260%（自身宽度的 40%），完整穿过视口并留出间隙 */
+    transform: translate3d(350%, 0, 0) skewX(-18deg);
+  }
+}
+
+/* ── 暗角：收拢视线 ── */
+.abyss-backdrop__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 120% 100% at 50% 50%, transparent 52%, rgba(0, 0, 0, 0.38) 100%);
+}
+
+/* ── 无障碍 / 省电：减少动态效果时停掉光扫与视差 ── */
+@media (prefers-reduced-motion: reduce) {
+  .abyss-backdrop__sweep {
+    animation: none;
+    opacity: 0.5;
+  }
+  .abyss-backdrop__layer {
+    transition: none;
+    transform: none !important;
+  }
+}
+.abyss-backdrop[data-abyss-still="1"] .abyss-backdrop__sweep {
+  animation: none;
+  opacity: 0.5;
+}
+.abyss-backdrop[data-abyss-still="1"] .abyss-backdrop__layer {
+  transform: none !important;
 }

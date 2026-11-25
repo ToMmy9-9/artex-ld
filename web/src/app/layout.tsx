@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 
 import type { Metadata } from "next";
 
+import { AbyssBackdrop } from "@/components/abyss-backdrop";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { APP_CONFIG } from "@/config/app-config";
@@ -43,6 +44,9 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         <ThemeBootScript />
       </head>
       <body className={`${fontVars} min-h-screen antialiased`}>
+        {/* 氛围背板：只在 dark + abyss 预设下显示（由 CSS 判定），
+            放 body 第一子元素以保证它永远在最底层。 */}
+        <AbyssBackdrop />
         <TooltipProvider>
           <PreferencesStoreProvider
             themeMode={theme_mode}
