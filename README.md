@@ -66,6 +66,16 @@
 - **上游 ARTEX**：能自主挖，状态在双图里，人在环路上。
 - **本仓库**：在"能自主挖"之上，把**任务怎么配、意图能不能执行、由谁执行、漏洞之后做什么**四个环节做成了可配置、可审批、可编排的产品能力；并把"报告"升级为**可追溯证据链交付**。
 
+### 界面速览
+
+<p align="center">
+  <img src="screenshots/dashboard.png" alt="仪表盘：任务、发现、资产、流量、Token 消耗" width="32%">
+  <img src="screenshots/graph.png" alt="探索图：目标 / 意图 / 事实 / 漏洞 / 提示与血缘边" width="32%">
+  <img src="screenshots/findings.png" alt="发现：跨任务漏洞汇总" width="32%">
+</p>
+
+> 截图为演示数据（`screenshots/` 目录），不代表真实目标。
+
 ---
 
 ## 2. 快速开始
