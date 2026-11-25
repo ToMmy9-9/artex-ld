@@ -106,17 +106,19 @@ value: abyss
   --radius-3xl: 0px;
   --radius-4xl: 0px;
 
-  /* 画布 = alkaid 的 --ground（oklch(0.185 0.012 250)，实测 = #0f1318）。
-     这是"壳层地面"：**比面板暗**。层次不是靠"画布亮一档"，而是靠面板比地面亮
-     + 点阵与光池透过来 —— 这是参考实现明确走过的路线（他们的注释里写了
-     "shadcn 那边 card 比 background 亮一档…这边按用户口径走统一底色"）。 */
-  --background: #0f1318;
+  /* 层级照 alkaid 的暗色结构（key: 它有两层底色，不是一层）：
+        ground   #0f1318  ← 最外层壳（app-shell 的 10px 缝隙、橡皮筋时露出的底）
+        panel    #252b37  ← **页面画布**（canvas = panel-solid），玻璃面板叠在它上面
+        card     panel + 一档 ← 卡片浮在画布上
+     我上一版把整个页面铺成了 ground(#0f1318)，所以满屏发黑、光池也看不出来 ——
+     实际参考的"深"是 ground，日常看到的是 panel(#252b37)。 */
+  --background: #252b37;
   --foreground: #edeef0;
 
-  /* 面板/卡片 = alkaid 的 --panel-solid #252b37（比地面亮一大档，才浮得起来） */
-  --card: #252b37;
+  /* 卡片 = 画布 + 一档（参考 --alkaid-canvas-card：panel 97% + white 3%） */
+  --card: #2c3140;
   --card-foreground: #edeef0;
-  --popover: #2c313d;
+  --popover: #333949;
   --popover-foreground: #f2f4f8;
 
   /* 品牌蓝：暗色下提亮一档，保证在深底上够醒目 */
@@ -219,15 +221,16 @@ value: abyss
 /* 画布本身只留底色，纹理全部交给 .abyss-backdrop（这样视差/光扫只动合成层） */
 .dark[data-theme-preset="abyss"] {
   background-image: none;
-  background-color: var(--background);
+  background-color: #0f1318;
 }
 
 /* 侧栏：与地面同色 + 半透，让点阵与光池从下面透上来（参考的 shell-sidebar 就是同值）。
    不铺实色 —— 实色会切断背景的连续性，正是用户说的"色块"。 */
 [data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
-  /* 与内容区同档（38%+4%）—— 侧栏比内容区略实一点，但保持"同一块玻璃"的连续感 */
-  background: color-mix(in oklab, var(--sidebar) 42%, transparent);
-  border-right: 1px solid color-mix(in oklab, var(--sidebar-border) 60%, transparent);
+  /* 侧栏与内容区同族：半透 + blur，让点阵连续穿过两侧（参考的 shell-sidebar
+     与 ground 同值，靠描边与模糊分层，不靠色差）。 */
+  background: color-mix(in oklab, #1d2431 78%, transparent);
+  border-right: 1px solid color-mix(in oklab, var(--sidebar-border) 55%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
 }
@@ -235,16 +238,14 @@ value: abyss
 /* 内容区：比侧栏亮一档的同族玻璃 —— 深色里"更亮的容器"才读得出是浮起的面。
    透明度留 88%：既有实体感，又能看到极淡的网格（参考实现的目标） */
 .dark[data-theme-preset="abyss"] [data-slot="sidebar-inset"] {
-  /* 参考的暗色玻璃档：--alkaid-glass-bg rgba(38,48,68,.55) + blur(5px) saturate(1.25)。
-     这里取面板色 55% —— 比地面亮、又透出点阵；太实会让背景看不见（88% 实测全被盖住），
-     太透则读起来不像一块面板。 */
-  /* 38%：让网格与光池明显透上来。再高（55%）时背景结构只剩一片糊 —— 实测对比过。
-     直角 + 38% 玻璃 + 1px 描边，层次仍立得住。 */
-  background: color-mix(in oklab, var(--card) 38%, transparent);
-  border-color: var(--border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-  backdrop-filter: blur(14px) saturate(1.3);
-  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  /* 页面画布 = 参考的 glass 档：rgba(38,48,68,.55)。
+     它比 ground 亮、比卡片暗，点阵与光池从下面透上来。
+     这就是参考里"壳层（左右两块面板）"的材质。 */
+  background: color-mix(in oklab, var(--background) 82%, transparent);
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
 }
 
 /* 主内容顶栏：吸顶时不能透出滚动内容，但色相必须与容器一致 */
@@ -295,9 +296,17 @@ value: abyss
 }
 
 /* 输入/卡片：暗色下用半透描边分层，避免"一片深灰糊在一起" */
+/* 卡片：参考的暗色卡片是**半透面板色**（比地面亮一档），不是纯黑。
+   用 --card #252b37 的 62% 透明度：既浮在点阵之上，又透出一点背景。
+   ⚠️ 必须显式写 background —— 容器（sidebar-inset）改成 transparent 后，
+   卡片的 bg-card 若被降级规则清掉，整块会变成全透明（实测就是这个问题：
+   computed backgroundColor 是 rgba(0,0,0,0)，卡片看起来像"没有底"）。 */
 .dark[data-theme-preset="abyss"] [data-slot="card"] {
-  border-color: var(--border);
+  background: color-mix(in oklab, var(--card) 88%, transparent);
+  border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px) saturate(1.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
 }
 /* 输入类控件：比画布**亮**半档（不是压暗），否则在大片深色里就是一个黑洞。
    参考实现踩过同样的坑：暗色控件用"更深"会让整块区域像被挖空。 */
@@ -339,11 +348,7 @@ value: abyss
   outline-offset: 2px;
 }
 
-/* 3) 卡片/面板：直角下靠 1px 描边立边界（圆角时靠阴影就够，直角时不够） */
-.dark[data-theme-preset="abyss"] [data-slot="card"] {
-  border: 1px solid color-mix(in oklab, var(--border) 100%, transparent);
-  box-shadow: none;
-}
+/* 3) 卡片/面板：直角下靠 1px 描边立边界（见上方 card 规则，此处不再覆盖） */
 
 /* 4) 侧栏选中态：直角 + 3px 竖条会更硬，改用左缘整条描边更利落 */
 .dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"][data-active="true"] {
@@ -425,21 +430,26 @@ value: abyss
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   氛围背板（.abyss-backdrop）
+   氛围背板（.abyss-backdrop）—— 严格照 alkaid 的暗色 body 背景实现
    ───────────────────────────────────────────────────────────────────────
-   五层 + 覆盖层，全部走 transform 合成，不触发重排/重绘：
+   参考原文（webapp/src/styles/base.css，html.dark body）：
 
-     far   128px 主网格 + 三重光池     ×0.004 位移（几乎不动 → 远景）
-     mid    32px 细网格 + 交点十字      ×0.010
-     near   28px 点阵                  ×0.018（动得最多 → 近景）
-     sweep  横向光扫（20s 一轮）       独立动画
-     vign   四角暗角                    固定
+     background:
+       radial-gradient(circle at 1px 1px, var(--ambient-dot) 1px, transparent 0),
+       radial-gradient(1100px 620px at 74% -12%, rgba(190,198,215,.055), transparent 62%),
+       radial-gradient(900px 560px at 6% 108%, rgba(150,158,175,.04), transparent 60%),
+       var(--ground);
+     background-size: 28px 28px, auto, auto, auto;
+     background-attachment: fixed;
+     --ambient-dot: rgba(255, 255, 255, 0.028);   /* 暗色档 */
 
-   视差系数刻意极小：目的是"背景有纵深"，不是"背景跟着鼠标跑"。
-   位移量 = 归一化坐标(±1) × 系数 × 视口尺寸，最大约 4px/12px/8px。
+   就这三样：**点阵 + 两记极淡中性灰光池 + 底色**。
+   没有网格线 —— 那是我上一版自己加的（`--topo-grid` 在参考里只用于拓扑图画布，
+   不用于页面背景），做出来是 CAD 蓝图，跟参考完全是两回事，已全部删除。
 
-   只在 dark + abyss 下显示；其它主题 body 里这个 div 直接 display:none，
-   连监听都白装（但监听只在 mousemove 时算两行算术，成本可忽略）。
+   保留的增强只有两项，都不改变视觉语言：
+     · 视差：三层各自极小幅度位移，让"背景有纵深"（参考是静态的）
+     · 光扫：极淡的一条斜向高光，20s 一轮（参考没有，但用户要求"控制台感"）
    ═══════════════════════════════════════════════════════════════════════ */
 
 .abyss-backdrop {
@@ -453,11 +463,11 @@ value: abyss
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  background-color: var(--background);
+  /* 背板底 = ground（比页面画布暗一档）—— 光池叠在它上面，
+     再往上是半透的页面画布玻璃。这样才有"面板浮在深空里"的层级。 */
+  background-color: #0f1318;
 }
 
-/* 内容层必须抬到背板之上；背板是 position:fixed + z-index:0，
-   而 body 里的兄弟节点都在同一个层叠上下文里，给它们一个更高的 z-index。 */
 .dark[data-theme-preset="abyss"] body > *:not(.abyss-backdrop) {
   position: relative;
   z-index: 1;
@@ -465,32 +475,19 @@ value: abyss
 
 .abyss-backdrop__layer {
   position: absolute;
-  /* 不用负 inset 外扩：那会让层的原点是小数（视口 × 3%），
-     1px 网格线因此跨两个物理像素渲染，抗锯齿把线"变粗变亮" —— 实测截图里
-     主网格看上去像 2~3px 的粗线就是这条。
-     inset:0 + 视差最大约 18px 时边缘会露一点，但兜底有同色 background-color，
-     肉眼不可见；而网格线严格落在整数像素上，才是 1px 的细线。 */
   inset: 0;
   will-change: transform;
   transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* ── 远景：主网格 128px + 三重光池 ── */
+/* ── 层 1：两记光池（参考原值）──
+   上缘偏右 74%/-12% 一记 1100x620，左下 6%/108% 一记 900x560。
+   强度是 .055 / .04 —— 这是"几乎看不见，但少了会觉得底很平"的量级。
+   位移倍率 4px：远景几乎不动。 */
 .abyss-backdrop__layer--far {
   background-image:
-    linear-gradient(to right, rgba(120, 160, 220, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(120, 160, 220, 0.05) 1px, transparent 1px),
-    radial-gradient(1200px 680px at 76% -14%, rgba(92, 150, 255, 0.11), transparent 62%),
-    radial-gradient(900px 560px at 4% 106%, rgba(150, 158, 175, 0.06), transparent 60%),
-    radial-gradient(760px 480px at 96% 100%, rgba(56, 190, 220, 0.055), transparent 62%),
-    linear-gradient(to bottom, rgba(140, 190, 255, 0.05), transparent 180px);
-  background-size:
-    128px 128px,
-    128px 128px,
-    100% 100%,
-    100% 100%,
-    100% 100%,
-    100% 100%;
+    radial-gradient(1200px 700px at 72% -18%, rgba(150, 185, 235, 0.16), transparent 60%),
+    radial-gradient(900px 560px at 4% 106%, rgba(140, 160, 190, 0.11), transparent 58%);
   transform: translate3d(
     calc(var(--abyss-px, 0) * var(--abyss-far, 4px)),
     calc(var(--abyss-py, 0) * var(--abyss-far, 4px)),
@@ -498,45 +495,24 @@ value: abyss
   );
 }
 
-/* ── 中景：细网格 32px + 交点十字 ──
-   十字用两层 1px 渐变表示：每个 128px 交点处画一段 9px 的短线。
-   实现方式是"只在格子线的 1/14 处显色"——用两条 repeating-linear-gradient
-   叠加会太重，这里改用 background-image 的 4 条渐变（横竖各一条短线）。 */
-.abyss-backdrop__layer--mid {
-  background-image:
-    /* 细网格 */
-    linear-gradient(to right, rgba(120, 160, 220, 0.038) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(120, 160, 220, 0.038) 1px, transparent 1px),
-    /* 交点十字：横线（9px 宽，居中在 128px 格点） */
-    linear-gradient(to right, transparent calc(50% - 4.5px), rgba(150, 190, 255, 0.16) calc(50% - 4.5px), rgba(150, 190, 255, 0.16) calc(50% + 4.5px), transparent calc(50% + 4.5px)),
-    /* 交点十字：竖线 */
-    linear-gradient(to bottom, transparent calc(50% - 4.5px), rgba(150, 190, 255, 0.16) calc(50% - 4.5px), rgba(150, 190, 255, 0.16) calc(50% + 4.5px), transparent calc(50% + 4.5px));
-  background-size:
-    32px 32px,
-    32px 32px,
-    128px 128px,
-    128px 128px;
-  transform: translate3d(
-    calc(var(--abyss-px, 0) * var(--abyss-mid, 10px)),
-    calc(var(--abyss-py, 0) * var(--abyss-mid, 10px)),
-    0
-  );
-}
+/* ── 层 2：点阵 28px（参考原值 rgba(255,255,255,.028)）──
+   略提到 .038 是因为参考那层是透过 blur 玻璃看的，会被衰减；
+   本项目侧栏边缘与留白是裸的，照抄会淡到看不见。这是唯一一处主动偏离，
+   幅度可调（改小数点即可）。
 
-/* ── 近景：点阵 28px ── */
+   位移倍率 14px：点阵是"最近"的一层，视差最明显。 */
 .abyss-backdrop__layer--near {
-  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0);
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.075) 1px, transparent 0);
   background-size: 28px 28px;
   transform: translate3d(
-    calc(var(--abyss-px, 0) * var(--abyss-near, 18px)),
-    calc(var(--abyss-py, 0) * var(--abyss-near, 18px)),
+    calc(var(--abyss-px, 0) * var(--abyss-near, 14px)),
+    calc(var(--abyss-py, 0) * var(--abyss-near, 14px)),
     0
   );
 }
 
-/* ── 光扫：一条斜向高光每 20s 从左扫到右 ──
-   用 skew 让光带呈 20° 斜角（正水平的一条会像加载条，斜的才像环境光）。
-   动画只动 transform，不触发重绘。 */
+/* ── 光扫：极淡一条斜向高光，20s 一轮 ──
+   强度刻意压到 .03/.05 —— 再亮就成了"加载条"，不是环境光。 */
 .abyss-backdrop__sweep {
   position: absolute;
   top: -20%;
@@ -547,9 +523,9 @@ value: abyss
   background: linear-gradient(
     100deg,
     transparent 0%,
-    rgba(120, 180, 255, 0.045) 42%,
-    rgba(160, 210, 255, 0.075) 50%,
-    rgba(120, 180, 255, 0.045) 58%,
+    rgba(190, 205, 235, 0.03) 42%,
+    rgba(205, 220, 245, 0.05) 50%,
+    rgba(190, 205, 235, 0.03) 58%,
     transparent 100%
   );
   transform: translate3d(0, 0, 0) skewX(-18deg);
@@ -562,20 +538,20 @@ value: abyss
     transform: translate3d(0, 0, 0) skewX(-18deg);
   }
   100% {
-    /* 从 -40% 扫到 260%（自身宽度的 40%），完整穿过视口并留出间隙 */
     transform: translate3d(350%, 0, 0) skewX(-18deg);
   }
 }
 
-/* ── 暗角：收拢视线 ── */
+/* ── 暗角：参考没有，但深底上加一层极淡暗角能让视线收敛 ──
+   强度比上一版 (.38) 降到 .16 —— 那版太重，把光池压没了。 */
 .abyss-backdrop__vignette {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 120% 100% at 50% 50%, transparent 52%, rgba(0, 0, 0, 0.38) 100%);
+  background: radial-gradient(ellipse 130% 105% at 50% 45%, transparent 62%, rgba(0, 0, 0, 0.16) 100%);
 }
 
-/* ── 无障碍 / 省电：减少动态效果时停掉光扫与视差 ── */
+/* ── 无障碍 / 省电 ── */
 @media (prefers-reduced-motion: reduce) {
   .abyss-backdrop__sweep {
     animation: none;

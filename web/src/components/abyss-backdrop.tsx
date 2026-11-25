@@ -67,11 +67,9 @@ export function AbyssBackdrop() {
 
   return (
     <div ref={ref} className="abyss-backdrop" aria-hidden="true">
-      {/* 远景：大网格 + 光池（位移最小） */}
+      {/* 层1：两记极淡中性灰光池（位移最小） */}
       <div className="abyss-backdrop__layer abyss-backdrop__layer--far" />
-      {/* 中景：细网格 + 交点十字 */}
-      <div className="abyss-backdrop__layer abyss-backdrop__layer--mid" />
-      {/* 近景：点阵（位移最大，制造视差） */}
+      {/* 层2：28px 点阵（位移最大，制造视差） */}
       <div className="abyss-backdrop__layer abyss-backdrop__layer--near" />
       {/* 光扫：独立横向漂移 */}
       <div className="abyss-backdrop__sweep" />
