@@ -190,19 +190,55 @@ value: abyss
   filter: blur(2px);
 }
 
+/* ═══════════ 背景：深空网格 + 蓝调光斑 ═══════════
+   参考实现那句"深蓝黑底 + 蓝调网络从面板下透出来"就是这一层：
+   - 一层 40px 细网格（极低白透明度，只做"有纵深"的暗示，不是可见格子）
+   - 左上蓝光池 + 右下青光池（大面积、极低透明度，避免脏）
+   - background-attachment: fixed —— 滚动时网格不动，才有"面板浮在空间里"的感觉
+   画在 html 上、body 透明，这样半透明面板能真正透出它。 */
+.dark[data-theme-preset="abyss"] {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(ellipse 90% 60% at 12% -10%, rgba(92, 166, 255, 0.22), transparent 64%),
+    radial-gradient(ellipse 70% 55% at 92% 108%, rgba(56, 211, 228, 0.14), transparent 64%),
+    radial-gradient(ellipse 55% 40% at 78% -6%, rgba(126, 120, 255, 0.09), transparent 60%),
+    linear-gradient(to right, rgba(120, 170, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120, 170, 255, 0.055) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    48px 48px,
+    48px 48px;
+  background-attachment: fixed, fixed, fixed, fixed, fixed;
+}
+/* body 透明：让上面的网格透上来（否则被 body 的实色底整块盖住） */
+.dark[data-theme-preset="abyss"] body {
+  background-color: transparent;
+}
+
 /* ── 壳层：把 shadcn 的 sidebar/inset 版面拉进 Abyss 的材质语言 ─────────
    这里只改**表面**（背景/描边/圆角接缝），不动布局与交互；用属性选择器挂在
    data-theme-preset=abyss 上，所以切到其它主题时这些样式完全不生效。 */
+
+/* 侧栏：同色玻璃（半透 + 模糊），背景网格从下面透上来 */
 [data-theme-preset="abyss"] [data-slot="sidebar-inner"] {
-  background: var(--sidebar);
+  background: color-mix(in oklab, var(--sidebar) 82%, transparent);
   border-right: 1px solid var(--sidebar-border);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
 }
 
-/* 内容区：与侧栏同色相、亮一档 —— 深色里"更亮的容器"才读得出是浮起的面 */
+/* 内容区：比侧栏亮一档的同族玻璃 —— 深色里"更亮的容器"才读得出是浮起的面。
+   透明度留 88%：既有实体感，又能看到极淡的网格（参考实现的目标） */
 .dark[data-theme-preset="abyss"] [data-slot="sidebar-inset"] {
-  background: var(--background);
+  /* 62%：既保住"面板是实体"的观感，又能看见背后的网格与光池。
+     88% 时网格被整块盖住 —— 实测对比后取这个值。 */
+  background: color-mix(in oklab, var(--background) 62%, transparent);
   border-color: var(--border);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 4%);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 5%);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
 }
 
 /* 主内容顶栏：吸顶时不能透出滚动内容，但色相必须与容器一致 */
@@ -214,14 +250,29 @@ value: abyss
   border-bottom: 1px solid var(--border);
 }
 
-/* 侧栏选中项：品牌蓝的极低透明度底 + 左侧 2px 指示条，不用实色块铺面 */
-/* 选中项：沿用组件自身的圆角（不覆盖 radius），只用"品牌蓝低透明底 +
-   左侧 3px 指示条"表达状态 —— 实色高亮块会在深色侧栏里显得很重。 */
+/* 选中项：右侧是"拉直的竖线"，不是跟着圆角走的 inset shadow。
+   原来用 inset box-shadow 画指示条时，线的两端会被圆角切成弧形，看着像个小括号；
+   改成独立绝对定位的竖条后两端是齐平直角 —— 侧栏导航这类纵向列表要的就是这个观感。 */
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"] {
+  position: relative;
+}
 .dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"][data-active="true"] {
-  background: color-mix(in oklab, var(--primary) 14%, transparent);
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
   color: #eef1f7;
   font-weight: 500;
-  box-shadow: inset 3px 0 0 var(--primary);
+  box-shadow: none;
+}
+.dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"][data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 62%;
+  border-radius: 1px;
+  background: var(--primary);
+  box-shadow: 0 0 10px color-mix(in oklab, var(--primary) 55%, transparent);
 }
 .dark[data-theme-preset="abyss"] [data-slot="sidebar-menu-button"][data-active="true"] svg {
   color: var(--primary);
