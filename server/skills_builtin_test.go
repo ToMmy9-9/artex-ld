@@ -32,6 +32,9 @@ var portedSkills = []string{
 	"route-guard-bypass",
 	"response-modifier",
 	"tool-arsenal",
+	// api-authz：越权双身份差分方法论（BOLA/BFLA），不在上游 PTS 集合里，
+	// 由本仓库新增，仍按内置 skill 的加载/绑定约束走同一套测试。
+	"api-authz",
 }
 
 // TestSkillsDirHasNoStrayMarkdown guards against stray .md files in the skills

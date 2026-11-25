@@ -61,10 +61,13 @@ type Planner struct {
 	// target_executor but never told which keys exist or what they are good
 	// at, so it can only guess.
 	executorCatalogFn func() string
-	checkExecutor   func(key string) error  // §2.9.3：target_executor 合法性校验（nil = 不校验）
+	checkExecutor     func(key string) error // §2.9.3：target_executor 合法性校验（nil = 不校验）
 	// resolveTraffic maps a finding's structured reproduction steps to the real
 	// recorded MITM exchange ids (【AntiFox 证据驱动交付】host callback).
 	resolveTraffic func(taskID int64, repro json.RawMessage) json.RawMessage
+	// guardStatsFn returns the task's platform-governance counters for
+	// graph_overview (blocked / ask / denied). nil = omit the block.
+	guardStatsFn func() any
 
 	// todos keeps ONE plan-scratchpad per task (keyed by exploration id) so the
 	// planner's multi-step plan survives across wake-ups — each Plan() is a fresh
@@ -84,6 +87,10 @@ func (p *Planner) SetCompactionWindowResolver(fn func() int) { p.windowFn = fn }
 // planner wake-up to advance the round counter, maintain cold stamps, and
 // (off the hot path) fold cold nodes into digests. nil = feature disabled.
 func (p *Planner) SetCompactor(c *Compactor) { p.compactor = c }
+
+// SetGuardStats wires a resolver returning this task's guard/intercept counters.
+// Read each round so a rebuilt Guard is picked up without rebuilding the Planner.
+func (p *Planner) SetGuardStats(fn func() any) { p.guardStatsFn = fn }
 
 // SetNonStreaming wires a resolver deciding whether runs use the non-streaming
 // model path (true = non-streaming). nil/unset = streaming (default).
@@ -376,11 +383,12 @@ const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 
 **每次唤醒的决策流程**：
 
-1. **完整态势已附在本提示下方**（就是 graph_overview 的返回，无需再调它）：task（原始标题+目标/根节点）、资产计数、goals+状态、open/running/recent_done 意图、sites_without_endpoints（无端点的站点，提示可能待探的方向）、facts（探索事实数，与漏洞是两类）、recent_facts（{id,summary,confidence?}）。
+1. **完整态势已附在本提示下方**（就是 graph_overview 的返回，无需再调它）：task（原始标题+目标/根节点）、资产计数、goals+状态、open/running/recent_done 意图、sites_without_endpoints（无端点的站点，提示可能待探的方向）、facts（探索事实数，与漏洞是两类）、recent_facts（{id,summary,confidence?}）、guard_stats（平台管控计数：denied=被拦截规则拒绝、ask_denied=人工审批拒/超时、ask_allowed=审批放行、target_blocked=目标侧 WAF/403/429 命中，by_tool 是分工具明细）。
    - **范围**：探索节点（goals/意图/facts/findings）只含本任务；**资产默认按任务隔离**（仅本任务及明确关联任务；用户开启「共享全局资产」后可查询全库）——出现非本任务相关的资产时忽略。
    - **血缘**：每个意图带 parents（上游：派生自哪些事实/意图）和 yields（下游：产生了哪些事实/发现），recent_facts 每条带 from_intent；据此理解"哪些事实来自哪个方向、能否综合出新方向"。
    - **否定/存疑观察**（recent_facts 里"端口关闭/不可注入"等）是 worker 的观察、不是定论：采信前先 node_detail(id) 看 evidence——evidence 扎实、confidence=observed 且手段已穷尽的才视为该方向暂时封住；evidence 缺失、只是"看起来像/只探一次"、或 confidence=inferred 的，按【尚未探明】处理，若在范围内且无其它意图覆盖，默认派一条复核意图去证实或推翻（**同一否定方向至多复核一次**；复核后仍为否定、且证据合理，就尊重该结论、不再派）。
-   - **要更深细节才按需调**：list_facts（分页，最新在前，默认 20，可 q 过滤、before 翻页，带 total/has_more）、list_findings（全部漏洞）、node_detail(id)（完整证据/详情；列表/recent_facts 只给摘要）、list_assets（pull：q 搜索、type/company_id/task_id 过滤、分页，或 id/ids 直取）、asset_neighbors。资产是否共享由用户设置决定，不能自行开启；共享不代表扩大测试授权。
+   - **平台管控 vs 目标防御**（看 guard_stats）：denied / ask_denied 高说明该方向是【平台策略】在挡（授权范围、破坏性动作、写操作未获批），继续换写法重试只会一直被打回——应当换方向，或明确说明为何需要放开该策略；target_blocked 高才是目标侧 WAF/限流，才值得换编码/换入口/降速。两者混淆会让 planner 把合规拦截当成待绕过的障碍。
+   - **要更深细节才按需调**：list_facts（分页，最新在前，默认 20，可 q 过滤、before 翻页，带 total/has_more）、list_findings（全部漏洞）、node_detail(id)（完整证据/详情；列表/recent_facts 只给摘要）、list_assets（DSL 查询：field=value 模糊/== 精确/> >= < 比较，type/company_id/task_id 过滤，分页，或 id/ids 直取）、asset_neighbors(id, depth)（资产图谱上下级：根域→子域→IP→服务→端点，返回 descendants 与 parents，用来看"这个站下面有哪些服务/端点"而不是靠字符串猜）。资产是否共享由用户设置决定，不能自行开启；共享不代表扩大测试授权。
 
 2. **判目标（核心职责）**：goals 字段已含目标与状态；对已被某发现/事实证明的未达成目标，调 prove_goal(goal_id, evidence_id, reason) 标 met。**当你标记的恰是最后一个未完成目标时，系统自动判定整个任务完成**——收官只由逐个 prove_goal 驱动，没有别的"一键完成"手段。
    - ⚠️ **量化验收核对（严禁提前盖章）**：目标含可量化条件（覆盖度达 X%、达到指定数量、获得某权限）时，prove_goal 前【必须】核对上方 graph_overview 的实测值（coverage.pct、findings_total 计数等）：未达标就【禁止】prove_goal，改派意图补差；不得以"大体达成/核心已拿下"为由提前标 met。例：要求覆盖度 100% 而实测 coverage.pct=40% → 未达成，继续派补测意图。
@@ -573,6 +581,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		tsx.SetAssetStore(as, as.Companies())
 	}
 	tsx.SetTaskID(taskID)
+	tsx.SetGuardStats(p.guardStatsFn)
 	tsx.SetCoverageEnabled(as == nil || as.CoverageEnabled(taskID))
 	tsx.killWork = p.killWork   // enable kill_work tool (nil = unavailable)
 	tsx.steerWork = p.steerWork // enable steer_work tool (nil = unavailable)

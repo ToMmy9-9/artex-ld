@@ -217,7 +217,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 | | DeepSeek Search API 接入 | `agent/deepseek_search.go` | RuoJi6 |
 | **可观测** | 实时日志流/历史、访问日志、系统审计、系统指标 | `server/logsink.go`、`server/accesslog.go`、`db/audit.go` | 二开 + RuoJi6 |
 | | 通知：钉钉/企微/飞书/Telegram/邮件/Webhook，模板、过滤、脱敏、令牌桶限流、SSRF 防护 | `notify/`、`server/notifier.go` | 二开 + RuoJi6 |
-| **扩展** | 31 个内置 Skill；上传/zip 导入；按 agent 可见性；使用账本 | `skills/`、`db/skill_usage.go`、`server/skills_*.go` | 上游 + 二开 |
+| **扩展** | 32 个内置 Skill（含新增 `api-authz` 越权双身份差分 + CWE→技能索引）；上传/zip 导入；按 agent 可见性；使用账本 | `skills/`、`db/skill_usage.go`、`server/skills_*.go` | 上游 + 二开 |
 | | MCP（Streamable HTTP / 旧版 SSE）、工具发现缓存、按 agent 授权 | `mcphttp/`、`db/mcp_servers.go`、`server/mcpdiscover.go` | 上游 + 二开 |
 | | 自定义工具与工具环境预置；内置工具描述/schema 可由 DB 覆盖 | `db/tool_defaults.go`、`db/tool_env_preps.go`、`agent/toolcatalog.go` | 二开 |
 | | ScopeSentry 资产测绘同步（subdomain/app/service/ip） | `server/sync_scopesentry.go` | 二开 |
@@ -384,11 +384,11 @@ flowchart TB
 | `selfupdate` | 下载、SHA256 校验、冒烟、原子换装、回滚 |
 | `xlog` | 日志级别与 DEBUG 热切换 |
 | `web` | Next.js 16 / React 19 前端（静态导出，33 个路由页面） |
-| `skills` | 31 个内置方法论 Skill（文件系统为权威源，DB 管可见性） |
+| `skills` | 32 个内置方法论 Skill（含 `api-authz`；文件系统为权威源，DB 管可见性） |
 
 ### 5.3 数据与存储
 
-- **PostgreSQL**：当前 **83 张表**（`schema.sql` 81 张 + 运行时创建的 `llm_records` / `llm_usage`），覆盖任务/探索图/资产图、finding 与案例、证据与流量绑定、
+- **PostgreSQL**：当前 **84 张表**（`schema.sql` 82 张 + 运行时创建的 `llm_records` / `llm_usage`，新增 `asset_edges`），覆盖任务/探索图/资产图、finding 与案例、证据与流量绑定、
   报告模板与登记、知识库、调度、通知、LLM 记录、审计、归档、拓扑、配置与工具目录。
 - **本地目录**：`data/`（流量正文、证据、附件、归档包、更新暂存、JWT key）、`skills/`。
 - **升级即迁移**：每次启动幂等重跑 `db/schema.sql`（`ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`），
@@ -557,6 +557,8 @@ worker 领取有五道前门（并发、任务态、Frontier、CAS、预算/截�
 ### 7.4 资产与流量
 
 - 资产：域名/IP/站点/服务/应用，C 段归组、拓扑画布、分组布局、资产 DSL 查询、跨任务共享开关。
+- **资产图谱边**：`root_domain → subdomain → ip → service → endpoint` 显式落库（`asset_edges`），
+  支持递归查子树与最短路径；agent 用 `asset_neighbors(id, depth)`，前端用 `GET /api/assets/{id}/neighbors`。
 - 授权范围：企业/公司 + 任务 scope，工具与资产写入受 scope 约束。
 - MITM 流量：`:8788` 录制经代理的请求/响应，支持检索、回看、导出与证据快照。
 - 请求重放：类 Burp Repeater，支持历史、过滤、SSRF 防护。
@@ -578,7 +580,7 @@ worker 领取有五道前门（并发、任务态、Frontier、CAS、预算/截�
 
 ### 7.7 扩展体系
 
-- **Skill**：31 个内置方法论（API 侦察、指纹、SQLi/XSS/SSRF/XXE/反序列化、云与容器、内网渗透、
+- **Skill**：32 个内置方法论（API 侦察、**越权双身份差分 api-authz**、指纹、SQLi/XSS/SSRF/XXE/反序列化、云与容器、内网渗透、
   代码审计、事件响应等）；支持上传 zip、按 agent 可见性、使用账本。
 - **工具**：内置领域工具由 DB 目录化（描述/schema 可在 UI 覆盖，handler 不可改）；
   自定义工具、工具环境预置、按 agent 绑定。
@@ -691,9 +693,9 @@ artex-ld/
 ├── selfupdate/           # 自更新
 ├── guard/ enrich/ sidequestion/ xlog/  # 守卫、富化、旁路问题、日志
 ├── web/                  # Next.js 16 前端（静态导出）
-├── skills/               # 31 个内置方法论 Skill
+├── skills/               # 32 个内置方法论 Skill（含 api-authz）
 ├── docs/                 # 部署、代码链、安全、迁移、流量证据等文档
-├── db/schema.sql         # 83 张表（含运行时表）+ 幂等迁移 DDL
+├── db/schema.sql         # 84 张表（含运行时表）+ 幂等迁移 DDL
 ├── ARCHITECTURE.md       # 逐文件职责树
 └── CHANGELOG.md
 ```
@@ -719,7 +721,7 @@ artex-ld/
    做过启动冒烟，arm64 / macOS / Windows 为交叉编译产物，未实机运行。Docker 镜像发布需配置
    `ARTEX_DOCKER_IMAGE` 与 Docker Hub 凭据；未配置时流水线自动跳过 Docker 步骤，
    不影响二进制与 GitHub Release；Demo 部署同理（缺 Vercel 配置时跳过而非失败）。
-8. **文档与实现可能漂移**：本 README 按当前 `master` 代码核对（83 表 / 378 路由 / 31 Skill / 33 页面）；
+8. **文档与实现可能漂移**：本 README 按当前 `master` 代码核对（84 表 / 379 路由 / 32 Skill / 33 页面）；
    具体函数级行为以代码和 [全流程代码链文档](docs/ARTEX-二开-全流程代码链文档.md) 为准。
 9. **前端为静态导出**：多语言是本地 `i18n-lite` 文案表，不是完整 i18n 框架；新增语言需改前端源码。
 10. **合规责任在使用者**：工具的授权范围、数据保护、报告真实性由操作者与出具方负责。

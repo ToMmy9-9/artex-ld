@@ -554,7 +554,26 @@ ON CONFLICT (domain, COALESCE(record_type,'')) WHERE type = 'subdomain' DO UPDAT
     extra        = assets.extra || EXCLUDED.extra,
     last_seen    = now()
 RETURNING id`, domain, rootDomain, recordType, recordValueArr, ipVal, csegVal, icpVal, companyID, taskIDs).Scan(&id)
-	return id, err
+	if err != nil {
+		return 0, err
+	}
+	// 资产图边：root_domain --contains--> subdomain；subdomain --resolves_to--> ip。
+	// 边是 best-effort（addAssetEdge 内部吞错），不会让资产入库失败。
+	if rootID, ok := s.findAssetIDByDomain(rootDomain); ok && rootID != id {
+		s.addAssetEdge(rootID, id, AssetRelContains)
+	}
+	for _, rv := range req.RecordValue {
+		for _, part := range strings.Split(rv, ",") {
+			candidate := strings.TrimSpace(part)
+			if candidate == "" || net.ParseIP(candidate) == nil {
+				continue
+			}
+			if ipID, ok := s.findAssetIDByIP(candidate); ok {
+				s.addAssetEdge(id, ipID, AssetRelResolvesTo)
+			}
+		}
+	}
+	return id, nil
 }
 
 // =====================================================================
@@ -807,6 +826,9 @@ RETURNING id`,
 			TaskID:       req.TaskID,
 		})
 	}
+	// 资产图边：ip --hosts--> service / domain --serves--> service。
+	// 必须放在上面的 host 资产落库之后，否则父节点还没 id。
+	s.linkServiceParent(id, req.IP, domain, rootDomain)
 	return id, nil
 }
 
@@ -938,6 +960,7 @@ RETURNING id`,
 		})
 	}
 	s.linkHostAssets(domain, rootDomain, req.TaskID)
+	s.linkServiceParent(id, req.IP, domain, rootDomain)
 	return id, nil
 }
 
@@ -949,6 +972,12 @@ func (s *AssetStore) linkHostAssets(domain, rootDomain string, taskID int64) {
 		_, _ = s.UpsertRootDomain(UpsertRootDomainReq{Domain: rootDomain, TaskID: taskID})
 	}
 	if domain != "" && domain != rootDomain && net.ParseIP(domain) == nil {
+		// 该域名已经有任意 record_type 的子域行时不要再补一条空的：subdomain 的
+		// 唯一键是 (domain, record_type)，补出来的 '' 行会和 "A"/"AAAA" 行并存，
+		// 资产列表与资产图谱里同一个域名因此显示成两个节点。
+		if _, exists := s.findAssetIDByDomain(domain); exists {
+			return
+		}
 		_, _ = s.UpsertSubdomain(UpsertSubdomainReq{Domain: domain, TaskID: taskID})
 	}
 }
@@ -1063,6 +1092,18 @@ RETURNING id`,
 	s.linkHostAssets(domain, rootDomain, req.TaskID)
 	if req.IP != "" {
 		_, _ = s.UpsertIP(UpsertIPReq{IP: req.IP, TaskID: req.TaskID})
+	}
+	// 资产图边：service --exposes--> endpoint；找不到能承载它的 service 时退化到
+	// host 直连（域名/IP），保证 endpoint 不会在资产图里成为孤点。
+	if u, perr := url.Parse(normURL); perr == nil {
+		origin := u.Scheme + "://" + u.Host
+		if svcID, ok := s.findHTTPServiceIDByOrigin(origin); ok && svcID != id {
+			s.addAssetEdge(svcID, id, AssetRelExposes)
+		} else if domain != "" {
+			if pid, ok := s.findAssetIDByDomain(domain); ok {
+				s.addAssetEdge(pid, id, AssetRelServes)
+			}
+		}
 	}
 	return id, nil
 }

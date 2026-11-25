@@ -6,6 +6,38 @@
 
 ## [Unreleased]
 
+### Added
+
+- **资产图谱显式边**（`db/asset_edges.go`、`db/schema.sql`）。新增 `asset_edges`
+  表记录 `root_domain --contains--> subdomain --resolves_to--> ip --hosts--> service
+  --exposes--> endpoint`，由各 `Upsert*` 在写资产时维护（best-effort，失败不影响入库）。
+  读侧提供 `AssetNeighbors`（递归 CTE 展开子树 + 直属上级，深度上限 10）与
+  `AssetPath`（最短连通路径）。此前 `assets` 只能靠 `bound_domains` / `record_value` /
+  url 前缀在应用层拼关系，既无法遍历也无法回答"这个站下面有哪些端点"。
+- **`asset_neighbors` 工具**（`agent/tools_insert.go`）与
+  `GET /api/assets/{id}/neighbors`。planner 提示词里早就写了"需要细节可调
+  asset_neighbors"，但工具此前不存在——这条指令指向了空。现已绑定 worker /
+  mainagent / planner，前端补 `api.assetNeighbors()` 客户端方法。
+- **护栏统计回流 planner**（`guard/guard.go`、`agent/tools.go`、`agent/planner.go`、
+  `server/task_llm.go`）。guard 早就在累计 allow/deny/ask 与目标侧 WAF 命中，但从来没有
+  任何代码读取；`graph_overview` 现输出 `guard_stats`（denied / ask_denied /
+  ask_allowed / allowed / target_blocked + 分工具明细，最多 10 行），planner 提示词
+  新增一条判据区分「平台策略在挡」与「目标侧 WAF」，避免把合规拦截当成待绕过的障碍
+  而每轮重复派同样的意图。
+- **`api-authz` 技能 + CWE→技能索引**（`skills/api-authz/`）。越权（BOLA/BFLA）
+  双身份差分方法论：接口清单 → 匿名/低权A/低权B 三身份矩阵 → 响应字段级差异判定，
+  附误报排除清单与证据要求；`references/cwe-skill-index.md` 给出 CWE-284/639/862/863
+  等 30 余条到内置技能的映射。默认绑定 `worker` / `pentest`，并加进 planner 的技能集。
+
+### Fixed
+
+- **zip 包解压丢失执行位**（`server/toolenv.go`）。zip 分支不像 tar 分支那样恢复
+  `0o755`，导致 Linux 上解压出来的工具跑不了、`envPrepPickEntry` 也判定"包内未识别出
+  可执行文件"；`TestEnvPrepEndToEndLayout`、`TestToolEnvPrepEndToEndPG`、
+  `TestToolEnvPrepReplacesCleanly` 因此在 Linux 上恒失败。现保留 zip 记录的执行位，
+  并对无扩展名条目（gogo/fscan/naabu 这类裸二进制）补 `+x`。
+
+
 ## [0.2.3] - 2026-11-25
 
 ### Fixed

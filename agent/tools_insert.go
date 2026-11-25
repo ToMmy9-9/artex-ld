@@ -657,6 +657,68 @@ func (t *ToolSet) listCompanies() actool.CoreTool {
 	)
 }
 
+// assetNeighbors exposes the asset graph (root_domain → subdomain → IP →
+// service → endpoint) to the model: descendants of one asset, plus its direct
+// parents. The planner prompt already references asset_neighbors when it tells
+// the model how to dig deeper, so without this tool that instruction pointed at
+// nothing.
+func (t *ToolSet) assetNeighbors() actool.CoreTool {
+	return readTool(
+		"asset_neighbors",
+		"查资产图谱关系：给一个资产 id，返回它的下级资产（子域/IP/服务/端点，按层级展开）与直属上级。"+
+			"用于回答『这个站下面有哪些服务/端点』『这个 IP 上有哪些站』『这个端点属于哪个服务』，"+
+			"避免用 list_assets 反复按字符串猜。深度上限 10，默认 2。",
+		obj(map[string]any{
+			"id":        intp("资产 id（来自 list_assets / insert_assets 的返回）"),
+			"depth":     intp("向下展开层数，默认 2，最大 10（可选）"),
+			"direction": str("down=只下级 | up=只上级 | both=两者（默认 both）"),
+		}, "id"),
+		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+			if t.as == nil {
+				return actool.Errorf("asset_neighbors 未启用: AssetStore 未初始化"), nil
+			}
+			var a struct {
+				ID        int64  `json:"id"`
+				Depth     int    `json:"depth"`
+				Direction string `json:"direction"`
+			}
+			_ = json.Unmarshal(in, &a)
+			if a.ID <= 0 {
+				return actool.Errorf("id 必填：请先用 list_assets 查到资产 id"), nil
+			}
+			if a.Depth <= 0 {
+				a.Depth = 2
+			}
+			dir := strings.ToLower(strings.TrimSpace(a.Direction))
+			if dir == "" {
+				dir = "both"
+			}
+			rels, err := t.as.AssetNeighbors(a.ID, a.Depth)
+			if err != nil {
+				return actool.Errorf("查询资产关系失败: " + err.Error()), nil
+			}
+			down := make([]db.AssetRelation, 0, len(rels))
+			up := make([]db.AssetRelation, 0, 4)
+			for _, r := range rels {
+				if r.Depth == 0 {
+					up = append(up, r)
+				} else {
+					down = append(down, r)
+				}
+			}
+			out := map[string]any{"id": a.ID}
+			if dir == "down" || dir == "both" {
+				out["descendants"] = down
+				out["descendant_count"] = len(down)
+			}
+			if dir == "up" || dir == "both" {
+				out["parents"] = up
+			}
+			return jsonResult(out)
+		},
+	)
+}
+
 // splitLines splits a multi-line string into non-empty trimmed lines.
 func splitLines(s string) []string {
 	var out []string
@@ -677,7 +739,7 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 		t.addFinding(), t.recordFact(), t.recordIntelligence(),
 		// asset management (handlers guard nil store internally)。
 		// add_company_scope 不给 worker：定义企业资产范围属规划/主控/Auto 的职责，worker 只执行探索。
-		t.insertAssets(), t.listAssets(),
+		t.insertAssets(), t.listAssets(), t.assetNeighbors(),
 		// 跨 work 回看：worker 也可复用其他 work 的观察，避免重复劳动。
 		// search_all_worker_traces：不必先知道 intent_id，按关键字全局捞命中步骤；
 		// get_worker_trace：锁定某条 work 后列步骤/就地搜/取完整内容。
@@ -709,7 +771,7 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		// set_constraints：人可在运行时给本任务补/改操作约束（allow/deny），约束 planner/worker 的探索边界。
 		t.setConstraints(),
 		// asset management (handlers guard nil store internally)
-		t.insertAssets(), t.addCompanyScope(), t.listAssets(),
+		t.insertAssets(), t.addCompanyScope(), t.listAssets(), t.assetNeighbors(),
 		t.addFinding(), t.recordFact(), t.recordIntelligence(),
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。

@@ -105,6 +105,11 @@ type ToolSet struct {
 	// kb is the knowledge-base service (【AntiFox 知识库】两层 RAG). nil = the
 	// search_knowledge / list_knowledge_categories tools report "not enabled".
 	kb *knowledge.Service
+	// guardStats returns the task's platform-governance counters (blocked / ask /
+	// denied). Wired per round from the task's Guard so graph_overview can tell
+	// the planner "this direction keeps getting blocked" instead of letting it
+	// re-dispatch the same intent every round. nil = omit the block.
+	guardStats func() any
 	// resolveTraffic, if set, maps a finding's structured reproduction steps to the
 	// real recorded MITM exchange ids (【AntiFox 证据驱动交付】host callback, wired by
 	// the server). It returns the reproduction with steps[].exchange_id filled where
@@ -253,6 +258,11 @@ func NewToolSet(ts *db.ExplorationStore, worker string) *ToolSet {
 // SetTaskID sets the PG task id on this ToolSet so that report_finding can
 // dual-write to the standalone findings table (which survives task deletion).
 func (t *ToolSet) SetTaskID(id int64) { t.taskID = id }
+
+// SetGuardStats wires a resolver returning the task's guard/intercept counters.
+// Called once per planner round with the task's Guard; nil leaves the
+// graph_overview guard_stats block out entirely.
+func (t *ToolSet) SetGuardStats(fn func() any) { t.guardStats = fn }
 
 // SetCoverageEnabled records whether this task has the asset-coverage feature on
 // (default enabled). Passing false makes graphOverviewData omit the coverage block
@@ -463,6 +473,20 @@ func (t *ToolSet) graphOverview() actool.CoreTool {
 // an empty context and always needs this first).
 func (t *ToolSet) graphOverviewData() map[string]any {
 	out := map[string]any{}
+	// guard_stats: platform-governance counters for this task (deny / ask /
+	// target-side WAF). Folded in so the planner can see "this direction is being
+	// blocked N times" instead of re-dispatching an identical intent every round —
+	// the counters existed in guard but were never read by anything.
+	// Collected before any store access so it survives a nil store (catalog seed
+	// shells call neither, but tests and future read-only callers may).
+	if t.guardStats != nil {
+		if gs := t.guardStats(); gs != nil {
+			out["guard_stats"] = gs
+		}
+	}
+	if t.ts == nil {
+		return out
+	}
 	// goals summary folded in so the planner needn't call list_goals each round.
 	goals, _ := t.ts.ListByKind(db.KindGoal, 100)
 	gsum := make([]map[string]any, 0, len(goals))
@@ -2543,5 +2567,8 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
+		// asset_neighbors：按资产 id 查上下级关系（域名→IP→服务→端点），
+		// 与 planner 提示词里提到的 asset_neighbors 对应。
+		t.assetNeighbors(),
 	}
 }

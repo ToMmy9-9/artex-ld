@@ -342,6 +342,13 @@ func envPrepExtractZip(dir string, body []byte) (*envPrepExtractResult, error) {
 		if werr != nil {
 			return nil, fmt.Errorf("写入 %s 失败: %w", name, werr)
 		}
+		// 执行位处理：zip 记录的 mode 要保留；很多 Linux 工具包（gogo/fscan/naabu）
+		// 是在 Windows 上打的 zip，mode 恒为 0，解压后跑不了，入口识别也会判成
+		// "没有可执行文件"。对「无扩展名」的条目补 +x —— 配置文件/字典都有扩展名，
+		// 裸名字基本就是二进制本身。
+		if f.Mode()&0o111 != 0 || !strings.Contains(path.Base(name), ".") {
+			_ = os.Chmod(dst, 0o755)
+		}
 		res.Files++
 		res.TotalBytes += n
 		res.Written = append(res.Written, filepath.ToSlash(strings.TrimPrefix(dst, dir+string(os.PathSeparator))))
@@ -550,7 +557,12 @@ func envPrepLooksExecutable(abs, rel string) bool {
 		case ".sh", ".py":
 			return true
 		}
-		return fi.Mode()&0o111 != 0
+		if fi.Mode()&0o111 != 0 {
+			return true
+		}
+		// 无扩展名：Linux 工具二进制（gogo/fscan/naabu/httpx…）的典型形态。
+		// 不认这一条，解压出来的入口永远识别不到。
+		return ext == ""
 	}
 	return false
 }

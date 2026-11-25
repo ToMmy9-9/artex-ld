@@ -519,6 +519,15 @@ export const tasksApi = {
       total: r?.total ?? r?.count ?? 0,
     }));
   },
+  // assetNeighbors 返回单个资产的图谱上下级：域名 → IP → 服务 → 端点。
+  // 用于资产详情的「关系」视图，替代前端按字符串拼父子关系。
+  assetNeighbors: (id: number | string, depth = 2) =>
+    get<{
+      id: number;
+      descendants: { id: number; type: string; label: string; rel: string; depth: number; parent_id: number }[];
+      descendant_count: number;
+      parents: { id: number; type: string; label: string; rel: string }[];
+    }>(`/assets/${encodeURIComponent(String(id))}/neighbors?depth=${depth}`),
   assetCounts: (taskId = "") =>
     get<Record<string, number>>(`/assets/counts${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ""}`),
   // assetIds 返回当前筛选命中的全部资产 id（不分页），供「全选全部筛选结果」使用。

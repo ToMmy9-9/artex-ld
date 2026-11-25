@@ -112,6 +112,17 @@ DROP TRIGGER IF EXISTS trg_av2_upd ON assets;
 CREATE TRIGGER trg_av2_upd BEFORE UPDATE ON assets
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- 资产图父子边：root_domain → subdomain → IP → service → endpoint。
+-- 由各 Upsert* 在写入资产时维护；读侧用递归 CTE 查子树/路径。
+CREATE TABLE IF NOT EXISTS asset_edges (
+    parent_id  BIGINT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    child_id   BIGINT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    rel        TEXT NOT NULL CHECK (rel IN ('contains','resolves_to','hosts','serves','exposes')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (parent_id, child_id, rel)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_edges_child ON asset_edges(child_id);
+
 CREATE TABLE IF NOT EXISTS company_scope (
     id         BIGSERIAL PRIMARY KEY,
     company_id BIGINT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,

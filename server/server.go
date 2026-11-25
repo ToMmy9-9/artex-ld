@@ -59,8 +59,8 @@ type Server struct {
 	lastCPUUse uint64
 	lastCPUAt  time.Time
 
-	skillDir  string // root directory for skill subdirectories
-	baseDir   string // install root (exe dir, or CWD under `go run`); the managed
+	skillDir string // root directory for skill subdirectories
+	baseDir  string // install root (exe dir, or CWD under `go run`); the managed
 	//             external-tool library lives at baseDir/tools, NEXT TO dataDir
 	//             so backing up data/ never drags third-party binaries along.
 	jwtKey    []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
@@ -320,8 +320,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			return a.TaskTimeoutWrapupMaxTurns, true
 		}
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
-		s.toolKeeperSeedAll()    // 内置工具管理员（认领用户上传的外部工具）
-		s.toolAssetsSyncAll()    // 已认领工具接入 agent 可调用集合 + 注册受管执行入口
+		s.toolKeeperSeedAll()                           // 内置工具管理员（认领用户上传的外部工具）
+		s.toolAssetsSyncAll()                           // 已认领工具接入 agent 可调用集合 + 注册受管执行入口
 		domainReg := buildDomainReg(m.Assets())
 		wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
@@ -1057,6 +1057,9 @@ func (s *Server) Handler() http.Handler {
 	// 字面量段优先于 {id} 通配，不会与单条资产路由冲突。
 	mux.HandleFunc("GET /api/assets/ids", s.assetIDs)
 	mux.HandleFunc("GET /api/assets/counts", s.assetCounts)
+	// 资产图谱上下级（root_domain → subdomain → IP → service → endpoint）。
+	// 放在字面量路由之后、{id} 通配之前不影响匹配（Go 1.22 mux 按具体度选）。
+	mux.HandleFunc("GET /api/assets/{id}/neighbors", s.assetNeighbors)
 	mux.HandleFunc("POST /api/assets", s.insertAssets)
 	mux.HandleFunc("DELETE /api/assets", s.deleteAssets)
 
@@ -4149,7 +4152,7 @@ func (s *Server) settingsPayload() map[string]any {
 		db.SettingCredentialAgent:              s.m.pg.GetBool(db.SettingCredentialAgent, false),
 		db.SettingCredentialTraffic:            s.m.pg.GetBool(db.SettingCredentialAgent, false) && s.m.pg.GetBool(db.SettingCredentialTraffic, false),
 		"llm_record":                           s.m.LLMRecordEnabled(),
-		"llm_record_retention_days":           s.m.LLMRecordRetentionDays(),
+		"llm_record_retention_days":            s.m.LLMRecordRetentionDays(),
 		"web_search_enabled":                   on,
 		"web_search_backend":                   backend,
 		"brave_key_set":                        strings.TrimSpace(braveKey) != "",
@@ -5098,8 +5101,10 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 //
 // 为什么需要它：336 处 5xx 直接 writeErrRedacted(w, 500, err.Error())，把驱动原文回吐给
 // 客户端。实测 agent_id=0 时返回：
-//   插入或更新表 "agent_skill_visibility" 违反外键约束
-//   "agent_skill_visibility_agent_id_fkey" (SQLSTATE 23503)
+//
+//	插入或更新表 "agent_skill_visibility" 违反外键约束
+//	"agent_skill_visibility_agent_id_fkey" (SQLSTATE 23503)
+//
 // 表名、约束名、SQLSTATE 全在里面。这类信息对客户端毫无用处（它不能据此修复），
 // 对攻击者却是现成的 schema 图谱。
 //

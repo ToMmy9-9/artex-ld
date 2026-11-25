@@ -164,7 +164,7 @@ func (s *Server) seedPlannerSkillVisibility() {
 	// ToggleSkillVisibility only flips one row, so the user's own picks
 	// survive.
 	for _, name := range []string{"fingerprint-finder", "api-tester", "sensitive-info-leak",
-		"route-guard-bypass", "tool-arsenal"} {
+		"route-guard-bypass", "tool-arsenal", "api-authz"} {
 		if err := pg.ToggleSkillVisibility(planner.ID, name, true); err != nil {
 			log.Printf("[planner-skill] 绑定 %s 失败: %v", name, err)
 		}

@@ -629,6 +629,9 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	// (agentsForTask),Compactor 必须接在这里。走任务路由的 planner provider(§4:与 agent
 	// 同模型,随任务 LLM 链解析),压缩用 Complete 一次性生成 body。
 	pl.SetCompactor(agent.NewCompactor(plannerRuntime, "task-router"))
+	// 平台的拦截/审批计数回流 planner：guard 里早就按工具累计 deny/ask/WAF 命中，
+	// 但从来没人读，planner 因此看不到"这条方向一直被打回"，每轮重复派同样的意图。
+	pl.SetGuardStats(guardStatsResolver(t))
 	main := agent.NewMainAgent(mainRuntime, "task-router", s.m.dir, tx, mainRuntime.CompactionWindow(), s.agentMaxTurns("mainagent"))
 	main.SetFindingRecorder(s.evidenceStore())
 	main.SetTrafficResolver(s.resolveFindingTraffic)
@@ -783,4 +786,17 @@ func (s *Server) emitManualTaskLLMSwitch(t *Task, previousID, nextID *int64) db.
 		Mode: "manual", Reason: "用户手动切换任务 LLM", Previous: previous, Next: next,
 	}})
 	return s.engine.emitActivity(t, db.Activity{Worker: "system", Kind: "llm_switch", Summary: summary, Detail: summary, Metadata: metadata})
+}
+
+// guardStatsResolver returns the per-round guard/intercept counter resolver for a
+// task's planner. Split out from the wiring so the exact production expression is
+// unit-testable: a nil task or a task without a Guard must yield nil (which makes
+// graph_overview omit the block instead of emitting an all-zero one).
+func guardStatsResolver(t *Task) func() any {
+	return func() any {
+		if t == nil || t.Guard == nil {
+			return nil
+		}
+		return t.Guard.Stats()
+	}
 }

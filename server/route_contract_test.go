@@ -26,6 +26,9 @@ var muxRouteContract = []struct {
 	path   string
 	why    string
 }{
+	// ── 资产图谱：单个资产的上下级关系（域名→IP→服务→端点）──
+	{"GET", "/api/assets/{id}/neighbors", "资产图谱上下级查询"},
+
 	// ── AntiFox 知识库：单条文档的读/改/删（前端「编辑」「删除」按钮）──
 	{"GET", "/api/knowledge/{id}", "知识库单条读取"},
 	{"PUT", "/api/knowledge/{id}", "知识库单条更新"},

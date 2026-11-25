@@ -381,6 +381,10 @@ ON CONFLICT DO NOTHING`, r.kind, r.pattern, r.note); err != nil {
 // that MCP is enabled/configured.
 var builtinSkillVisibility = map[string][]string{
 	"api-recon": {"auto", "pentest", "worker"},
+	// api-authz：越权（BOLA/BFLA）双身份差分方法论。越权是渗透里命中率最高的
+	// 一类，worker/pentest 默认要有；planner 也绑（见 server.seedPlannerSkillVisibility），
+	// 否则它不知道"可以派一条双身份差分意图"。
+	"api-authz": {"pentest", "worker"},
 
 	// 下列 6 个 PTS 方法论 skill 随仓库一起交付（skills/<name>/*.md）。它们必须
 	// 在全新部署时默认绑定到真正执行任务的 worker / pentest，否则文件在磁盘上

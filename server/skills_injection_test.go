@@ -123,8 +123,8 @@ func TestSkillVisibilityBindsPortedSkills(t *testing.T) {
 	t.Cleanup(func() { _ = pg.Close() })
 	// The ported skills must be visible to worker and pentest at least.
 	want := map[string][]string{
-		"worker":  {"fingerprint-finder", "api-tester", "sensitive-info-leak", "route-guard-bypass", "response-modifier"},
-		"pentest": {"fingerprint-finder", "api-tester", "sensitive-info-leak", "route-guard-bypass", "response-modifier"},
+		"worker":  {"fingerprint-finder", "api-tester", "sensitive-info-leak", "route-guard-bypass", "response-modifier", "api-authz"},
+		"pentest": {"fingerprint-finder", "api-tester", "sensitive-info-leak", "route-guard-bypass", "response-modifier", "api-authz"},
 	}
 	for agentKey, skills := range want {
 		a, err := pg.GetAgentByKey(agentKey)

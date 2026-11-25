@@ -606,3 +606,42 @@ func (s *Server) insertAssets(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"results": results, "errors": errs})
 }
+
+// assetNeighbors 返回资产图谱的上下级关系（root_domain → subdomain → IP →
+// service → endpoint）。前端拓扑/资产详情用；agent 侧同名工具走 db 层同一个查询。
+func (s *Server) assetNeighbors(w http.ResponseWriter, r *http.Request) {
+	as := s.assetStore()
+	if as == nil {
+		writeErr(w, 503, "数据库暂时不可用，请稍后重试")
+		return
+	}
+	id, ok := pathInt(r, "id")
+	if !ok || id <= 0 {
+		writeErr(w, 400, "资产 id 无效")
+		return
+	}
+	depth, _ := strconv.Atoi(r.URL.Query().Get("depth"))
+	if depth <= 0 {
+		depth = 2
+	}
+	rels, err := as.AssetNeighbors(id, depth)
+	if err != nil {
+		writeErrRedacted(w, 500, err.Error())
+		return
+	}
+	descendants := make([]db.AssetRelation, 0, len(rels))
+	parents := make([]db.AssetRelation, 0, 4)
+	for _, rel := range rels {
+		if rel.Depth == 0 {
+			parents = append(parents, rel)
+		} else {
+			descendants = append(descendants, rel)
+		}
+	}
+	writeJSON(w, 200, map[string]any{
+		"id":               id,
+		"descendants":      descendants,
+		"descendant_count": len(descendants),
+		"parents":          parents,
+	})
+}
